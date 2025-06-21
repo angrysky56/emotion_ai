@@ -24,8 +24,9 @@ trap cleanup SIGINT SIGTERM EXIT
 
 # Check environment
 if [ ! -d ".venv" ]; then
-    error "Virtual environment not found!"
-    error "Run: python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
+    error "Virtual environment '.venv' not found in the current directory ('$(pwd)')."
+    error "Please ensure the setup process has been completed successfully."
+    error "Try running './setup_aura.sh' from the project root directory first."
     exit 1
 fi
 

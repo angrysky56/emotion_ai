@@ -1,6 +1,7 @@
 # Aura Backend - Advanced AI Companion
 
-[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://python.org)
+[![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://python.org)
+[![uv](https://img.shields.io/badge/uv-Python%20Packager-green.svg)](https://github.com/astral-sh/uv)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com)
 [![Vector DB](https://img.shields.io/badge/ChromaDB-latest-purple.svg)](https://chromadb.ai)
 [![MCP](https://img.shields.io/badge/MCP-enabled-orange.svg)](https://modelcontextprotocol.io)
@@ -141,131 +142,94 @@
 
  I am not a coder so hopefully it sets up right if anyone tries it.
 
-## 🚀 Install and Start back and front ends using 2 terminals
+## 🚀 Quick Start with Aura
+
+This section guides you through setting up and running Aura with a single command.
 
 ### Prerequisites
-- Python 3.12+
-- Google API Key (from [Google AI Studio](https://aistudio.google.com/app/apikey))
-- At least 4GB RAM (for vector embeddings)
-- 2GB+ storage space
 
-### Installation
+Before you begin, ensure you have the following installed on your system:
 
-1. **Clone or Fork and Navigate**:
-   ```bash
-   cd /emotion_ai/aura_backend
-   ```
+- **Python 3.12+**: Required for the backend.
+  - Verify with: `python3 --version`
+- **uv**: A fast Python package installer and resolver, used for managing the backend environment and dependencies.
+  - Installation: `pip install uv` or `pipx install uv`. See [uv documentation](https://github.com/astral-sh/uv) for more options.
+  - Verify with: `uv --version`
+- **Node.js**: Required for the frontend. (LTS version recommended)
+  - This typically includes `npm` (Node Package Manager).
+  - Verify with: `node --version` and `npm --version`
+- **Git**: For cloning the repository.
+- **Google API Key**: From [Google AI Studio](https://aistudio.google.com/app/apikey) for Gemini model access. The setup script will prompt you for this.
+- **System Resources**:
+  - At least 4GB RAM (recommended for vector embeddings and model operations).
+  - 2GB+ free storage space.
 
- Uses uv- pyproject.toml and creates a .venv with python 3.12 --seed in the backend
-2. **Run Setup Script**:
-   ```bash
-   ./setup.sh
-   ```
+### Installation & Setup
 
-3. **Configure Environment**:
+1.  **Clone the Repository**:
+    If you haven't already, clone the Aura repository to your local machine:
+    ```bash
+    git clone <repository_url> # Replace <repository_url> with the actual URL
+    cd aura-project # Or your repository's root folder name
+    ```
 
-# Copy the env example in the backend to .env
- I will try to streamline all of this into an OS agnostic app soon.
+2.  **Run the Automated Setup Script**:
+    Execute the `setup_aura.sh` script located in the project root. This script will:
+    - Check for all prerequisites.
+    - Set up the Python virtual environment for the backend using `uv`.
+    - Install all backend Python dependencies.
+    - Guide you through configuring your `GOOGLE_API_KEY`.
+    - Install frontend Node.js dependencies using `npm`.
 
-# It will pick up from your OS environment if the API key is configured. It should work if your OS key is set as GEMINI_API_KEY too
+    ```bash
+    chmod +x setup_aura.sh
+    ./setup_aura.sh
+    ```
+    Follow any on-screen prompts, especially for providing your Google API Key.
 
-```bash
-# Edit the .env file to use your existing key, sort of unneeded now I think.
-echo "GOOGLE_API_KEY=$GOOGLE_API_KEY" > .env
-  ```
+### Starting Aura
 
-# Current backend .env settings:
+Once the setup script completes successfully:
 
-```bash
-# Aura Backend Configuration
-# ==========================
+1.  **Navigate to the Backend Directory and Activate Environment**:
+    The Python virtual environment must be active to run the backend.
+    ```bash
+    cd aura_backend
+    source .venv/bin/activate
+    ```
+    *Note: You'll need to do this every time you open a new terminal session to work with the backend.*
 
-# Google API Configuration
-GOOGLE_API_KEY=your-google-api-key-here
+2.  **Start the Services**:
+    The `start.sh` script in the `aura_backend` directory is used to launch the application.
 
-# Database Configuration
-CHROMA_PERSIST_DIRECTORY=./aura_chroma_db
-AURA_DATA_DIRECTORY=./aura_data
+    -   **To start both backend and frontend (recommended for development)**:
+        ```bash
+        ./start.sh --with-frontend
+        ```
+        This will:
+        - Start the Aura FastAPI backend server.
+        - Start the frontend development server (`npm run dev`).
 
-# Server Configuration
-HOST=0.0.0.0
-PORT=8000
-DEBUG=false
+    -   **To start only the backend API server**:
+        ```bash
+        ./start.sh
+        ```
 
-# Logging Configuration
-LOG_LEVEL=INFO
+3.  **Access Aura**:
+    -   **Backend API**: `http://localhost:8000`
+    -   **Interactive API Docs (Swagger UI)**: `http://localhost:8000/docs`
+    -   **Frontend UI** (if started with `--with-frontend`): `http://localhost:5173`
 
-# MCP Server Configuration
-MCP_SERVER_NAME=aura-companion
-MCP_SERVER_VERSION=1.0.0
+    Open these URLs in your web browser.
 
-# Security Configuration
-CORS_ORIGINS=["http://localhost:5173", "http://localhost:3000"]
+### Stopping Aura
 
-# Features Configuration
-ENABLE_EMOTIONAL_ANALYSIS=true
-ENABLE_COGNITIVE_TRACKING=true
-ENABLE_VECTOR_SEARCH=true
-ENABLE_FILE_EXPORTS=true
-
-# AI Response Configuration
-# gemini-2.5-flash-preview-05-20
-AURA_MODEL=gemini-2.5-flash-preview-05-20
-AURA_MAX_OUTPUT_TOKENS=1000000
-
-# Autonomic System Configuration
-# gemini-2.0-flash-lite
-AURA_AUTONOMIC_MODEL=gemini-2.0-flash-lite
-AURA_AUTONOMIC_MAX_OUTPUT_TOKENS=100000
-AUTONOMIC_ENABLED=true
-AUTONOMIC_TASK_THRESHOLD=medium  # low, medium, high
-
-# Rate Limiting Configuration
-AUTONOMIC_MAX_CONCURRENT_TASKS=12  # Optimal concurrency for 30 rpm limit
-AUTONOMIC_RATE_LIMIT_RPM=25        # Requests per minute (safety margin below 30)
-AUTONOMIC_RATE_LIMIT_RPD=1200      # Requests per day (safety margin below 1400)
-AUTONOMIC_TIMEOUT_SECONDS=60       # Increased for higher concurrency
-
-# Main Model Rate Limiting (user-configurable based on plan)
-MAIN_MODEL_RATE_LIMIT_RPM=10       # Conservative default, increase based on user plan
-MAIN_MODEL_RATE_LIMIT_RPD=500     # Daily limit for main model
-
-# Queue Management
-AUTONOMIC_QUEUE_MAX_SIZE=100       # Maximum queued tasks
-AUTONOMIC_QUEUE_PRIORITY_ENABLED=true  # Enable priority-based processing
-
-```
-
-**Start Services**: This will start the backend, it runs in dev mode so hot restarts on saved code changes.
- I will try and design an internal copy that the Aura system can use to add to itself safely with a revert to the original system on failures feature. Sounds fun huh?
-
-```bash
-./start.sh
-```
-
-### Frontend activation
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-
-```bash
-npm install
-```
-
-2. Run the app, also in dev mode so it also hot restarts on code changes:
-
-```bash
-npm run dev
-```
-
-Go to-
-Local:   http://localhost:5173
-
-Network: use --host to expose
-
-![alt text](image-5.png)
+-   Press `Ctrl+C` in the terminal where `start.sh` is running to stop all services launched by it.
+-   If you started services separately, stop them individually using `Ctrl+C`.
+-   To deactivate the Python virtual environment:
+    ```bash
+    deactivate
+    ```
 
 
 ## 📡 API Endpoints
@@ -482,17 +446,7 @@ results = await vector_db.search_conversations(
 
 ### Common Issues
 
-1. **Installation Errors**:
-   ```bash
-   # Ensure Python 3.12+
-   python3 --version
-
-   # Clean installation
-   rm -rf venv/
-   ./setup.sh
-   ```
-
-2. **API Key Issues**:
+1. **API Key Issues**:
    ```bash
    # Check environment
    source venv/bin/activate
