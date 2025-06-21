@@ -159,7 +159,8 @@ Before you begin, ensure you have the following installed on your system:
   - This typically includes `npm` (Node Package Manager).
   - Verify with: `node --version` and `npm --version`
 - **Git**: For cloning the repository.
-- **Google API Key**: From [Google AI Studio](https://aistudio.google.com/app/apikey) for Gemini model access. The setup script will prompt you for this.
+- **Google API Key**: From [Google AI Studio](https://aistudio.google.com/app/apikey) for Gemini model access. The `setup_aura.sh` script will prompt you for this for the backend.
+  - *For the frontend*: You will also need to configure this key. See `Frontend-README.md` for instructions on creating a `.env.local` file in the project root with `VITE_GOOGLE_API_KEY=your_key_here`.
 - **System Resources**:
   - At least 4GB RAM (recommended for vector embeddings and model operations).
   - 2GB+ free storage space.
@@ -169,8 +170,8 @@ Before you begin, ensure you have the following installed on your system:
 1.  **Clone the Repository**:
     If you haven't already, clone the Aura repository to your local machine:
     ```bash
-    git clone <repository_url> # Replace <repository_url> with the actual URL
-    cd aura-project # Or your repository's root folder name
+    git clone https://github.com/USERNAME/REPOSITORY_NAME.git # Replace with the actual repository URL
+    cd REPOSITORY_NAME # Or your repository's root folder name
     ```
 
 2.  **Run the Automated Setup Script**:
@@ -268,15 +269,16 @@ Edit your directory path and place in claude desktop config json.
     "aura-companion": {
       "command": "uv",
       "args": [
-        "--directory",
-        "/home/ty/Repositories/ai_workspace/emotion_ai/aura_backend",
         "run",
-        "aura_server.py"
+        "--cwd",
+        "/path/to/your/cloned_repository/aura_backend", # Adjust this path
+        "aura_as_mcp_server.py" # Assuming aura_as_mcp_server.py is the entry point for MCP
       ]
     }
   }
 }
 ```
+*Note: The exact command and arguments for running the MCP server might vary. The `aura_as_mcp_server.py` script seems like a plausible candidate for an MCP server entry point. Adjust the path and script name as per your actual setup.*
 
 ## 🏗️ Architecture
 
@@ -382,14 +384,13 @@ docker build -t aura-backend .
 docker run -p 8000:8000 -v ./aura_data:/app/aura_data aura-backend
 ```
 
-### Systemd Service
+### Systemd Service (Example - Outdated)
+The following shows an example of how one might set up a systemd service. However, the specific `aura-backend.service` file previously included in `docs/archive/` has been removed as it was potentially outdated. If you need to run Aura as a systemd service, you will need to create a suitable service file for your environment.
 ```bash
-# Copy service file
-sudo cp aura-backend.service /etc/systemd/system/
-
-# Enable and start
-sudo systemctl enable aura-backend
-sudo systemctl start aura-backend
+# Example steps (you would need to create your own aura-backend.service file):
+# sudo cp your-aura-backend.service /etc/systemd/system/
+# sudo systemctl enable your-aura-backend
+# sudo systemctl start your-aura-backend
 ```
 
 ## 🤝 Integration with Frontend
@@ -453,12 +454,14 @@ results = await vector_db.search_conversations(
    echo $GOOGLE_API_KEY
    ```
 
-3. **Vector DB Issues**: This is asshole AI- you will lose your db
+3. **Vector DB Issues**: If you encounter problems with the vector database, or wish to start with a clean slate:
    ```bash
-   # Reset database
-   rm -rf aura_chroma_db/
-   ./test_setup.py
+   # Reset database (deletes existing ChromaDB data in the backend directory)
+   rm -rf aura_backend/aura_chroma_db/
+   # Then, re-initialize. For example, if test_setup.py handles this:
+   # cd aura_backend && python tests/test_setup.py # Adjust path/command as needed
    ```
+   *Note: Ensure you understand what data will be lost before running `rm -rf`.*
 
 4. **Memory Issues**:
    - Increase system memory allocation
@@ -506,8 +509,13 @@ Check logs in:
 
 ## 📄 License
 
-My stuff is MIT I suppose but there is other software like google-genai and memvid so it is a mixed bag I think
- ie don't steal my ideas and try to make money, without me. lol but I am super poor.
+This project is primarily licensed under the MIT License. (It's recommended to add a `LICENSE` file to the repository with the full text of the MIT License).
+
+Please be aware that some dependencies included in this project have their own licenses that must be respected:
+- `google-generativeai` is typically licensed under the Apache 2.0 License.
+- Other third-party libraries will have their own respective licenses.
+
+If components from other projects like MemVid are integrated, their specific licenses would also apply to those parts.
 
 ## 🤝 Contributing
 

@@ -53,7 +53,7 @@ class RateLimiter:
 
         logger.info(f"🚦 Rate limiter initialized: {rpm_limit} RPM, {rpd_limit} RPD")
 
-    async def can_make_request(self) -> bool:
+    def can_make_request(self) -> bool:
         """Check if a request can be made without exceeding rate limits"""
         current_time = datetime.now()
 
@@ -74,10 +74,9 @@ class RateLimiter:
 
         return rpm_available and rpd_available
 
-    async def acquire(self) -> bool:
+    def acquire(self) -> bool:
         """
         Attempt to acquire a request slot
-
         Returns:
             True if request can proceed, False if rate limited
         """
@@ -108,8 +107,8 @@ class RateLimiter:
         start_time = time.time()
 
         while time.time() - start_time < max_wait_seconds:
-            if await self.can_make_request():
-                return await self.acquire()
+            if self.can_make_request(): # No await needed
+                return self.acquire() # No await needed
 
             # Calculate optimal wait time
             if self.minute_requests:
@@ -196,14 +195,7 @@ class TaskClassifier:
 
     def __init__(self, threshold: str = "medium"):
         self.threshold = threshold
-        self._complexity_weights = {
-            "tool_calls": 0.8,
-            "data_processing": 0.9,
-            "analysis": 0.7,
-            "memory_operations": 0.6,
-            "code_generation": 0.8,
-            "pattern_recognition": 0.9
-        }
+        # self._complexity_weights was defined but not used.
 
     async def should_offload_task(
         self,

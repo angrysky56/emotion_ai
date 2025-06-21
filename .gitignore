@@ -36,6 +36,25 @@ venv/
 # Backend specific ignores
 aura_backend/aura_chroma_db/
 aura_backend/mcp_aura_chroma_db/
-aura_backend/aura_data/users/
-aura_backend/aura_data/**/*.json
-aura_backend/mcp_client_config.json
+# aura_backend/aura_data/users/ # Covered by aura_backend/.gitignore
+# aura_backend/aura_data/**/*.json # Covered by aura_backend/.gitignore
+aura_backend/mcp_client_config.json # This might be a template, ensure it's not actual user config
+
+# Data files and archives
+*.faiss
+*.mp4
+*.gz # General .gz, make more specific if needed like below
+aura_backend/aura_archives/*.gz
+aura_backend/demo_memvid_videos/
+aura_backend/memvid_videos/*
+aura_backend/memvid_data/*
+metadata.json
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Backup files
+index_backup.tsx
+
+# Archive/unused directories
+aura_backend/archive_unused/
+docs/archive/

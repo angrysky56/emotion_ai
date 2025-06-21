@@ -38,7 +38,7 @@ import aiofiles
 from mcp_to_gemini_bridge import MCPGeminiBridge
 
 # Import thinking processor
-from thinking_processor import ThinkingProcessor, ThinkingResult, create_thinking_enabled_chat
+from thinking_processor import ThinkingProcessor, ThinkingResult # create_thinking_enabled_chat removed as unused
 
 # Import JSON serialization fix for NumPy types
 try:

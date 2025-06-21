@@ -1,36 +1,52 @@
 # Aura Backend Startup Guide
 
-## Quick Start
+This guide assumes you have already run the main setup script (`setup_aura.sh`) from the project root directory and that the Python virtual environment (`.venv/`) has been created inside `aura_backend/`.
 
-### Option 1: Start Everything (Backend + Frontend)
+## Activating the Environment
+Before running any backend scripts, ensure your virtual environment is active:
 ```bash
-./start_complete.sh
+source .venv/bin/activate
 ```
-This will start:
-- API Server (http://localhost:8000)
-- MCP Server (internal)
-- Frontend UI (http://localhost:5173)
+You'll need to do this every time you open a new terminal session to work with the backend.
 
-### Option 2: Start Backend Only
+## Starting Aura Services
+
+There are two main ways to start Aura:
+
+### Option 1: Start Backend and Frontend Together (Recommended for Development)
+From the `aura_backend` directory, run:
 ```bash
-./start_all.sh
+./start.sh --with-frontend
 ```
-This will start:
-- API Server (http://localhost:8000)
-- MCP Server (internal)
+This script will:
+- Start the Aura FastAPI backend server (API available at `http://localhost:8000`).
+- Start the frontend development server (UI available at `http://localhost:5173`).
 
-### Option 3: Start Services Individually
+### Option 2: Start Only the Backend API Server
+From the `aura_backend` directory, run:
 ```bash
-# Terminal 1: API Server
-./start_api.sh
-
-# Terminal 2: MCP Server
-./start_mcp_background.sh
-
-# Terminal 3: Frontend
-./start_frontend.sh
-# OR manually: cd .. && npm run dev
+./start.sh
 ```
+This will start only the Aura FastAPI backend server. You can then start the frontend separately if needed.
+
+### Option 3: Start Frontend Separately
+If you want to manage the frontend process independently:
+1. Navigate to the project root directory (one level up from `aura_backend`).
+2. Run the frontend start script from `aura_backend` (it navigates to the correct directory):
+   ```bash
+   # Make sure you are in the project root if running this way,
+   # or just use the start_frontend.sh from within aura_backend
+   cd ..
+   ./aura_backend/start_frontend.sh
+   ```
+   Alternatively, from within the `aura_backend` directory:
+   ```bash
+   ./start_frontend.sh
+   ```
+   This script will:
+   - Navigate to the parent directory (project root).
+   - Run `npm install` if `node_modules` is missing.
+   - Start the frontend development server (UI available at `http://localhost:5173`).
 
 ## Verifying Everything Works
 
@@ -40,10 +56,9 @@ This will start:
    ```
 
 2. **Check MCP Tools**:
+   Ensure your virtual environment is active (`source .venv/bin/activate`). Then, from the `aura_backend` directory:
    ```bash
    # Run the test script
-   cd /home/ty/Repositories/ai_workspace/emotion_ai/aura_backend
-   source .venv/bin/activate
    python test_mcp_tools.py
    ```
 

@@ -20,29 +20,21 @@ This contains everything you need to run the app locally and free.
 
 ## Run Locally
 
-1. **Get your API key** from [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. **Set up the .env file**
-   Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-   (choose one method):
+1. **Get your Google API key** from [Google AI Studio](https://aistudio.google.com/app/apikey). This key is used for accessing Google's Generative AI models (e.g., Gemini).
 
-   **Method A: Edit .env file directly**
+2. **Set up the frontend environment file (`.env.local`)**:
+   In the root directory of the project (where `package.json` and `vite.config.ts` are located), create or edit a file named `.env.local`.
+   This file is for the frontend application. Add your Google API key to it, prefixed with `VITE_` as required by Vite projects:
 
-   ```bash
-   nano .env.local
-   # Change the line to:
-   GOOGLE_API_KEY=your_actual_api_key_here
+   ```env
+   VITE_GOOGLE_API_KEY=your_actual_api_key_here
+   VITE_API_URL=http://localhost:8000
    ```
+   Replace `your_actual_api_key_here` with the key you obtained. The `VITE_API_URL` should point to your Aura backend server.
 
-   **Method B: Use your existing environment variable**
+   *Note: This `.env.local` is separate from the `.env` file that might be used for the backend in the `aura_backend` directory. The backend setup (via `setup_aura.sh`) handles backend API key configuration.*
 
-   cd /emotion_ai
-
-   ```bash
-   # Edit the .env file to use your existing key
-   echo "GOOGLE_API_KEY=$GOOGLE_API_KEY" > .env.local
-   ```
-
-**Prerequisites:**  Node.js
+**Prerequisites:** Node.js (LTS version recommended)
 
 
 1. Install dependencies:
