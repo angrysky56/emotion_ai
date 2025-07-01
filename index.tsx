@@ -27,6 +27,9 @@ class AuraUIManager {
   private backendConnected = false;
   private typingIndicatorElement: HTMLElement | null = null;
   private chatSessions: ChatSession[] = [];
+  private socket: WebSocket | null = null;
+  private ptySessionId: string | null = null;
+
 
   // DOM Elements
   private messageArea!: HTMLElement;
@@ -766,6 +769,190 @@ class AuraUIManager {
 
     // Process message regardless of username - user can set name via UI
     await this.processMessage(userMessage);
+  }
+
+  private async processMessage(userMessage: string): Promise<void> {
+    this.showTypingIndicator(); // Show thinking/processing indicator
+
+    try {
+      console.log(`🤖 Processing message:`, {
+        userName: this.userName,
+        userMessage,
+        currentSessionId: this.currentSessionId, // Keep for non-PTY chat history if needed
+        ptySessionId: this.ptySessionId,
+        backendConnected: this.backendConnected
+      });
+
+      if (!this.backendConnected) {
+        this.updateSystemHealth('error', 'Disconnected', 'Backend connection not available');
+        throw new Error('Backend connection not available');
+      }
+
+      // For PTY interaction, a project path is needed.
+      // This should ideally be dynamic or based on user context.
+      // Using "." as a placeholder for the current working directory of the backend.
+      const currentProjectPath = ".";
+
+      if (!this.ptySessionId) {
+        // First message for a PTY session or PTY session not yet established.
+        console.log(`🚀 Initializing PTY session for project: ${currentProjectPath} with initial command: ${userMessage}`);
+        // The user's first message will act as the initial command to the PTY.
+        const cliResponse = await this.api.executeCliCommand(currentProjectPath, userMessage, {});
+
+        if (cliResponse.success && cliResponse.sessionId) {
+          this.ptySessionId = cliResponse.sessionId;
+          this.currentSessionId = cliResponse.sessionId; // Also use PTY session ID for chat history tracking
+          console.log(`🔗 PTY session initialized with ID: ${this.ptySessionId}. Tying to chat session.`);
+
+          this.connectWebSocket(this.ptySessionId);
+          // The initial command has been sent by /api/cli/execute.
+          // Output will arrive via WebSocket. Form will be re-enabled on WebSocket open or first message.
+        } else {
+          throw new Error('Failed to initialize PTY session via /api/cli/execute');
+        }
+      } else {
+        // PTY session already exists, send subsequent input via WebSocket.
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+          console.log(`➡️ Sending input to existing PTY session ${this.ptySessionId}: ${userMessage}`);
+          this.socket.send(JSON.stringify({ type: 'input', data: `${userMessage}\n` })); // Send with newline for PTYs
+        } else {
+          console.warn(`⚠️ WebSocket not open for PTY session ${this.ptySessionId}. State: ${this.socket?.readyState}.`);
+          // Attempt to reconnect or notify user.
+          if (this.ptySessionId) {
+            this.displayMessage("Reconnecting to terminal... Please wait.", 'aura');
+            this.connectWebSocket(this.ptySessionId); // Attempt to reconnect
+            // Give it a moment to connect, then try sending.
+            setTimeout(() => {
+              if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify({ type: 'input', data: `${userMessage}\n` }));
+              } else {
+                this.displayMessage("Connection issue. Please try sending your message again once reconnected.", 'error');
+                this.setFormState(false); // Allow user to try again
+              }
+            }, 2000); // Increased delay for reconnection
+          } else {
+            await this.displayMessage("Error: PTY session ID missing. Cannot send message.", 'error');
+            this.setFormState(false);
+          }
+        }
+      }
+      // System health and Aura's emotional/cognitive states are not updated by PTY output directly in this flow.
+      // That would require parsing PTY output for specific markers or a different interaction model.
+    } catch (error) {
+      console.error('❌ Chat processing error (PTY flow):', error);
+      await this.displayMessage(`💥 PTY Processing error: ${(error as Error).message}`, 'error');
+      this.setFormState(false); // Ensure form is usable after an error
+    } finally {
+      // Typing indicator is removed by displayMessage or appendPtyOutput.
+      // Form state is managed within the try/catch and WebSocket events.
+    }
+  }
+
+  private connectWebSocket(ptySessionId: string): void {
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      // If trying to connect to the same session, it's fine. If different, close old one.
+      if (this.socket.url.endsWith(ptySessionId)) {
+        console.log(`🔌 WebSocket already open or connecting for PTY session ${ptySessionId}.`);
+        return;
+      } else {
+        console.log(`🔌 Closing existing WebSocket for different session before opening new one for ${ptySessionId}.`);
+        this.socket.close();
+      }
+    }
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    // Construct WebSocket URL based on the backend's expected host and port (e.g., localhost:8000)
+    // This assumes the API base URL correctly points to the backend.
+    const apiHost = new URL(this.api.getBaseUrl()).host; // Get host:port from API base URL
+    const wsUrl = `${wsProtocol}//${apiHost}/ws/pty/${ptySessionId}`;
+
+    console.log(`🔌 Attempting to connect WebSocket to: ${wsUrl}`);
+    this.socket = new WebSocket(wsUrl);
+
+    this.socket.onopen = () => {
+      console.log(`✅ WebSocket connected for PTY session ${ptySessionId}`);
+      this.displayMessage(`Terminal connected (Session ID: ${ptySessionId.substring(0, 8)}...)`, 'aura');
+      this.setFormState(false); // Enable input form now that WebSocket is connected
+    };
+
+    this.socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data as string);
+        if (message.type === 'output') {
+          this.appendPtyOutput(message.data);
+        } else if (message.type === 'error') {
+          console.error('⚙️ PTY Error from server:', message.data);
+          this.displayMessage(`⚙️ PTY Error: ${message.data}`, 'error');
+        } else if (message.type === 'info') {
+          console.info('ℹ️ PTY Info from server:', message.data);
+          // Avoid displaying raw "PTY stream ended." directly if it's too technical
+          if (message.data !== "PTY stream ended.") {
+            this.displayMessage(`ℹ️ ${message.data}`, 'aura');
+          } else {
+            console.log("PTY stream ended message received, not displaying to user directly.");
+          }
+        }
+      } catch (e) {
+        // If data is not JSON, assume it's raw output.
+        console.warn('WebSocket message not JSON, treating as raw output:', event.data);
+        this.appendPtyOutput(event.data as string);
+      }
+      this.setFormState(false); // Ensure form is enabled after receiving any message
+      this.scrollToBottom(); // Ensure view scrolls with new output
+    };
+
+    this.socket.onclose = (event) => {
+      console.log(`🔌 WebSocket closed for PTY session ${ptySessionId}. Code: ${event.code}, Reason: ${event.reason}`);
+      this.displayMessage(`Terminal disconnected (Session: ${ptySessionId.substring(0, 8)}...). ${event.reason ? `Reason: ${event.reason}` : 'Connection closed.'}`, 'error');
+      this.socket = null; // Clear the socket object
+      // Don't clear ptySessionId here, user might want to send another message which would try to reconnect.
+      this.setFormState(false);
+    };
+
+    this.socket.onerror = (errorEvent) => {
+      console.error(`❌ WebSocket error for PTY session ${ptySessionId}:`, errorEvent);
+      this.displayMessage('Error connecting to terminal. Please check backend and refresh.', 'error');
+      this.socket = null;
+      this.setFormState(false);
+    };
+  }
+
+  private appendPtyOutput(data: string): void {
+    this.removeTypingIndicator();
+
+    const lastMessageBubble = this.messageArea.lastElementChild;
+    // Ensure last message is from 'aura' and is for PTY output (e.g., not a thinking box or other special message)
+    if (lastMessageBubble && lastMessageBubble.classList.contains('aura') &&
+        !lastMessageBubble.querySelector('.thinking-container') && // Not a thinking box
+        !lastMessageBubble.textContent?.startsWith("Terminal connected") && // Not the connection message
+        !lastMessageBubble.textContent?.startsWith("⚙️ PTY Error:") && // Not an error message
+        !lastMessageBubble.textContent?.startsWith("ℹ️") // Not an info message
+        ) {
+      const messageContent = lastMessageBubble.querySelector('.message-content');
+      if (messageContent) {
+        // Basic sanitization and formatting for PTY output
+        // Convert ANSI escape codes for colors to spans (basic example)
+        let formattedData = this.escapeHtml(data); // First escape HTML
+        formattedData = formattedData.replace(/\n/g, "<br>"); // Convert newlines
+
+        // Example: Basic ANSI color handling (very simplified)
+        // This is not a full ANSI parser. For real terminal emulation, a library is needed.
+        formattedData = formattedData.replace(/\[(\d+);(\d+)m/g, '<span class="ansi-color-$1-$2">')
+                                   .replace(/\[(\d+)m/g, (match, code) => {
+                                     if (code === '0') return '</span>'; // Reset
+                                     return `<span class="ansi-color-${code}">`;
+                                   })
+                                   .replace(/\[0K/g, ''); // Clear line from cursor to end
+
+        messageContent.innerHTML += formattedData;
+      } else {
+        this.displayMessage(data, 'aura'); // Fallback
+      }
+    } else {
+      // Create new message bubble
+      this.displayMessage(data, 'aura');
+    }
+    this.scrollToBottom();
   }
 
   // ============================================================================

@@ -3981,3 +3981,286 @@ if __name__ == "__main__":
         reload=True,
         log_level="info"
     )
+
+# ============================================================================
+# PTY Session Management and WebSocket Endpoint
+# ============================================================================
+
+import ptyprocess
+import asyncio
+import os
+import uuid
+from fastapi import WebSocket, WebSocketDisconnect
+
+pty_sessions: Dict[str, Dict[str, Any]] = {}
+
+class CLIExecuteRequest(BaseModel):
+    projectPath: str
+    command: str
+    envVars: Optional[Dict[str, str]] = None
+
+@app.post("/api/cli/execute")
+async def cli_execute(request: CLIExecuteRequest):
+    """
+    Executes a command in a PTY session, creating one if necessary.
+    """
+    project_path = request.projectPath
+    command = request.command
+    env_vars = request.envVars or {}
+
+    session_id = None
+    # Try to find an existing session for the projectPath
+    for s_id, session_data in pty_sessions.items():
+        if session_data["project_path"] == project_path:
+            session_id = s_id
+            break
+
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        env = {**os.environ, **env_vars, "FORCE_COLOR": "1", "TERM": "xterm-256color"}
+
+        try:
+            # Spawn the PTY process with a generic shell, then commands will be written to it.
+            # This allows the shell to be persistent.
+            pty_process = ptyprocess.PtyProcessUnicode.spawn(['/bin/bash'], cwd=project_path, env=env, dimensions=(30, 120))
+            # Set a small delay after close and before send to avoid issues, can be tuned.
+            # pty_process.delayafterclose = 0.1 # ptyprocess doesn't have these attributes directly
+            # pty_process.delaybeforesend = 0.1
+        except Exception as e:
+            logger.error(f"❌ Failed to spawn PTY process for {project_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to spawn PTY: {str(e)}")
+
+        pty_sessions[session_id] = {
+            "pty_process": pty_process,
+            "project_path": project_path,
+            "created": datetime.now(),
+            "last_used": datetime.now()
+        }
+        logger.info(f"🚀 Created new PTY session {session_id} for {project_path}")
+    else:
+        pty_sessions[session_id]["last_used"] = datetime.now()
+        logger.info(f"🔁 Reusing PTY session {session_id} for {project_path}")
+
+
+    session_data = pty_sessions[session_id]
+    pty_process = session_data["pty_process"]
+
+    try:
+        pty_process.write(f"{command}\n")
+    except Exception as e:
+        logger.error(f"❌ Failed to write to PTY session {session_id}: {e}")
+        # Attempt to remove the faulty session
+        if session_id in pty_sessions:
+            try:
+                pty_sessions[session_id]["pty_process"].close()
+            except Exception as close_e:
+                logger.error(f"Error closing PTY during error handling: {close_e}")
+            del pty_sessions[session_id]
+        raise HTTPException(status_code=500, detail=f"Failed to write to PTY: {str(e)}")
+
+    return {"success": True, "sessionId": session_id}
+
+@app.websocket("/ws/pty/{session_id}")
+async def websocket_pty_endpoint(websocket: WebSocket, session_id: str):
+    await websocket.accept()
+
+    if session_id not in pty_sessions:
+        logger.warning(f"PTY session {session_id} not found for WebSocket connection.")
+        await websocket.close(code=4004, reason="PTY session not found")
+        return
+
+    session_data = pty_sessions[session_id]
+    pty_process = session_data["pty_process"]
+
+    # Update last used time
+    session_data["last_used"] = datetime.now()
+
+    logger.info(f"🔌 WebSocket connected to PTY session {session_id}")
+
+    async def read_from_pty_and_send_to_ws():
+        # Task to continuously read from PTY and send to WebSocket
+        try:
+            while pty_process.isalive():
+                try:
+                    # Use a timeout to prevent blocking indefinitely
+                    output = pty_process.read(size=1024, timeout=0.1) # timeout in seconds
+                    if output:
+                        await websocket.send_json({"type": "output", "data": output})
+                except ptyprocess.exceptions.TIMEOUT:
+                    await asyncio.sleep(0.01) # Sleep briefly if no data
+                except Exception as e:
+                    logger.error(f"Error reading from PTY {session_id}: {e}")
+                    # If websocket is closed from client side, this might raise an error.
+                    # We should check websocket state before sending.
+                    if websocket.client_state == WebSocketState.DISCONNECTED:
+                        break
+                    # Send error to client if possible
+                    try:
+                        await websocket.send_json({"type": "error", "data": str(e)})
+                    except Exception:
+                        pass # Websocket might be closed
+                    break
+            logger.info(f"PTY read task for {session_id} ended (PTY process alive: {pty_process.isalive()})")
+        except Exception as e:
+            logger.error(f"Outer exception in PTY read task for {session_id}: {e}")
+        finally:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                try:
+                    await websocket.send_json({"type": "info", "data": "PTY stream ended."})
+                except:
+                    pass # Ignore if send fails (e.g. client disconnected)
+            logger.info(f"PTY read task for session {session_id} is cleaning up.")
+
+
+    # Start the PTY reading task
+    pty_reader_task = asyncio.create_task(read_from_pty_and_send_to_ws())
+
+    try:
+        while True:
+            # Receive input from WebSocket and write to PTY
+            data = await websocket.receive_json()
+            if data.get("type") == "input":
+                if pty_process.isalive():
+                    pty_process.write(data["data"])
+                    session_data["last_used"] = datetime.now() # Update last used on input
+                else:
+                    await websocket.send_json({"type": "error", "data": "PTY process is not alive."})
+                    break
+            elif data.get("type") == "resize": # Optional: handle terminal resize
+                if pty_process.isalive() and "cols" in data and "rows" in data:
+                    pty_process.setwinsize(data["rows"], data["cols"])
+
+    except WebSocketDisconnect:
+        logger.info(f"🔌 WebSocket disconnected from PTY session {session_id}")
+    except Exception as e:
+        logger.error(f"Error in WebSocket PTY session {session_id}: {e}")
+        if websocket.client_state == WebSocketState.CONNECTED:
+            try:
+                await websocket.send_json({"type": "error", "data": f"Server error: {str(e)}"})
+            except:
+                pass
+    finally:
+        logger.info(f"Cleaning up WebSocket PTY session {session_id}")
+        pty_reader_task.cancel()
+        try:
+            await pty_reader_task # Ensure task finishes cleanup
+        except asyncio.CancelledError:
+            logger.info(f"PTY reader task for {session_id} was cancelled.")
+        except Exception as e:
+            logger.error(f"Exception during PTY reader task await: {e}")
+
+        # Optional: Consider closing PTY if no other clients are connected or based on policy
+        # For now, PTYs are persistent until server restart or explicit cleanup logic (e.g., timeout)
+
+async def cleanup_inactive_pty_sessions():
+    """Periodically cleans up PTY sessions that haven't been used for a while."""
+    # This is a basic example. More sophisticated logic might be needed.
+    # For example, checking if a PTY process is still running a command.
+    while True:
+        await asyncio.sleep(300) # Check every 5 minutes
+        now = datetime.now()
+        inactive_threshold_seconds = 3600 # 1 hour
+
+        sessions_to_remove = []
+        for session_id, session_data in pty_sessions.items():
+            last_used = session_data.get("last_used", session_data["created"])
+            if (now - last_used).total_seconds() > inactive_threshold_seconds:
+                if not session_data["pty_process"].isalive(): # Only cleanup if not alive or truly inactive
+                    sessions_to_remove.append(session_id)
+                else:
+                    # Check if any websocket is still connected to this session
+                    # This check is a bit complex as we don't store websockets per session directly here.
+                    # A simpler approach for now: if it's alive but old, maybe send a warning or keep it.
+                    # For robust cleanup, a more direct link between WS connections and PTYs is needed.
+                    logger.info(f"PTY session {session_id} is old but still alive. Not cleaning up yet.")
+
+
+        for session_id in sessions_to_remove:
+            logger.info(f"🗑️ Cleaning up inactive PTY session {session_id}")
+            try:
+                pty_sessions[session_id]["pty_process"].close()
+            except Exception as e:
+                logger.error(f"Error closing PTY during cleanup of {session_id}: {e}")
+            del pty_sessions[session_id]
+
+# Add to lifespan to start the cleanup task
+@asynccontextmanager
+async def lifespan_with_pty_cleanup(app: FastAPI):
+    # Startup (from original lifespan)
+    logger.info("🚀 Starting Aura Backend with PTY session management...")
+    global vector_db, aura_file_system, state_manager, aura_internal_tools
+    global conversation_persistence, memvid_archival, mcp_gemini_bridge, global_tool_version, autonomic_system, db_protection_service, thinking_processor
+    db_protection_service = get_protection_service()
+    logger.info("🛡️ Database Protection Service initialized and active")
+    thinking_processor = ThinkingProcessor(client)
+    logger.info("🧠 Thinking Processor initialized (non-streaming mode)")
+    vector_db = AuraVectorDB()
+    logger.info("✅ Using RobustAuraVectorDB with SQLite-level concurrency control")
+    aura_file_system = AuraFileSystem()
+    state_manager = AuraStateManager(vector_db, aura_file_system)
+    aura_internal_tools = AuraInternalTools(vector_db, aura_file_system)
+    conversation_persistence = ConversationPersistenceService(vector_db, aura_file_system)
+    memvid_archival = MemvidArchivalService()
+    mcp_status = await initialize_mcp_system(aura_internal_tools)
+    if mcp_status["status"] == "success":
+        logger.info("✅ MCP system initialized successfully")
+        mcp_gemini_bridge = get_mcp_bridge()
+        if mcp_gemini_bridge:
+            global_tool_version += 1
+            logger.info(f"🔄 Incremented global tool version to {global_tool_version}")
+    else:
+        logger.error(f"❌ MCP system initialization failed: {mcp_status.get('error', 'Unknown error')}")
+    autonomic_enabled = os.getenv('AUTONOMIC_ENABLED', 'true').lower() == 'true'
+    if autonomic_enabled:
+        logger.info("🧠 Initializing Autonomic Nervous System...")
+        try:
+            autonomic_system = await initialize_autonomic_system(mcp_bridge=mcp_gemini_bridge, internal_tools=aura_internal_tools)
+            logger.info("✅ Autonomic Nervous System initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Autonomic Nervous System: {e}")
+            autonomic_system = None
+    else:
+        autonomic_system = None
+
+    # Start PTY cleanup task
+    cleanup_task = asyncio.create_task(cleanup_inactive_pty_sessions())
+    logger.info("🧹 PTY session cleanup task started.")
+
+    yield
+
+    # Shutdown (from original lifespan)
+    logger.info("🛑 Shutting down Aura Backend...")
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        logger.info("PTY cleanup task cancelled.")
+    except Exception as e:
+        logger.error(f"Exception during PTY cleanup task await on shutdown: {e}")
+
+    await shutdown_autonomic_system()
+    await shutdown_mcp_system()
+    if vector_db:
+        await vector_db.close()
+    if db_protection_service:
+        db_protection_service.stop_protection()
+        logger.info("🛡️ Database Protection Service stopped")
+
+    # Close any remaining PTY sessions
+    for session_id, session_data in list(pty_sessions.items()): # Iterate over a copy
+        logger.info(f"Terminating PTY session {session_id} on shutdown.")
+        try:
+            session_data["pty_process"].terminate(force=True)
+            session_data["pty_process"].close()
+        except Exception as e:
+            logger.error(f"Error closing PTY {session_id} on shutdown: {e}")
+        del pty_sessions[session_id]
+
+    logger.info("✅ Aura Backend shutdown complete")
+
+
+# Replace the app's lifespan context manager
+app.router.lifespan_context_manager = lifespan_with_pty_cleanup
+
+# Need to import WebSocketState for the PTY reader
+from starlette.websockets import WebSocketState

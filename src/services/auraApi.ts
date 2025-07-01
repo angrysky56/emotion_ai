@@ -627,6 +627,41 @@ export class AuraAPI {
       throw new Error(`Failed to export user data: ${(error as Error).message}`);
     }
   }
+
+  /**
+   * Executes a CLI command via the backend PTY session.
+   * @param {string} projectPath The path to the project context for the command.
+   * @param {string} command The command to execute.
+   * @param {Record<string, string>} [envVars] Optional environment variables.
+   * @returns {Promise<{ success: boolean; sessionId: string }>}
+   */
+  async executeCliCommand(
+    projectPath: string,
+    command: string,
+    envVars?: Record<string, string>
+  ): Promise<{ success: boolean; sessionId: string }> {
+    if (!projectPath || !command) {
+      throw new Error('Project path and command are required for CLI execution.');
+    }
+
+    try {
+      const response = await this.makeRequest<{ success: boolean; sessionId: string }>('/api/cli/execute', {
+        method: 'POST',
+        body: {
+          projectPath,
+          command,
+          envVars: envVars || {},
+        },
+      });
+      if (!response.success || !response.sessionId) {
+        throw new Error('Failed to execute CLI command or invalid response from server.');
+      }
+      return response;
+    } catch (error) {
+      console.error('❌ CLI execution error:', error);
+      throw new Error(`Failed to execute CLI command: ${(error as Error).message}`);
+    }
+  }
 }
 
 // ============================================================================

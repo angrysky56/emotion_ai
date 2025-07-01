@@ -509,3 +509,4 @@ wrapt==1.17.2
     # via opentelemetry-instrumentation
 zipp==3.22.0
     # via importlib-metadata
+ptyprocess>=0.7.0
