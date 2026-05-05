@@ -1,0 +1,18 @@
+{
+  "project_name": "emotion_ai",
+  "mode": "auto",
+  "priority": "modernization",
+  "tech_preferences": {
+    "llm_providers": {
+      "primary": "openrouter",
+      "secondary": "ollama"
+    },
+    "versioning": "latest",
+    "style": "clean_modular_RAA"
+  },
+  "workflow_settings": {
+    "use_trunk": true,
+    "enforce_typing": true,
+    "tdd": true
+  }
+}
