@@ -45,14 +45,8 @@ from mcp_to_gemini_bridge import MCPGeminiBridge, format_function_call_result_fo
 from mcp_integration import (
     initialize_mcp_client,
     shutdown_mcp_client,
-    enhance_response_with_mcp,
     execute_mcp_tool,
-    create_mcp_enhanced_prompt,
     mcp_router,
-)
-from mcp_tools import (
-    process_mcp_tool_calls,
-    create_tool_usage_guide,
 )
 from aura_internal_tools import AuraInternalTools
 
@@ -184,7 +178,7 @@ class AuraVectorDB:
             logger.info("✅ Vector database collections initialized successfully")
 
         except Exception as e:
-            logger.error(f"❌ Failed to initialize vector collections: {e}")
+            logger.error("❌ Failed to initialize vector collections: %s", e)
             raise
 
     async def store_conversation(self, memory: ConversationMemory) -> str:
@@ -231,11 +225,11 @@ class AuraVectorDB:
                 ids=[doc_id]
             )
 
-            logger.info(f"📝 Stored conversation memory: {doc_id}")
+            logger.info("📝 Stored conversation memory: %s", doc_id)
             return doc_id
 
         except Exception as e:
-            logger.error(f"❌ Failed to store conversation memory: {e}")
+            logger.error("❌ Failed to store conversation memory: %s", e)
             raise
     async def search_conversations(
         self,
@@ -279,11 +273,11 @@ class AuraVectorDB:
                         "similarity": 1 - results['distances'][0][i]  # Convert distance to similarity
                     })
 
-            logger.info(f"🔍 Found {len(formatted_results)} relevant memories for query: {query}")
+            logger.info("🔍 Found %s relevant memories for query: %s", len(formatted_results), query)
             return formatted_results
 
         except Exception as e:
-            logger.error(f"❌ Failed to search conversations: {e}")
+            logger.error("❌ Failed to search conversations: %s", e)
             return []
     async def store_emotional_pattern(self, emotional_state: EmotionalStateData, user_id: str) -> str:
         """Store emotional state pattern for analysis"""
@@ -314,11 +308,11 @@ class AuraVectorDB:
                 ids=[doc_id]
             )
 
-            logger.info(f"🎭 Stored emotional pattern: {emotional_state.name} ({emotional_state.intensity.value})")
+            logger.info("🎭 Stored emotional pattern: %s (%s)", emotional_state.name, emotional_state.intensity.value)
             return doc_id
 
         except Exception as e:
-            logger.error(f"❌ Failed to store emotional pattern: {e}")
+            logger.error("❌ Failed to store emotional pattern: %s", e)
             raise
 
     async def analyze_emotional_trends(self, user_id: str, days: int = 7) -> Dict[str, Any]:
@@ -353,11 +347,11 @@ class AuraVectorDB:
                 "recommendations": self._generate_emotional_recommendations(emotions, intensities)
             }
 
-            logger.info(f"📊 Generated emotional analysis for user {user_id}")
+            logger.info("📊 Generated emotional analysis for user %s", user_id)
             return analysis
 
         except Exception as e:
-            logger.error(f"❌ Failed to analyze emotional trends: {e}")
+            logger.error("❌ Failed to analyze emotional trends: %s", e)
             return {"error": str(e)}
     def _get_top_items(self, items: List[str], top_n: int) -> List[Tuple[str, int]]:
         """Get top N most frequent items"""
@@ -433,11 +427,11 @@ class AuraFileSystem:
             async with aiofiles.open(profile_path, 'w') as f:
                 await f.write(json.dumps(profile_data, indent=2, default=str))
 
-            logger.info(f"💾 Saved user profile: {user_id}")
+            logger.info("💾 Saved user profile: %s", user_id)
             return str(profile_path)
 
         except Exception as e:
-            logger.error(f"❌ Failed to save user profile: {e}")
+            logger.error("❌ Failed to save user profile: %s", e)
             raise
 
     async def load_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -453,7 +447,7 @@ class AuraFileSystem:
                 return json.loads(content)
 
         except Exception as e:
-            logger.error(f"❌ Failed to load user profile: {e}")
+            logger.error("❌ Failed to load user profile: %s", e)
             return None
 
     async def export_conversation_history(self, user_id: str, format: str = "json") -> str:
@@ -479,11 +473,11 @@ class AuraFileSystem:
                 async with aiofiles.open(export_path, 'w') as f:
                     await f.write(json.dumps(export_data, indent=2, default=str))
 
-            logger.info(f"📤 Exported conversation history: {filename}")
+            logger.info("📤 Exported conversation history: %s", filename)
             return str(export_path)
 
         except Exception as e:
-            logger.error(f"❌ Failed to export conversation history: {e}")
+            logger.error("❌ Failed to export conversation history: %s", e)
             raise
 
 class AuraStateManager:
@@ -507,7 +501,7 @@ class AuraStateManager:
 
             # Check for significant changes
             if old_state and old_state.name != new_state.name:
-                logger.info(f"🎭 Emotional transition: {old_state.name} → {new_state.name}")
+                logger.info("🎭 Emotional transition: %s → %s", old_state.name, new_state.name)
 
                 # Trigger specific actions based on transitions
                 await self._handle_emotional_transition(user_id, old_state, new_state)
@@ -518,7 +512,7 @@ class AuraStateManager:
             await self.aura_file_system.save_user_profile(user_id, profile)
 
         except Exception as e:
-            logger.error(f"❌ Failed to handle emotional state change: {e}")
+            logger.error("❌ Failed to handle emotional state change: %s", e)
 
     async def _handle_emotional_transition(
         self,
@@ -547,7 +541,7 @@ class AuraStateManager:
             }
 
             # Log the recommendation details and store for potential future use
-            logger.info(f"🔔 Emotional support recommendation for {user_id}: {recommendation['suggestion']}")
+            logger.info("🔔 Emotional support recommendation for %s: %s", user_id, recommendation['suggestion'])
 
             # TODO: Could store recommendation in database for analysis or trigger gentle conversation adjustments
             # For now, we log the recommendation for monitoring emotional transition patterns
@@ -583,10 +577,10 @@ class AuraStateManager:
                 ids=[doc_id]
             )
 
-            logger.info(f"🧠 Stored cognitive focus: {new_focus.focus.value}")
+            logger.info("🧠 Stored cognitive focus: %s", new_focus.focus.value)
 
         except Exception as e:
-            logger.error(f"❌ Failed to handle cognitive focus change: {e}")
+            logger.error("❌ Failed to handle cognitive focus change: %s", e)
 
 # API Models
 class ConversationRequest(BaseModel):
@@ -789,7 +783,7 @@ If neutral, output "Normal (Medium)"."""
         )
 
     except Exception as e:
-        logger.error(f"❌ Failed to detect emotion: {e}")
+        logger.error("❌ Failed to detect emotion: %s", e)
         return None
 
 async def detect_aura_cognitive_focus(conversation_snippet: str, user_id: str) -> Optional[CognitiveState]:
@@ -840,7 +834,7 @@ Output only the component code (e.g., "KI", "ESA", "Learning")."""
             )
 
     except Exception as e:
-        logger.error(f"❌ Failed to detect cognitive focus: {e}")
+        logger.error("❌ Failed to detect cognitive focus: %s", e)
         return None
 
 # FastAPI app lifecycle
@@ -863,16 +857,16 @@ async def lifespan(app: FastAPI):
 
         # Convert MCP tools to Gemini functions
         gemini_functions = mcp_gemini_bridge.convert_mcp_tools_to_gemini_functions()
-        logger.info(f"🔧 Converted {len(gemini_functions)} MCP tools to Gemini functions")
+        logger.info("🔧 Converted %s MCP tools to Gemini functions", len(gemini_functions))
 
         # Log available functions for debugging
         available_functions = mcp_gemini_bridge.get_available_functions()
         if available_functions:
             logger.info("📋 Available Gemini functions:")
             for func in available_functions[:3]:  # Show first 3
-                logger.info(f"  - {func['name']}: {func['description'][:60]}...")
+                logger.info("  - %s: %s...", func['name'], func['description'][:60])
             if len(available_functions) > 3:
-                logger.info(f"  ... and {len(available_functions) - 3} more functions")
+                logger.info("  ... and %s more functions", len(available_functions) - 3)
 
     else:
         logger.warning("⚠️ MCP initialization failed - continuing with limited functionality")
@@ -992,7 +986,7 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
             if mcp_gemini_bridge:
                 gemini_tools = mcp_gemini_bridge.convert_mcp_tools_to_gemini_functions()
                 tools.extend(gemini_tools)
-                logger.info(f"🔧 Added {len(gemini_tools)} MCP tools to chat session for {request.user_id}")
+                logger.info("🔧 Added %s MCP tools to chat session for %s", len(gemini_tools), request.user_id)
 
             # Create chat with system instruction and tools
             chat = client.chats.create(
@@ -1005,10 +999,10 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
                 )
             )
             active_chat_sessions[session_key] = chat
-            logger.info(f"💬 Created new chat session for {request.user_id} with {len(tools)} tools")
+            logger.info("💬 Created new chat session for %s with %s tools", request.user_id, len(tools))
         else:
             chat = active_chat_sessions[session_key]
-            logger.debug(f"💬 Using existing chat session for {request.user_id}")
+            logger.debug("💬 Using existing chat session for %s", request.user_id)
 
         # Send message and handle function calls
         result = chat.send_message(request.message)
@@ -1022,7 +1016,7 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
                     final_response += part.text
                 elif hasattr(part, 'function_call') and part.function_call and mcp_gemini_bridge:
                     # Execute the function call through MCP bridge
-                    logger.info(f"🔧 Executing function call: {part.function_call.name}")
+                    logger.info("🔧 Executing function call: %s", part.function_call.name)
 
                     execution_result = await mcp_gemini_bridge.execute_function_call(
                         part.function_call,
@@ -1030,7 +1024,7 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
                     )
 
                     # Format and send function result back to model
-                    function_result_text = format_function_call_result_for_model(execution_result)
+                    format_function_call_result_for_model(execution_result)
 
                     # Send function result back to continue the conversation
                     follow_up = chat.send_message([
@@ -1116,11 +1110,11 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
             session_id=session_id
         )
 
-        logger.info(f"✅ Processed conversation for user {request.user_id}")
+        logger.info("✅ Processed conversation for user %s", request.user_id)
         return response
 
     except Exception as e:
-        logger.error(f"❌ Failed to process conversation: {e}")
+        logger.error("❌ Failed to process conversation: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 @app.post("/search")
 async def search_memories(request: SearchRequest):
@@ -1135,7 +1129,7 @@ async def search_memories(request: SearchRequest):
         return {"results": results}
 
     except Exception as e:
-        logger.error(f"❌ Failed to search memories: {e}")
+        logger.error("❌ Failed to search memories: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/emotional-analysis/{user_id}")
@@ -1146,7 +1140,7 @@ async def get_emotional_analysis(user_id: str, days: int = 7):
         return analysis
 
     except Exception as e:
-        logger.error(f"❌ Failed to get emotional analysis: {e}")
+        logger.error("❌ Failed to get emotional analysis: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/export/{user_id}")
@@ -1157,7 +1151,7 @@ async def export_user_data(user_id: str, format: str = "json"):
         return {"export_path": export_path, "message": "Export completed successfully"}
 
     except Exception as e:
-        logger.error(f"❌ Failed to export user data: {e}")
+        logger.error("❌ Failed to export user data: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/mcp/execute-tool")
@@ -1172,7 +1166,7 @@ async def mcp_execute_tool(request: ExecuteToolRequest):
         )
         return {"result": result}
     except Exception as e:
-        logger.error(f"❌ MCP tool execution failed: {e}")
+        logger.error("❌ MCP tool execution failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/sessions/{user_id}")
@@ -1189,7 +1183,7 @@ async def clear_user_sessions(user_id: str):
             del active_chat_sessions[session_key]
             sessions_cleared += 1
 
-        logger.info(f"🧹 Cleared {sessions_cleared} chat sessions for user {user_id}")
+        logger.info("🧹 Cleared %s chat sessions for user %s", sessions_cleared, user_id)
 
         return {
             "message": f"Cleared {sessions_cleared} chat sessions for user {user_id}",
@@ -1198,7 +1192,7 @@ async def clear_user_sessions(user_id: str):
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to clear sessions for user {user_id}: {e}")
+        logger.error("❌ Failed to clear sessions for user %s: %s", user_id, e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/mcp/bridge-status")
@@ -1222,7 +1216,7 @@ async def get_mcp_bridge_status():
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get bridge status: {e}")
+        logger.error("❌ Failed to get bridge status: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

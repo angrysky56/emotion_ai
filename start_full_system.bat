@@ -48,7 +48,7 @@ if not exist "%PROJECT_DIR%package.json" (
 )
 
 echo 🚀 Starting Backend Server in new window...
-start "Aura Backend" cmd /k "cd /d "%BACKEND_DIR%" && echo 🚀 Aura Backend Starting... && if not exist .venv (echo Setting up backend environment... && uv venv --python 3.12 --seed && uv sync) && if exist start.sh (bash start.sh) else (uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload)"
+start "Aura Backend" cmd /k "cd /d "%BACKEND_DIR%" && echo 🚀 Aura Backend Starting... && if not exist ..\.venv (echo Setting up environment in project root... && cd .. && uv venv --python 3.12 --seed && uv sync && cd aura_backend) && if exist start.sh (bash start.sh) else (uv run --project .. uvicorn main:app --host 0.0.0.0 --port 8000 --reload)"
 
 echo ⏳ Waiting for backend to initialize...
 timeout /t 5 /nobreak >nul

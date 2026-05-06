@@ -1,11 +1,20 @@
 #!/bin/bash
 # Aura Backend Environment Activation Helper
 
-if [ -f ".venv/bin/activate" ]; then
-    source .venv/bin/activate
-    echo "✅ Virtual environment activated"
-    echo "Python: $(which python)"
-    echo "Version: $(python --version)"
+if [ -f "../.venv/bin/activate" ]; then
+	VENV_PATH="../.venv"
+elif [ -f ".venv/bin/activate" ]; then
+	VENV_PATH=".venv"
+fi
+
+if [ -n "$VENV_PATH" ]; then
+	# shellcheck disable=SC1091
+	source "$VENV_PATH/bin/activate"
+	echo "✅ Virtual environment activated from $VENV_PATH"
+	PYTHON_EXE=$(command -v python)
+	echo "Python: $PYTHON_EXE"
+	PYTHON_VER=$(python --version)
+	echo "Version: $PYTHON_VER"
 else
-    echo "❌ Virtual environment not found. Run setup_uv.sh first."
+	echo "❌ Virtual environment not found. Run 'uv venv' in the project root."
 fi

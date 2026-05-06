@@ -8,7 +8,6 @@ Tests only the specific mathematical and architectural fixes without dependencie
 
 import logging
 import sys
-from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -80,11 +79,11 @@ def test_division_by_zero_fix():
             logger.info("✅ Fixed version handles zero total_stores correctly")
             return True
         else:
-            logger.error(f"❌ Fixed version failed: {test_metrics_fixed}")
+            logger.error("❌ Fixed version failed: %s", test_metrics_fixed)
             return False
             
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {e}")
+        logger.error("❌ Unexpected error: %s", e)
         return False
 
 def test_chromadb_client_sharing_pattern():
@@ -155,11 +154,11 @@ def test_chromadb_client_sharing_pattern():
             logger.info("✅ Fixed version correctly switches to provided client")
             return True
         else:
-            logger.error(f"❌ Fixed version failed to switch clients")
+            logger.error("❌ Fixed version failed to switch clients")
             return False
             
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {e}")
+        logger.error("❌ Unexpected error: %s", e)
         return False
 
 def test_fixes_are_in_place():
@@ -180,7 +179,7 @@ def test_fixes_are_in_place():
             logger.error("❌ Division by zero fix not found in source")
             div_fix_present = False
     except Exception as e:
-        logger.error(f"❌ Could not check persistence service file: {e}")
+        logger.error("❌ Could not check persistence service file: %s", e)
         div_fix_present = False
     
     # Check that client sharing fix is in place
@@ -195,7 +194,7 @@ def test_fixes_are_in_place():
             logger.error("❌ ChromaDB client sharing fix not found in source")
             client_fix_present = False
     except Exception as e:
-        logger.error(f"❌ Could not check memvid file: {e}")
+        logger.error("❌ Could not check memvid file: %s", e)
         client_fix_present = False
     
     return div_fix_present and client_fix_present
@@ -220,9 +219,9 @@ def main():
             results.append((test_name, result))
             print(f"Result: {'✅ PASSED' if result else '❌ FAILED'}")
         except Exception as e:
-            logger.error(f"Test {test_name} crashed: {e}")
+            logger.error("Test %s crashed: %s", test_name, e)
             results.append((test_name, False))
-            print(f"Result: ❌ CRASHED")
+            print("Result: ❌ CRASHED")
         print()
     
     # Summary

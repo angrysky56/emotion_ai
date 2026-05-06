@@ -4,12 +4,10 @@ A simplified implementation that provides memvid-like functionality
 without dependency conflicts
 """
 
-import os
 import json
-import base64
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional
 from pathlib import Path
 import sqlite3
 import pickle
@@ -126,7 +124,7 @@ class AuraArchiveRetriever:
         # Create embedding model for queries
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-        logger.info(f"Loaded archive with {len(self.archive_data['chunks'])} chunks")
+        logger.info("Loaded archive with %s chunks", len(self.archive_data['chunks']))
 
     def search(self, query: str, max_results: int = 5) -> List[str]:
         """Search archive for relevant chunks"""
@@ -207,7 +205,7 @@ class AuraMemvidCompatible:
             self.emotional_patterns = self.chroma_client.get_collection("aura_emotional_patterns")
             logger.info("✅ Connected to existing Aura collections")
         except Exception as e:
-            logger.warning(f"Could not connect to existing collections: {e}")
+            logger.warning("Could not connect to existing collections: %s", e)
             # Create new collections if they don't exist
             self.conversations = self.chroma_client.get_or_create_collection("aura_conversations")
             self.emotional_patterns = self.chroma_client.get_or_create_collection("aura_emotional_patterns")
@@ -229,9 +227,9 @@ class AuraMemvidCompatible:
                     self.archives[archive_name] = AuraArchiveRetriever(
                         str(archive_file), str(index_file)
                     )
-                    logger.info(f"Loaded archive: {archive_name}")
+                    logger.info("Loaded archive: %s", archive_name)
                 except Exception as e:
-                    logger.error(f"Failed to load archive {archive_name}: {e}")
+                    logger.error("Failed to load archive %s: %s", archive_name, e)
 
     def search_unified(self, query: str, user_id: str, max_results: int = 10) -> Dict:
         """
@@ -269,7 +267,7 @@ class AuraMemvidCompatible:
                     })
 
         except Exception as e:
-            logger.error(f"Error searching active memory: {e}")
+            logger.error("Error searching active memory: %s", e)
 
         # Search archives
         for archive_name, retriever in self.archives.items():
@@ -284,7 +282,7 @@ class AuraMemvidCompatible:
                         "metadata": result["metadata"]
                     })
             except Exception as e:
-                logger.error(f"Error searching archive {archive_name}: {e}")
+                logger.error("Error searching archive %s: %s", archive_name, e)
 
         results["total_results"] = len(results["active_results"]) + len(results["archive_results"])
         return results
@@ -353,7 +351,7 @@ class AuraMemvidCompatible:
             if ids_to_delete:
                 self.conversations.delete(ids=ids_to_delete)
 
-            logger.info(f"Archived {len(conversations_to_archive)} conversations to {archive_name}")
+            logger.info("Archived %s conversations to %s", len(conversations_to_archive), archive_name)
 
             return {
                 "archived_count": len(conversations_to_archive),
@@ -363,7 +361,7 @@ class AuraMemvidCompatible:
             }
 
         except Exception as e:
-            logger.error(f"Error archiving conversations: {e}")
+            logger.error("Error archiving conversations: %s", e)
             return {"error": str(e), "archived_count": 0}
 
     def import_knowledge_base(self, source_path: str, archive_name: str) -> Dict:
@@ -410,7 +408,7 @@ class AuraMemvidCompatible:
             }
 
         except Exception as e:
-            logger.error(f"Error importing knowledge base: {e}")
+            logger.error("Error importing knowledge base: %s", e)
             return {"error": str(e)}
 
     def get_system_stats(self) -> Dict:

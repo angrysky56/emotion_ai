@@ -7,7 +7,6 @@ Transfers conversation data from backup to current ChromaDB instance
 import sqlite3
 import chromadb
 from chromadb.config import Settings
-from datetime import datetime
 import json
 import logging
 from pathlib import Path
@@ -24,7 +23,7 @@ def copy_backup_to_temp(backup_path):
 
 def extract_collections_from_backup(backup_db_path):
     """Extract collection data from backup SQLite database"""
-    logger.info(f"📂 Extracting data from backup: {backup_db_path}")
+    logger.info("📂 Extracting data from backup: %s", backup_db_path)
     
     conn = sqlite3.connect(backup_db_path)
     cursor = conn.cursor()
@@ -32,12 +31,12 @@ def extract_collections_from_backup(backup_db_path):
     # Get all collections
     cursor.execute("SELECT id, name FROM collections")
     collections = cursor.fetchall()
-    logger.info(f"Found {len(collections)} collections in backup")
+    logger.info("Found %s collections in backup", len(collections))
     
     data = {}
     
     for collection_id, collection_name in collections:
-        logger.info(f"  Processing collection: {collection_name}")
+        logger.info("  Processing collection: %s", collection_name)
         
         # Get embeddings and metadata for this collection
         cursor.execute("""
@@ -82,14 +81,14 @@ def extract_collections_from_backup(backup_db_path):
                 })
         
         data[collection_name] = collection_data
-        logger.info(f"    Found {len(collection_data)} documents")
+        logger.info("    Found %s documents", len(collection_data))
     
     conn.close()
     return data
 
 def migrate_to_active_db(backup_data, active_db_path):
     """Migrate backup data to active ChromaDB"""
-    logger.info(f"🔄 Migrating to active database: {active_db_path}")
+    logger.info("🔄 Migrating to active database: %s", active_db_path)
     
     # Initialize ChromaDB client
     client = chromadb.PersistentClient(
@@ -105,7 +104,7 @@ def migrate_to_active_db(backup_data, active_db_path):
         if not documents:
             continue
             
-        logger.info(f"  Migrating collection: {collection_name}")
+        logger.info("  Migrating collection: %s", collection_name)
         
         # Get or create collection
         try:
@@ -114,7 +113,7 @@ def migrate_to_active_db(backup_data, active_db_path):
             # Get existing IDs to avoid duplicates
             existing = collection.get()
             existing_ids = set(existing['ids']) if existing and 'ids' in existing else set()
-            logger.info(f"    Existing documents: {len(existing_ids)}")
+            logger.info("    Existing documents: %s", len(existing_ids))
             
             # Prepare data for batch insert
             new_docs = []
@@ -149,14 +148,14 @@ def migrate_to_active_db(backup_data, active_db_path):
                         ids=new_ids[i:end_idx]
                     )
                     total_added += (end_idx - i)
-                    logger.info(f"    Added batch: {total_added}/{len(new_docs)} documents")
+                    logger.info("    Added batch: %s/%s documents", total_added, len(new_docs))
                 
-                logger.info(f"    ✅ Migrated {total_added} new documents")
+                logger.info("    ✅ Migrated %s new documents", total_added)
             else:
-                logger.info(f"    ℹ️  No new documents to migrate")
+                logger.info("    ℹ️  No new documents to migrate")
                 
         except Exception as e:
-            logger.error(f"    ❌ Error migrating {collection_name}: {e}")
+            logger.error("    ❌ Error migrating %s: %s", collection_name, e)
             continue
 
 def verify_migration(active_db_path):
@@ -183,7 +182,7 @@ def verify_migration(active_db_path):
         try:
             collection = client.get_collection(collection_name)
             count = collection.count()
-            logger.info(f"  ✅ {collection_name}: {count} documents")
+            logger.info("  ✅ %s: %s documents", collection_name, count)
             
             # Show sample of conversations
             if collection_name == "aura_conversations" and count > 0:
@@ -191,10 +190,10 @@ def verify_migration(active_db_path):
                 logger.info("    Sample conversations:")
                 for i, doc in enumerate(sample['documents'][:3]):
                     meta = sample['metadatas'][i] if sample['metadatas'] else {}
-                    logger.info(f"      - {meta.get('sender', 'unknown')}: {doc[:50]}...")
+                    logger.info("      - %s: %s...", meta.get('sender', 'unknown'), doc[:50])
                     
         except Exception as e:
-            logger.error(f"  ❌ {collection_name}: Not found or error - {e}")
+            logger.error("  ❌ %s: Not found or error - %s", collection_name, e)
 
 def main():
     """Main migration process"""
@@ -202,7 +201,7 @@ def main():
     active_db_path = Path("/home/ty/Repositories/ai_workspace/emotion_ai/aura_backend/aura_chroma_db")
     
     if not backup_db_path.exists():
-        logger.error(f"❌ Backup database not found: {backup_db_path}")
+        logger.error("❌ Backup database not found: %s", backup_db_path)
         return
     
     logger.info("🚀 Starting ChromaDB migration...")
@@ -226,7 +225,7 @@ def main():
         logger.info("✅ Migration completed successfully!")
         
     except Exception as e:
-        logger.error(f"❌ Migration failed: {e}")
+        logger.error("❌ Migration failed: %s", e)
         import traceback
         traceback.print_exc()
 

@@ -21,7 +21,7 @@ def backup_current_db(active_db_path):
     
     if active_db_path.exists():
         shutil.copytree(active_db_path, backup_path)
-        logger.info(f"📦 Created backup of current DB at: {backup_path}")
+        logger.info("📦 Created backup of current DB at: %s", backup_path)
         return backup_path
     return None
 
@@ -49,11 +49,11 @@ def migrate_chromadb_collections(backup_path, active_path):
     # Get collections from backup
     try:
         backup_collections = backup_client.list_collections()
-        logger.info(f"📂 Found {len(backup_collections)} collections in backup")
+        logger.info("📂 Found %s collections in backup", len(backup_collections))
         
         for backup_collection in backup_collections:
             collection_name = backup_collection.name
-            logger.info(f"\n🔄 Processing collection: {collection_name}")
+            logger.info("\n🔄 Processing collection: %s", collection_name)
             
             # Get all data from backup collection
             backup_data = backup_collection.get(
@@ -61,10 +61,10 @@ def migrate_chromadb_collections(backup_path, active_path):
             )
             
             if not backup_data or not backup_data.get('ids'):
-                logger.info(f"  ℹ️ No data in {collection_name}")
+                logger.info("  ℹ️ No data in %s", collection_name)
                 continue
                 
-            logger.info(f"  📊 Found {len(backup_data['ids'])} documents in backup")
+            logger.info("  📊 Found %s documents in backup", len(backup_data['ids']))
             
             # Get or create the collection in active DB
             try:
@@ -76,7 +76,7 @@ def migrate_chromadb_collections(backup_path, active_path):
                 # Get existing IDs to avoid duplicates
                 existing_data = active_collection.get(include=["metadatas"])
                 existing_ids = set(existing_data['ids']) if existing_data and 'ids' in existing_data else set()
-                logger.info(f"  📈 Active collection has {len(existing_ids)} existing documents")
+                logger.info("  📈 Active collection has %s existing documents", len(existing_ids))
                 
                 # Filter out duplicates
                 new_ids = []
@@ -107,18 +107,18 @@ def migrate_chromadb_collections(backup_path, active_path):
                         )
                         
                         total_added += (end_idx - i)
-                        logger.info(f"    ✅ Added batch: {total_added}/{len(new_ids)} documents")
+                        logger.info("    ✅ Added batch: %s/%s documents", total_added, len(new_ids))
                     
-                    logger.info(f"  ✅ Successfully migrated {total_added} new documents")
+                    logger.info("  ✅ Successfully migrated %s new documents", total_added)
                 else:
-                    logger.info(f"  ℹ️ No new documents to migrate (all already exist)")
+                    logger.info("  ℹ️ No new documents to migrate (all already exist)")
                     
             except Exception as e:
-                logger.error(f"  ❌ Error migrating {collection_name}: {e}")
+                logger.error("  ❌ Error migrating %s: %s", collection_name, e)
                 continue
                 
     except Exception as e:
-        logger.error(f"❌ Failed to access backup collections: {e}")
+        logger.error("❌ Failed to access backup collections: %s", e)
         raise
 
 def verify_migration(active_path):
@@ -134,11 +134,11 @@ def verify_migration(active_path):
     )
     
     collections = client.list_collections()
-    logger.info(f"📊 Active database has {len(collections)} collections:")
+    logger.info("📊 Active database has %s collections:", len(collections))
     
     for collection in collections:
         count = collection.count()
-        logger.info(f"\n  ✅ {collection.name}: {count} documents")
+        logger.info("\n  ✅ %s: %s documents", collection.name, count)
         
         # Show sample conversations
         if collection.name == "aura_conversations" and count > 0:
@@ -156,8 +156,8 @@ def verify_migration(active_path):
                 emotion = meta.get('emotion_name', 'N/A')
                 session = meta.get('session_id', 'N/A')[:8]
                 
-                logger.info(f"      [{sender}] (emotion: {emotion}, session: {session}...)")
-                logger.info(f"        \"{doc[:80]}...\"")
+                logger.info("      [%s] (emotion: %s, session: %s...)", sender, emotion, session)
+                logger.info("        \"%s...\"", doc[:80])
 
 def main():
     """Main migration process"""
@@ -165,14 +165,14 @@ def main():
     active_db_path = Path("/home/ty/Repositories/ai_workspace/emotion_ai/aura_backend/aura_chroma_db")
     
     if not backup_db_path.exists():
-        logger.error(f"❌ Backup path not found: {backup_db_path}")
+        logger.error("❌ Backup path not found: %s", backup_db_path)
         return
     
     logger.info("=" * 60)
     logger.info("ChromaDB Migration Tool")
     logger.info("=" * 60)
-    logger.info(f"📂 Backup source: {backup_db_path}")
-    logger.info(f"📂 Active target: {active_db_path}")
+    logger.info("📂 Backup source: %s", backup_db_path)
+    logger.info("📂 Active target: %s", active_db_path)
     
     try:
         # Create backup of current active DB
@@ -185,10 +185,10 @@ def main():
         verify_migration(active_db_path)
         
         logger.info("\n✅ Migration completed successfully!")
-        logger.info(f"ℹ️ Previous active DB backed up to: {current_backup}")
+        logger.info("ℹ️ Previous active DB backed up to: %s", current_backup)
         
     except Exception as e:
-        logger.error(f"\n❌ Migration failed: {e}")
+        logger.error("\n❌ Migration failed: %s", e)
         import traceback
         traceback.print_exc()
 

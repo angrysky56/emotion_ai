@@ -5,7 +5,6 @@ Test script to verify memvid integration with Aura
 
 import sys
 import logging
-from pathlib import Path
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -18,14 +17,14 @@ def test_memvid_import():
         logger.info("✅ Real memvid classes imported successfully")
         return True
     except ImportError as e:
-        logger.error(f"❌ Failed to import real memvid: {e}")
+        logger.error("❌ Failed to import real memvid: %s", e)
         return False
 
 def test_aura_memvid_integration():
     """Test that the Aura + memvid integration works"""
     try:
-        from aura_real_memvid import AuraRealMemvid, REAL_MEMVID_AVAILABLE
-        logger.info(f"✅ AuraRealMemvid imported, memvid available: {REAL_MEMVID_AVAILABLE}")
+        from aura_real_memvid import REAL_MEMVID_AVAILABLE
+        logger.info("✅ AuraRealMemvid imported, memvid available: %s", REAL_MEMVID_AVAILABLE)
         
         if REAL_MEMVID_AVAILABLE:
             # Test basic initialization (without ChromaDB to avoid conflicts)
@@ -33,7 +32,7 @@ def test_aura_memvid_integration():
             
             # Just test that the classes can be used
             from memvid import MemvidEncoder
-            encoder = MemvidEncoder()
+            MemvidEncoder()
             logger.info("✅ MemvidEncoder can be instantiated")
             
             return True
@@ -42,7 +41,7 @@ def test_aura_memvid_integration():
             return False
             
     except Exception as e:
-        logger.error(f"❌ Failed to test AuraRealMemvid integration: {e}")
+        logger.error("❌ Failed to test AuraRealMemvid integration: %s", e)
         return False
 
 def test_mcp_tools_integration():
@@ -60,7 +59,7 @@ def test_mcp_tools_integration():
             return False
             
     except Exception as e:
-        logger.error(f"❌ Failed to test MCP tools integration: {e}")
+        logger.error("❌ Failed to test MCP tools integration: %s", e)
         return False
 
 def main():
@@ -76,14 +75,14 @@ def main():
     
     results = {}
     for test_name, test_func in tests:
-        logger.info(f"\n🔍 Running: {test_name}")
+        logger.info("\n🔍 Running: %s", test_name)
         try:
             results[test_name] = test_func()
             status = "✅ PASSED" if results[test_name] else "❌ FAILED"
-            logger.info(f"   {status}")
+            logger.info("   %s", status)
         except Exception as e:
             results[test_name] = False
-            logger.error(f"   ❌ FAILED with exception: {e}")
+            logger.error("   ❌ FAILED with exception: %s", e)
     
     # Summary
     logger.info("\n" + "=" * 50)
@@ -94,15 +93,15 @@ def main():
     
     for test_name, passed_flag in results.items():
         status = "✅ PASS" if passed_flag else "❌ FAIL"
-        logger.info(f"   {test_name}: {status}")
+        logger.info("   %s: %s", test_name, status)
     
-    logger.info(f"\n🎯 Overall: {passed}/{total} tests passed")
+    logger.info("\n🎯 Overall: %s/%s tests passed", passed, total)
     
     if passed == total:
         logger.info("🎉 ALL TESTS PASSED! Memvid integration is working!")
         return True
     else:
-        logger.error(f"⚠️ {total - passed} tests failed. Integration needs fixes.")
+        logger.error("⚠️ %s tests failed. Integration needs fixes.", total - passed)
         return False
 
 if __name__ == "__main__":

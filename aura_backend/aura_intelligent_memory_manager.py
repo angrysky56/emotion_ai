@@ -14,17 +14,25 @@ This builds on the existing aura_real_memvid.py foundation to add intelligence.
 import asyncio
 import json
 import logging
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
-from pathlib import Path
-import dataclasses
-from dataclasses import dataclass, asdict
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 # Import existing memvid integration
 try:
-    from aura_real_memvid import get_aura_real_memvid, REAL_MEMVID_AVAILABLE
-    from aura_internal_memvid_tools import get_aura_internal_memvid_tools
+    try:
+        from aura_backend.aura_internal_memvid_tools import (
+            get_aura_internal_memvid_tools,
+        )
+        from aura_backend.aura_real_memvid import (
+            REAL_MEMVID_AVAILABLE,
+            get_aura_real_memvid,
+        )
+    except ImportError:
+        from aura_internal_memvid_tools import get_aura_internal_memvid_tools
+        from aura_real_memvid import REAL_MEMVID_AVAILABLE, get_aura_real_memvid
 except ImportError:
     REAL_MEMVID_AVAILABLE = False
     get_aura_real_memvid = None
@@ -32,8 +40,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 class MemoryArchiveType(str, Enum):
     """Types of memory archives for intelligent organization"""
+
     BOOKS = "books"
     PRINCIPLES = "principles"
     TEMPLATES = "templates"
@@ -45,13 +55,16 @@ class MemoryArchiveType(str, Enum):
     RESEARCH = "research"
     PERSONAL = "personal"
 
+
 class MemoryPriority(str, Enum):
     """Priority levels for memory importance"""
-    CRITICAL = "critical"      # Must never be lost
-    HIGH = "high"             # Very important
-    MEDIUM = "medium"         # Standard importance
-    LOW = "low"              # Can be compressed/summarized
-    DISPOSABLE = "disposable" # Can be deleted if needed
+
+    CRITICAL = "critical"  # Must never be lost
+    HIGH = "high"  # Very important
+    MEDIUM = "medium"  # Standard importance
+    LOW = "low"  # Can be compressed/summarized
+    DISPOSABLE = "disposable"  # Can be deleted if needed
+
 
 @dataclass
 class MemoryArchiveSpec:
@@ -68,16 +81,20 @@ class MemoryArchiveSpec:
         retention_days: Days to keep in active memory after archiving
         tags: List of tags for categorization and search
     """
+
     name: str
     archive_type: MemoryArchiveType
     description: str
     content_criteria: Dict[str, Any]  # Search/filter criteria
     priority: MemoryPriority = MemoryPriority.MEDIUM
     auto_update: bool = False  # Whether to automatically add new matching content
-    retention_days: Optional[int] = None  # How long to keep in active memory after archiving
-    tags: List[str] = dataclasses.field(default_factory=list)
+    retention_days: Optional[int] = (
+        None  # How long to keep in active memory after archiving
+    )
+    tags: List[str] = field(default_factory=list)
 
     # Note: __post_init__ removed - default_factory=list ensures tags is never None
+
 
 @dataclass
 class MemoryInsight:
@@ -93,15 +110,17 @@ class MemoryInsight:
         actionable: Whether the insight has actionable recommendations
         suggested_actions: List of suggested actions to take
     """
+
     category: str
     insight_type: str  # pattern, recommendation, alert, statistic
     title: str
     description: str
     confidence: float  # 0-1
     actionable: bool
-    suggested_actions: List[str] = dataclasses.field(default_factory=list)
+    suggested_actions: List[str] = field(default_factory=list)
 
     # Note: __post_init__ removed - default_factory=list ensures suggested_actions is never None
+
 
 class AuraIntelligentMemoryManager:
     """
@@ -124,13 +143,21 @@ class AuraIntelligentMemoryManager:
         self.vector_db_client = vector_db_client
 
         # Initialize the underlying memvid systems
-        if REAL_MEMVID_AVAILABLE and get_aura_real_memvid is not None and get_aura_internal_memvid_tools is not None:
+        if (
+            REAL_MEMVID_AVAILABLE
+            and get_aura_real_memvid is not None
+            and get_aura_internal_memvid_tools is not None
+        ):
             try:
-                self.memvid_system = get_aura_real_memvid(existing_chroma_client=vector_db_client)
+                self.memvid_system = get_aura_real_memvid(
+                    existing_chroma_client=vector_db_client
+                )
                 self.internal_tools = get_aura_internal_memvid_tools(vector_db_client)
-                logger.info("✅ Intelligent memory manager initialized with real memvid")
+                logger.info(
+                    "✅ Intelligent memory manager initialized with real memvid"
+                )
             except Exception as e:
-                logger.error(f"❌ Failed to initialize memvid systems: {e}")
+                logger.error("❌ Failed to initialize memvid systems: %s", e)
                 self.memvid_system = None
                 self.internal_tools = None
         else:
@@ -184,14 +211,13 @@ class AuraIntelligentMemoryManager:
         """
         try:
             if self.archive_config_path.exists():
-                with open(self.archive_config_path, 'r') as f:
+                with open(self.archive_config_path, "r") as f:
                     data = json.load(f)
                     return {
-                        name: MemoryArchiveSpec(**spec)
-                        for name, spec in data.items()
+                        name: MemoryArchiveSpec(**spec) for name, spec in data.items()
                     }
         except Exception as e:
-            logger.error(f"Failed to load archive specs: {e}")
+            logger.error("Failed to load archive specs: %s", e)
 
         return {}
 
@@ -202,14 +228,11 @@ class AuraIntelligentMemoryManager:
         Saves the current archive specifications to the configured JSON file.
         """
         try:
-            data = {
-                name: asdict(spec)
-                for name, spec in self.archive_specs.items()
-            }
-            with open(self.archive_config_path, 'w') as f:
+            data = {name: asdict(spec) for name, spec in self.archive_specs.items()}
+            with open(self.archive_config_path, "w") as f:
                 json.dump(data, f, indent=2, default=str)
         except Exception as e:
-            logger.error(f"Failed to save archive specs: {e}")
+            logger.error("Failed to save archive specs: %s", e)
 
     def _initialize_memory_hierarchies(self) -> Dict[str, Dict[str, List[str]]]:
         """
@@ -224,27 +247,29 @@ class AuraIntelligentMemoryManager:
                 "technology": ["programming", "ai", "web_development", "systems"],
                 "arts": ["literature", "music", "visual_arts", "writing"],
                 "personal": ["goals", "relationships", "experiences", "reflections"],
-                "professional": ["skills", "projects", "networking", "career"]
+                "professional": ["skills", "projects", "networking", "career"],
             },
             "content_types": {
                 "factual": ["definitions", "explanations", "data", "references"],
                 "procedural": ["instructions", "tutorials", "processes", "methods"],
                 "creative": ["ideas", "brainstorming", "inspiration", "concepts"],
                 "emotional": ["feelings", "support", "therapy", "personal_growth"],
-                "social": ["conversations", "relationships", "communication"]
+                "social": ["conversations", "relationships", "communication"],
             },
             "importance_signals": {
                 "high_value": ["bookmark", "save", "important", "remember", "critical"],
                 "reference": ["definition", "how to", "tutorial", "guide", "manual"],
                 "temporal": ["deadline", "urgent", "schedule", "appointment"],
-                "personal": ["goal", "dream", "fear", "hope", "love"]
-            }
+                "personal": ["goal", "dream", "fear", "hope", "love"],
+            },
         }
 
-    async def create_custom_archive(self,
-                                  archive_spec: MemoryArchiveSpec,
-                                  user_id: str,
-                                  execute_immediately: bool = True) -> Dict[str, Any]:
+    async def create_custom_archive(
+        self,
+        archive_spec: MemoryArchiveSpec,
+        user_id: str,
+        execute_immediately: bool = True,
+    ) -> Dict[str, Any]:
         """
         Create a custom memory archive based on sophisticated criteria.
 
@@ -268,25 +293,31 @@ class AuraIntelligentMemoryManager:
                 "archive_name": archive_spec.name,
                 "archive_type": archive_spec.archive_type.value,
                 "specification_saved": True,
-                "executed": False
+                "executed": False,
             }
 
             if execute_immediately:
                 # Execute the archive creation
-                execution_result = await self._execute_archive_creation(archive_spec, user_id)
+                execution_result = await self._execute_archive_creation(
+                    archive_spec, user_id
+                )
                 result.update(execution_result)
                 result["executed"] = execution_result.get("status") == "success"
 
-            logger.info(f"📚 Created custom archive specification: {archive_spec.name}")
+            logger.info(
+                "📚 Created custom archive specification: %s", archive_spec.name
+            )
             return result
 
         except ValueError as e:
             return {"status": "error", "message": str(e)}
         except Exception as e:
-            logger.error(f"❌ Failed to create custom archive: {e}")
+            logger.error("❌ Failed to create custom archive: %s", e)
             return {"status": "error", "message": str(e)}
 
-    async def _execute_archive_creation(self, archive_spec: MemoryArchiveSpec, user_id: str) -> Dict[str, Any]:
+    async def _execute_archive_creation(
+        self, archive_spec: MemoryArchiveSpec, user_id: str
+    ) -> Dict[str, Any]:
         """
         Execute the actual creation of a memory archive.
 
@@ -299,17 +330,22 @@ class AuraIntelligentMemoryManager:
         """
         try:
             # Step 1: Search for content matching the criteria
-            matching_content = await self._find_matching_content(archive_spec.content_criteria, user_id)
+            matching_content = await self._find_matching_content(
+                archive_spec.content_criteria, user_id
+            )
 
             if not matching_content:
                 return {
                     "status": "warning",
-                    "message": f"No content found matching criteria for '{archive_spec.name}'"
+                    "message": f"No content found matching criteria for '{archive_spec.name}'",
                 }
 
             # Step 2: Prepare content for archiving based on type
-            # Note: internal_tools availability already verified by caller
-            assert self.internal_tools is not None  # Type narrowing for static analysis
+            if self.internal_tools is None:
+                return {
+                    "status": "error",
+                    "message": "Memory internal tools not initialized or available",
+                }
 
             if archive_spec.archive_type == MemoryArchiveType.CONVERSATIONS:
                 # Use selective conversation archiving
@@ -317,7 +353,9 @@ class AuraIntelligentMemoryManager:
                     user_id=user_id,
                     search_criteria=archive_spec.content_criteria.get("query", ""),
                     archive_name=archive_spec.name,
-                    max_conversations=archive_spec.content_criteria.get("max_items", 50)
+                    max_conversations=archive_spec.content_criteria.get(
+                        "max_items", 50
+                    ),
                 )
             else:
                 # Create knowledge library
@@ -325,7 +363,7 @@ class AuraIntelligentMemoryManager:
                     {
                         "content": content["content"],
                         "source_type": archive_spec.archive_type.value,
-                        "name": content.get("metadata", {}).get("timestamp", "Unknown")
+                        "name": content.get("metadata", {}).get("timestamp", "Unknown"),
                     }
                     for content in matching_content
                 ]
@@ -333,20 +371,24 @@ class AuraIntelligentMemoryManager:
                 result = await self.internal_tools.create_knowledge_library(
                     library_name=archive_spec.name,
                     knowledge_sources=knowledge_sources,
-                    library_type=archive_spec.archive_type.value
+                    library_type=archive_spec.archive_type.value,
                 )
 
             # Step 3: Update archive with metadata
             if result.get("status") == "success":
-                await self._add_archive_metadata(archive_spec.name, archive_spec, result)
+                await self._add_archive_metadata(
+                    archive_spec.name, archive_spec, result
+                )
 
             return result
 
         except Exception as e:
-            logger.error(f"❌ Failed to execute archive creation: {e}")
+            logger.error("❌ Failed to execute archive creation: %s", e)
             return {"status": "error", "message": str(e)}
 
-    async def _find_matching_content(self, criteria: Dict[str, Any], user_id: str) -> List[Dict[str, Any]]:
+    async def _find_matching_content(
+        self, criteria: Dict[str, Any], user_id: str
+    ) -> List[Dict[str, Any]]:
         """
         Find content matching sophisticated search criteria.
 
@@ -359,7 +401,8 @@ class AuraIntelligentMemoryManager:
         """
         try:
             # Note: internal_tools availability already verified by caller
-            assert self.internal_tools is not None  # Type narrowing for static analysis
+            if self.internal_tools is None:
+                return []
 
             # Extract search parameters with clear defaults
             search_params = {
@@ -368,14 +411,14 @@ class AuraIntelligentMemoryManager:
                 "time_range": criteria.get("time_range", "all"),
                 "emotional_state": criteria.get("emotional_state", "any"),
                 "sender": criteria.get("sender", "any"),
-                "max_results": criteria.get("max_results", 100)
+                "max_results": criteria.get("max_results", 100),
             }
 
             # Perform unified search across all memory systems
             search_result = await self.internal_tools.search_all_memories(
                 query=search_params["query"],
                 user_id=user_id,
-                max_results=search_params["max_results"]
+                max_results=search_params["max_results"],
             )
 
             # Filter and transform results
@@ -394,7 +437,7 @@ class AuraIntelligentMemoryManager:
                     "content": result.get("content", ""),
                     "metadata": metadata,
                     "source": result.get("source", "unknown"),
-                    "relevance_score": result.get("score", 0)
+                    "relevance_score": result.get("score", 0),
                 }
 
                 matching_content.append(content_item)
@@ -402,14 +445,16 @@ class AuraIntelligentMemoryManager:
             # Sort by relevance score
             matching_content.sort(key=lambda x: x["relevance_score"], reverse=True)
 
-            logger.info(f"🔍 Found {len(matching_content)} items matching criteria")
+            logger.info("🔍 Found %s items matching criteria", len(matching_content))
             return matching_content
 
         except Exception as e:
-            logger.error(f"❌ Failed to find matching content: {e}")
+            logger.error("❌ Failed to find matching content: %s", e)
             return []
 
-    def _matches_content_filters(self, metadata: Dict[str, Any], search_params: Dict[str, Any]) -> bool:
+    def _matches_content_filters(
+        self, metadata: Dict[str, Any], search_params: Dict[str, Any]
+    ) -> bool:
         """
         Check if content matches the specified filters.
 
@@ -421,19 +466,26 @@ class AuraIntelligentMemoryManager:
             True if content matches all specified filters
         """
         # Sender filter
-        if (search_params["sender"] != "any" and
-            metadata.get("sender") != search_params["sender"]):
+        if (
+            search_params["sender"] != "any"
+            and metadata.get("sender") != search_params["sender"]
+        ):
             return False
 
         # Emotional state filter
-        if (search_params["emotional_state"] != "any" and
-            metadata.get("emotion_name", "").lower() != search_params["emotional_state"].lower()):
+        if (
+            search_params["emotional_state"] != "any"
+            and metadata.get("emotion_name", "").lower()
+            != search_params["emotional_state"].lower()
+        ):
             return False
 
         # Time range filter
         if search_params["time_range"] != "all":
             timestamp_str = metadata.get("timestamp", "")
-            if timestamp_str and not self._matches_time_range(timestamp_str, search_params["time_range"]):
+            if timestamp_str and not self._matches_time_range(
+                timestamp_str, search_params["time_range"]
+            ):
                 return False
 
         return True
@@ -450,7 +502,7 @@ class AuraIntelligentMemoryManager:
             True if timestamp falls within the specified range
         """
         try:
-            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
             now = datetime.now()
 
             if time_range == "today":
@@ -467,7 +519,12 @@ class AuraIntelligentMemoryManager:
         except Exception:
             return True  # Include if timestamp parsing fails
 
-    async def _add_archive_metadata(self, archive_name: str, archive_spec: MemoryArchiveSpec, creation_result: Dict[str, Any]) -> None:
+    async def _add_archive_metadata(
+        self,
+        archive_name: str,
+        archive_spec: MemoryArchiveSpec,
+        creation_result: Dict[str, Any],
+    ) -> None:
         """
         Add intelligent metadata to a newly created archive.
 
@@ -486,18 +543,18 @@ class AuraIntelligentMemoryManager:
                 "auto_update": archive_spec.auto_update,
                 "retention_days": archive_spec.retention_days,
                 "content_criteria": archive_spec.content_criteria,
-                "creation_stats": creation_result
+                "creation_stats": creation_result,
             }
 
             # Save metadata file
             metadata_path = Path(f"./memvid_data/{archive_name}_metadata.json")
-            with open(metadata_path, 'w') as f:
+            with open(metadata_path, "w") as f:
                 json.dump(metadata, f, indent=2, default=str)
 
-            logger.info(f"📝 Added metadata for archive: {archive_name}")
+            logger.info("📝 Added metadata for archive: %s", archive_name)
 
         except Exception as e:
-            logger.error(f"Failed to add archive metadata: {e}")
+            logger.error("Failed to add archive metadata: %s", e)
 
     async def suggest_archive_opportunities(self, user_id: str) -> List[Dict[str, Any]]:
         """
@@ -511,36 +568,43 @@ class AuraIntelligentMemoryManager:
         """
         try:
             self._require_memory_system("archive opportunity analysis")
-            assert self.internal_tools is not None  # Type narrowing
+            if self.internal_tools is None:
+                return []
 
             # Gather suggestions from different analysis approaches
             suggestion_generators = [
                 self._suggest_topical_archives(user_id),
                 self._suggest_emotional_archives(user_id),
-                self._suggest_knowledge_archives(user_id)
+                self._suggest_knowledge_archives(user_id),
             ]
 
             # Collect all suggestions concurrently
             all_suggestions = []
-            for suggestions in await asyncio.gather(*suggestion_generators, return_exceptions=True):
+            for suggestions in await asyncio.gather(
+                *suggestion_generators, return_exceptions=True
+            ):
                 if isinstance(suggestions, Exception):
-                    logger.warning(f"Suggestion generator failed: {suggestions}")
+                    logger.warning("Suggestion generator failed: %s", suggestions)
                     continue
                 # Type check to ensure suggestions is a list before extending
                 if isinstance(suggestions, list):
                     all_suggestions.extend(suggestions)
 
             # Sort by relevance and return top suggestions
-            all_suggestions.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
+            all_suggestions.sort(
+                key=lambda x: x.get("relevance_score", 0), reverse=True
+            )
 
-            logger.info(f"💡 Generated {len(all_suggestions)} archive suggestions for {user_id}")
+            logger.info(
+                f"💡 Generated {len(all_suggestions)} archive suggestions for {user_id}"
+            )
             return all_suggestions[:10]  # Return top 10 suggestions
 
         except ValueError as e:
-            logger.warning(f"Archive opportunities unavailable: {e}")
+            logger.warning("Archive opportunities unavailable: %s", e)
             return []
         except Exception as e:
-            logger.error(f"❌ Failed to suggest archive opportunities: {e}")
+            logger.error("❌ Failed to suggest archive opportunities: %s", e)
             return []
 
     async def _suggest_topical_archives(self, user_id: str) -> List[Dict[str, Any]]:
@@ -554,17 +618,24 @@ class AuraIntelligentMemoryManager:
             List of topical archive suggestions
         """
         # Note: Memory system availability verified by caller
-        assert self.internal_tools is not None
+        if self.internal_tools is None:
+            return []
 
         # Define topic clusters for intelligent categorization
         topic_clusters = {
-            "technology": ["programming", "coding", "development", "python", "javascript"],
+            "technology": [
+                "programming",
+                "coding",
+                "development",
+                "python",
+                "javascript",
+            ],
             "ai_ml": ["ai", "machine learning", "artificial intelligence"],
             "professional": ["work", "project", "business", "career"],
             "wellness": ["health", "fitness", "exercise", "wellness"],
             "travel": ["travel", "vacation", "trip", "adventure"],
             "learning": ["learning", "education", "study", "course"],
-            "social": ["relationships", "family", "friends", "social"]
+            "social": ["relationships", "family", "friends", "social"],
         }
 
         suggestions = []
@@ -575,24 +646,26 @@ class AuraIntelligentMemoryManager:
                 cluster_query = " OR ".join(topics)
 
                 search_result = await self.internal_tools.search_all_memories(
-                    query=cluster_query,
-                    user_id=user_id,
-                    max_results=20
+                    query=cluster_query, user_id=user_id, max_results=20
                 )
 
                 total_results = search_result.get("total_results", 0)
 
                 if total_results >= 5:  # Sufficient content threshold
-                    suggestions.append(self._create_topical_suggestion(
-                        cluster_name, topics, total_results
-                    ))
+                    suggestions.append(
+                        self._create_topical_suggestion(
+                            cluster_name, topics, total_results
+                        )
+                    )
 
         except Exception as e:
-            logger.error(f"Failed to suggest topical archives: {e}")
+            logger.error("Failed to suggest topical archives: %s", e)
 
         return suggestions
 
-    def _create_topical_suggestion(self, cluster_name: str, topics: List[str], result_count: int) -> Dict[str, Any]:
+    def _create_topical_suggestion(
+        self, cluster_name: str, topics: List[str], result_count: int
+    ) -> Dict[str, Any]:
         """
         Create a standardized topical archive suggestion.
 
@@ -612,11 +685,11 @@ class AuraIntelligentMemoryManager:
             "content_criteria": {
                 "query": " OR ".join(topics),
                 "content_type": "conversation",
-                "max_results": 50
+                "max_results": 50,
             },
             "estimated_items": result_count,
             "relevance_score": min(result_count / 10, 1.0),
-            "reasoning": f"Found {result_count} conversations in {cluster_name} domain"
+            "reasoning": f"Found {result_count} conversations in {cluster_name} domain",
         }
 
     async def _suggest_emotional_archives(self, user_id: str) -> List[Dict[str, Any]]:
@@ -630,7 +703,8 @@ class AuraIntelligentMemoryManager:
             List of emotional archive suggestions
         """
         # Note: Memory system availability verified by caller
-        assert self.internal_tools is not None
+        if self.internal_tools is None:
+            return []
 
         # Define emotional patterns for journey archiving
         emotional_patterns = ["happy", "excited", "creative", "peaceful", "curious"]
@@ -640,18 +714,18 @@ class AuraIntelligentMemoryManager:
         try:
             for emotion in emotional_patterns:
                 search_result = await self.internal_tools.search_all_memories(
-                    query=f"emotional state {emotion}",
-                    user_id=user_id,
-                    max_results=15
+                    query=f"emotional state {emotion}", user_id=user_id, max_results=15
                 )
 
                 result_count = search_result.get("total_results", 0)
 
                 if result_count >= 3:  # Minimum threshold for emotional archive
-                    suggestions.append(self._create_emotional_suggestion(emotion, result_count))
+                    suggestions.append(
+                        self._create_emotional_suggestion(emotion, result_count)
+                    )
 
         except Exception as e:
-            logger.error(f"Failed to suggest emotional archives: {e}")
+            logger.error("Failed to suggest emotional archives: %s", e)
 
         return suggestions
 
@@ -666,14 +740,15 @@ class AuraIntelligentMemoryManager:
             List of knowledge archive suggestions
         """
         # Note: Memory system availability verified by caller
-        assert self.internal_tools is not None
+        if self.internal_tools is None:
+            return []
 
         # Define knowledge domain clusters
         knowledge_domains = {
             "Science_Technology": ["science", "technology", "research", "innovation"],
             "Personal_Development": ["learning", "growth", "skill", "improvement"],
             "Creative_Projects": ["creative", "art", "design", "writing", "music"],
-            "Problem_Solving": ["problem", "solution", "debugging", "troubleshooting"]
+            "Problem_Solving": ["problem", "solution", "debugging", "troubleshooting"],
         }
 
         suggestions = []
@@ -683,24 +758,26 @@ class AuraIntelligentMemoryManager:
                 combined_query = " OR ".join(keywords)
 
                 search_result = await self.internal_tools.search_all_memories(
-                    query=combined_query,
-                    user_id=user_id,
-                    max_results=25
+                    query=combined_query, user_id=user_id, max_results=25
                 )
 
                 total_items = search_result.get("total_results", 0)
 
                 if total_items >= 4:  # Sufficient content threshold
-                    suggestions.append(self._create_knowledge_suggestion(
-                        domain_name, combined_query, total_items
-                    ))
+                    suggestions.append(
+                        self._create_knowledge_suggestion(
+                            domain_name, combined_query, total_items
+                        )
+                    )
 
         except Exception as e:
-            logger.error(f"Failed to suggest knowledge archives: {e}")
+            logger.error("Failed to suggest knowledge archives: %s", e)
 
         return suggestions
 
-    def _create_emotional_suggestion(self, emotion: str, result_count: int) -> Dict[str, Any]:
+    def _create_emotional_suggestion(
+        self, emotion: str, result_count: int
+    ) -> Dict[str, Any]:
         """
         Create a standardized emotional archive suggestion.
 
@@ -719,14 +796,16 @@ class AuraIntelligentMemoryManager:
             "content_criteria": {
                 "query": emotion,
                 "emotional_state": emotion,
-                "max_results": 30
+                "max_results": 30,
             },
             "estimated_items": result_count,
             "relevance_score": min(result_count / 8, 1.0),
-            "reasoning": f"Found {result_count} moments with {emotion} emotional state"
+            "reasoning": f"Found {result_count} moments with {emotion} emotional state",
         }
 
-    def _create_knowledge_suggestion(self, domain_name: str, query: str, total_items: int) -> Dict[str, Any]:
+    def _create_knowledge_suggestion(
+        self, domain_name: str, query: str, total_items: int
+    ) -> Dict[str, Any]:
         """
         Create a standardized knowledge archive suggestion.
 
@@ -746,11 +825,11 @@ class AuraIntelligentMemoryManager:
             "content_criteria": {
                 "query": query,
                 "content_type": "knowledge",
-                "max_results": 40
+                "max_results": 40,
             },
             "estimated_items": total_items,
             "relevance_score": min(total_items / 12, 1.0),
-            "reasoning": f"Knowledge cluster identified in {domain_name.replace('_', ' ').lower()}"
+            "reasoning": f"Knowledge cluster identified in {domain_name.replace('_', ' ').lower()}",
         }
 
     async def get_memory_navigation_map(self, user_id: str) -> Dict[str, Any]:
@@ -766,29 +845,37 @@ class AuraIntelligentMemoryManager:
         """
         try:
             self._require_memory_system("memory navigation map generation")
-            assert self.internal_tools is not None
+            if self.internal_tools is None:
+                return {
+                    "status": "error",
+                    "message": "Memory internal tools not available",
+                }
 
             # Gather navigation data concurrently where possible
             archives_task = self.internal_tools.list_video_archives()
             organization_task = self.internal_tools.organize_memory_categories()
 
-            archives, organization = await asyncio.gather(archives_task, organization_task)
+            archives, organization = await asyncio.gather(
+                archives_task, organization_task
+            )
 
             # Build comprehensive navigation structure
             navigation_map = await self._build_navigation_structure(
                 archives, organization, user_id
             )
 
-            logger.info(f"🗺️ Generated memory navigation map for {user_id}")
+            logger.info("🗺️ Generated memory navigation map for %s", user_id)
             return {"status": "success", "navigation_map": navigation_map}
 
         except ValueError as e:
             return {"status": "error", "message": str(e)}
         except Exception as e:
-            logger.error(f"❌ Failed to create memory navigation map: {e}")
+            logger.error("❌ Failed to create memory navigation map: %s", e)
             return {"status": "error", "message": str(e)}
 
-    async def _build_navigation_structure(self, archives: Dict[str, Any], organization: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    async def _build_navigation_structure(
+        self, archives: Dict[str, Any], organization: Dict[str, Any], user_id: str
+    ) -> Dict[str, Any]:
         """
         Build the complete navigation structure with all components.
 
@@ -812,10 +899,10 @@ class AuraIntelligentMemoryManager:
 
         # Handle potential errors in parallel tasks
         if isinstance(quick_access, Exception):
-            logger.warning(f"Quick access generation failed: {quick_access}")
+            logger.warning("Quick access generation failed: %s", quick_access)
             quick_access = []
         if isinstance(recommendations, Exception):
-            logger.warning(f"Recommendations generation failed: {recommendations}")
+            logger.warning("Recommendations generation failed: %s", recommendations)
             recommendations = []
 
         return {
@@ -826,7 +913,7 @@ class AuraIntelligentMemoryManager:
             "quick_access": quick_access,
             "recommendations": recommendations,
             "search_hints": self._generate_search_hints(),
-            "last_updated": datetime.now().isoformat()
+            "last_updated": datetime.now().isoformat(),
         }
 
     def _build_archive_hierarchy(self, categories: Dict[str, Any]) -> Dict[str, Any]:
@@ -842,45 +929,53 @@ class AuraIntelligentMemoryManager:
         hierarchy = {
             "knowledge_bases": {
                 "description": "Organized knowledge and reference materials",
-                "categories": []
+                "categories": [],
             },
             "conversation_archives": {
                 "description": "Archived conversations by topic and time",
-                "categories": []
+                "categories": [],
             },
             "specialized_libraries": {
                 "description": "Domain-specific knowledge collections",
-                "categories": []
-            }
+                "categories": [],
+            },
         }
 
         # Categorize archives into hierarchy
         for category, data in categories.items():
             if category in ["books", "knowledge", "references"]:
-                hierarchy["knowledge_bases"]["categories"].append({
-                    "name": category,
-                    "count": data["count"],
-                    "size_mb": data["total_size_mb"],
-                    "archives": data["archives"]
-                })
+                hierarchy["knowledge_bases"]["categories"].append(
+                    {
+                        "name": category,
+                        "count": data["count"],
+                        "size_mb": data["total_size_mb"],
+                        "archives": data["archives"],
+                    }
+                )
             elif category in ["conversations"]:
-                hierarchy["conversation_archives"]["categories"].append({
-                    "name": category,
-                    "count": data["count"],
-                    "size_mb": data["total_size_mb"],
-                    "archives": data["archives"]
-                })
+                hierarchy["conversation_archives"]["categories"].append(
+                    {
+                        "name": category,
+                        "count": data["count"],
+                        "size_mb": data["total_size_mb"],
+                        "archives": data["archives"],
+                    }
+                )
             else:
-                hierarchy["specialized_libraries"]["categories"].append({
-                    "name": category,
-                    "count": data["count"],
-                    "size_mb": data["total_size_mb"],
-                    "archives": data["archives"]
-                })
+                hierarchy["specialized_libraries"]["categories"].append(
+                    {
+                        "name": category,
+                        "count": data["count"],
+                        "size_mb": data["total_size_mb"],
+                        "archives": data["archives"],
+                    }
+                )
 
         return hierarchy
 
-    async def _identify_quick_access_archives(self, user_id: str) -> List[Dict[str, Any]]:
+    async def _identify_quick_access_archives(
+        self, user_id: str
+    ) -> List[Dict[str, Any]]:
         """
         Identify frequently accessed or important archives for quick access.
 
@@ -903,17 +998,19 @@ class AuraIntelligentMemoryManager:
 
             quick_access = []
             for archive in archives[:5]:  # Top 5 by size
-                quick_access.append({
-                    "name": archive["name"],
-                    "size_mb": archive.get("video_size_mb", 0),
-                    "type": "large_archive",
-                    "reason": "Large knowledge base"
-                })
+                quick_access.append(
+                    {
+                        "name": archive["name"],
+                        "size_mb": archive.get("video_size_mb", 0),
+                        "type": "large_archive",
+                        "reason": "Large knowledge base",
+                    }
+                )
 
             return quick_access
 
         except Exception as e:
-            logger.error(f"Failed to identify quick access archives: {e}")
+            logger.error("Failed to identify quick access archives: %s", e)
             return []
 
     async def _generate_navigation_recommendations(self, user_id: str) -> List[str]:
@@ -930,7 +1027,7 @@ class AuraIntelligentMemoryManager:
             "Use 'search_all_memories' for comprehensive searches across all archives",
             "Create topical archives for frequently discussed subjects",
             "Archive old conversations periodically to keep active memory efficient",
-            "Use descriptive names for archives to improve findability"
+            "Use descriptive names for archives to improve findability",
         ]
 
         try:
@@ -944,14 +1041,19 @@ class AuraIntelligentMemoryManager:
             total_conversations = active_memory.get("conversations", 0)
 
             if total_conversations > 1000:
-                recommendations.insert(0, "Consider archiving older conversations - you have a large active memory")
+                recommendations.insert(
+                    0,
+                    "Consider archiving older conversations - you have a large active memory",
+                )
 
             video_archives = stats.get("video_archives", {})
             if len(video_archives) > 10:
-                recommendations.append("Consider organizing archives into categories for better navigation")
+                recommendations.append(
+                    "Consider organizing archives into categories for better navigation"
+                )
 
         except Exception as e:
-            logger.error(f"Failed to generate navigation recommendations: {e}")
+            logger.error("Failed to generate navigation recommendations: %s", e)
 
         return recommendations
 
@@ -968,7 +1070,7 @@ class AuraIntelligentMemoryManager:
             "Search by time: combine with 'recent', 'last month', 'yesterday'",
             "Search by type: 'questions I asked', 'problems solved', 'ideas shared'",
             "Use quotes for exact phrases: '\"machine learning basics\"'",
-            "Combine terms: 'python AND tutorial', 'travel OR vacation'"
+            "Combine terms: 'python AND tutorial', 'travel OR vacation'",
         ]
 
     async def auto_organize_memory(self, user_id: str) -> Dict[str, Any]:
@@ -984,14 +1086,20 @@ class AuraIntelligentMemoryManager:
         """
         try:
             self._require_memory_system("auto-organization")
-            assert self.internal_tools is not None
+            if self.internal_tools is None:
+                return {
+                    "status": "error",
+                    "message": "Memory internal tools not available",
+                }
 
             # Initialize organization tracking
             organization_tracker = self._create_organization_tracker()
 
             # Step 1: Analyze current memory state and auto-archive if needed
             initial_stats = await self.internal_tools.get_memory_statistics()
-            await self._auto_archive_if_needed(user_id, initial_stats, organization_tracker)
+            await self._auto_archive_if_needed(
+                user_id, initial_stats, organization_tracker
+            )
 
             # Step 2: Generate and process archive suggestions
             await self._process_archive_suggestions(user_id, organization_tracker)
@@ -1002,9 +1110,10 @@ class AuraIntelligentMemoryManager:
             )
 
             logger.info(
-                f"🤖 Auto-organized memory for {user_id}: "
-                f"{organization_tracker['archives_created']} archives created, "
-                f"{organization_tracker['conversations_archived']} conversations archived"
+                "🤖 Auto-organized memory for %s: %s archives created, %s conversations archived",
+                user_id,
+                organization_tracker["archives_created"],
+                organization_tracker["conversations_archived"],
             )
 
             return organization_tracker
@@ -1012,7 +1121,7 @@ class AuraIntelligentMemoryManager:
         except ValueError as e:
             return {"status": "error", "message": str(e)}
         except Exception as e:
-            logger.error(f"❌ Failed to auto-organize memory: {e}")
+            logger.error("❌ Failed to auto-organize memory: %s", e)
             return {"status": "error", "message": str(e)}
 
     def _create_organization_tracker(self) -> Dict[str, Any]:
@@ -1028,10 +1137,12 @@ class AuraIntelligentMemoryManager:
             "suggestions_created": [],
             "archives_created": 0,
             "conversations_archived": 0,
-            "efficiency_gained": 0
+            "efficiency_gained": 0,
         }
 
-    async def _auto_archive_if_needed(self, user_id: str, stats: Dict[str, Any], tracker: Dict[str, Any]) -> None:
+    async def _auto_archive_if_needed(
+        self, user_id: str, stats: Dict[str, Any], tracker: Dict[str, Any]
+    ) -> None:
         """
         Auto-archive old conversations if memory usage is high.
 
@@ -1040,22 +1151,26 @@ class AuraIntelligentMemoryManager:
             stats: Current memory statistics
             tracker: Organization tracker to update with results
         """
-        assert self.internal_tools is not None
+        if self.internal_tools is None:
+            return
 
         active_conversations = stats.get("active_memory", {}).get("conversations", 0)
 
         if active_conversations > 500:  # Memory threshold
             archive_result = await self.internal_tools.archive_old_conversations(
-                user_id=user_id,
-                codec="h264"
+                user_id=user_id, codec="h264"
             )
 
             if archive_result.get("status") == "success":
                 archived_count = archive_result.get("archived_count", 0)
-                tracker["actions_taken"].append(f"Auto-archived {archived_count} old conversations")
+                tracker["actions_taken"].append(
+                    f"Auto-archived {archived_count} old conversations"
+                )
                 tracker["conversations_archived"] = archived_count
 
-    async def _process_archive_suggestions(self, user_id: str, tracker: Dict[str, Any]) -> None:
+    async def _process_archive_suggestions(
+        self, user_id: str, tracker: Dict[str, Any]
+    ) -> None:
         """
         Process archive suggestions and auto-create high-confidence ones.
 
@@ -1068,19 +1183,31 @@ class AuraIntelligentMemoryManager:
         high_confidence_threshold = 0.8
 
         # Separate high and low confidence suggestions
-        high_confidence = [s for s in suggestions if s.get("relevance_score", 0) > high_confidence_threshold]
-        low_confidence = [s for s in suggestions if s.get("relevance_score", 0) <= high_confidence_threshold]
+        high_confidence = [
+            s
+            for s in suggestions
+            if s.get("relevance_score", 0) > high_confidence_threshold
+        ]
+        low_confidence = [
+            s
+            for s in suggestions
+            if s.get("relevance_score", 0) <= high_confidence_threshold
+        ]
 
         # Auto-create high-confidence archives
         for suggestion in high_confidence:
-            success = await self._try_create_suggested_archive(suggestion, user_id, tracker)
+            success = await self._try_create_suggested_archive(
+                suggestion, user_id, tracker
+            )
             if success:
                 tracker["archives_created"] += 1
 
         # Add low-confidence suggestions for user review
         tracker["suggestions_created"].extend(low_confidence)
 
-    async def _try_create_suggested_archive(self, suggestion: Dict[str, Any], user_id: str, tracker: Dict[str, Any]) -> bool:
+    async def _try_create_suggested_archive(
+        self, suggestion: Dict[str, Any], user_id: str, tracker: Dict[str, Any]
+    ) -> bool:
         """
         Attempt to create an archive from a suggestion.
 
@@ -1099,25 +1226,29 @@ class AuraIntelligentMemoryManager:
                 description=suggestion["description"],
                 content_criteria=suggestion["content_criteria"],
                 priority=MemoryPriority.MEDIUM,
-                auto_update=False
+                auto_update=False,
             )
 
             create_result = await self.create_custom_archive(
-                archive_spec=archive_spec,
-                user_id=user_id,
-                execute_immediately=True
+                archive_spec=archive_spec, user_id=user_id, execute_immediately=True
             )
 
             if create_result.get("executed"):
-                tracker["actions_taken"].append(f"Auto-created archive: {suggestion['suggested_name']}")
+                tracker["actions_taken"].append(
+                    f"Auto-created archive: {suggestion['suggested_name']}"
+                )
                 return True
 
         except Exception as e:
-            logger.error(f"Failed to auto-create archive {suggestion['suggested_name']}: {e}")
+            logger.error(
+                "Failed to auto-create archive %s: %s", suggestion["suggested_name"], e
+            )
 
         return False
 
-    async def _calculate_efficiency_improvements(self, initial_stats: Dict[str, Any], tracker: Dict[str, Any]) -> None:
+    async def _calculate_efficiency_improvements(
+        self, initial_stats: Dict[str, Any], tracker: Dict[str, Any]
+    ) -> None:
         """
         Calculate and record efficiency improvements from organization.
 
@@ -1125,21 +1256,30 @@ class AuraIntelligentMemoryManager:
             initial_stats: Memory statistics before organization
             tracker: Organization tracker to update with efficiency metrics
         """
-        assert self.internal_tools is not None
+        if self.internal_tools is None:
+            return
 
         new_stats = await self.internal_tools.get_memory_statistics()
 
-        initial_conversations = initial_stats.get("active_memory", {}).get("conversations", 0)
+        initial_conversations = initial_stats.get("active_memory", {}).get(
+            "conversations", 0
+        )
         new_conversations = new_stats.get("active_memory", {}).get("conversations", 0)
 
         if new_conversations < initial_conversations:
-            efficiency_improvement = ((initial_conversations - new_conversations) / initial_conversations) * 100
+            efficiency_improvement = (
+                (initial_conversations - new_conversations) / initial_conversations
+            ) * 100
             tracker["efficiency_gained"] = round(efficiency_improvement, 1)
+
 
 # Global instance
 _intelligent_memory_manager: Optional[AuraIntelligentMemoryManager] = None
 
-def get_intelligent_memory_manager(vector_db_client: Optional[Any] = None) -> AuraIntelligentMemoryManager:
+
+def get_intelligent_memory_manager(
+    vector_db_client: Optional[Any] = None,
+) -> AuraIntelligentMemoryManager:
     """
     Get or create the intelligent memory manager instance.
 
@@ -1153,6 +1293,7 @@ def get_intelligent_memory_manager(vector_db_client: Optional[Any] = None) -> Au
     if _intelligent_memory_manager is None:
         _intelligent_memory_manager = AuraIntelligentMemoryManager(vector_db_client)
     return _intelligent_memory_manager
+
 
 def reset_intelligent_memory_manager() -> None:
     """

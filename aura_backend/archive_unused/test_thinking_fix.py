@@ -80,15 +80,15 @@ async def test_thinking_fix():
         print(f"⏱️ Processing time: {result.processing_time_ms:.1f}ms")
         
         if result.has_thinking:
-            print(f"\n💭 THINKING SUMMARY:")
+            print("\n💭 THINKING SUMMARY:")
             print(f"{result.thinking_summary}")
             
-            print(f"\n🧠 FULL THINKING (first 300 chars):")
+            print("\n🧠 FULL THINKING (first 300 chars):")
             print(f"{result.thoughts[:300]}{'...' if len(result.thoughts) > 300 else ''}")
         else:
             print("\n⚠️ No thinking detected")
         
-        print(f"\n💬 FINAL ANSWER:")
+        print("\n💬 FINAL ANSWER:")
         print(f"{result.answer}")
         
         # Check if thinking leaked into answer
@@ -100,7 +100,7 @@ async def test_thinking_fix():
         answer_lower = result.answer.lower()
         leaked_thinking = any(indicator in answer_lower for indicator in thinking_indicators)
         
-        print(f"\n🔍 LEAK CHECK:")
+        print("\n🔍 LEAK CHECK:")
         print(f"Thinking leaked into answer: {'❌ YES' if leaked_thinking else '✅ NO'}")
         
         if leaked_thinking:

@@ -61,7 +61,7 @@ async def test_thinking():
         # Send message
         result = chat.send_message(test_message)
 
-        print(f"📥 Response received!")
+        print("📥 Response received!")
         print(f"🔍 Response type: {type(result)}")
         print(f"🔍 Candidates: {len(result.candidates) if result.candidates else 0}")
 
@@ -86,7 +86,7 @@ async def test_thinking():
                     print(f"    - thought preview: {part.thought[:100]}...")
                     thinking_found = True
 
-            print(f"\n📄 Full Response:")
+            print("\n📄 Full Response:")
             print(f"{full_response}")
 
             print(f"\n🧠 Thinking Status: {'✅ Found' if thinking_found else '❌ Not Found'}")

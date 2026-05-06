@@ -8,11 +8,9 @@ with conversation persistence and retrieval.
 """
 
 import sys
-import json
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any
 
 # Add the backend directory to the path
 sys.path.append(str(Path(__file__).parent))

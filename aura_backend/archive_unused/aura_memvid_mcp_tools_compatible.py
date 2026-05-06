@@ -3,10 +3,9 @@ Aura Memvid-Compatible MCP Tools
 Provides memvid-like archival functionality without dependency conflicts
 """
 
-from fastmcp import FastMCP
 import mcp.types as types
 from pydantic import BaseModel
-from typing import Dict, List, Any, Optional
+from typing import Optional
 import json
 import logging
 
@@ -65,7 +64,7 @@ def add_compatible_memvid_tools(mcp_server):
             )
             
         except Exception as e:
-            logger.error(f"Error in hybrid memory search: {e}")
+            logger.error("Error in hybrid memory search: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -108,7 +107,7 @@ def add_compatible_memvid_tools(mcp_server):
             )
             
         except Exception as e:
-            logger.error(f"Error archiving conversations: {e}")
+            logger.error("Error archiving conversations: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -152,7 +151,7 @@ def add_compatible_memvid_tools(mcp_server):
             )
             
         except Exception as e:
-            logger.error(f"Error importing knowledge archive: {e}")
+            logger.error("Error importing knowledge archive: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -198,7 +197,7 @@ def add_compatible_memvid_tools(mcp_server):
             )
             
         except Exception as e:
-            logger.error(f"Error getting system stats: {e}")
+            logger.error("Error getting system stats: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -242,7 +241,7 @@ def add_compatible_memvid_tools(mcp_server):
             )
             
         except Exception as e:
-            logger.error(f"Error listing archives: {e}")
+            logger.error("Error listing archives: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",

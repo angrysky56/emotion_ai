@@ -11,97 +11,76 @@ Core backend system for Aura (Adaptive Reflective Companion) featuring:
 - MCP client integration for extended capabilities
 """
 
+import asyncio
 import json
 import logging
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, asdict
-from enum import Enum
+import os
+import re
+import sqlite3
+import sys
 import uuid
 from contextlib import asynccontextmanager
-import asyncio
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Annotated, Any, Dict, List, Optional, Tuple
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-from google.genai import types
-from google import genai
-
-from dotenv import load_dotenv
-import os
 import aiofiles
+import numpy as np
+import uvicorn
+from dotenv import load_dotenv
+from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from google import genai
+from pydantic import BaseModel, Field
 
-# Import MCP-Gemini Bridge
-from mcp_to_gemini_bridge import MCPGeminiBridge
+# Add the parent directory to sys.path to support absolute imports from aura_backend package
+# when running main.py directly from the aura_backend directory.
+_current_dir = Path(__file__).resolve().parent
+if _current_dir.name == "aura_backend":
+    _parent_dir = _current_dir.parent
+    if str(_parent_dir) not in sys.path:
+        sys.path.insert(0, str(_parent_dir))
 
-# Import FIXED thinking processor
-from thinking_processor import ThinkingProcessor, ThinkingResult
 
-# Import JSON serialization fix for NumPy types
-try:
-    from json_serialization_fix import ensure_json_serializable
-except ImportError:
-    logging.warning("JSON serialization fix not available, using fallback")
-    # Fallback implementation
-    def ensure_json_serializable(data: Any) -> Any:
-        """Basic fallback for JSON serialization"""
-        import numpy as np
-
-        def convert_numpy(obj):
-            if isinstance(obj, np.integer):
-                return int(obj)
-            elif isinstance(obj, np.floating):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            elif isinstance(obj, np.bool_):
-                return bool(obj)
-            elif isinstance(obj, dict):
-                return {key: convert_numpy(value) for key, value in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_numpy(item) for item in obj]
-            elif isinstance(obj, tuple):
-                return tuple(convert_numpy(item) for item in obj)
-            else:
-                return obj
-
-        return convert_numpy(data)
-
-# Import MCP integration
-from mcp_system import (
-    initialize_mcp_system,
-    shutdown_mcp_system,
-    get_mcp_status,
-    get_mcp_bridge,
-    get_all_available_tools
-)
-from mcp_integration import (
-    execute_mcp_tool,
-    mcp_router,
-)
-from aura_internal_tools import AuraInternalTools
-
-# Import Autonomic Nervous System
-from aura_autonomic_system import (
+# Local package imports
+from aura_backend.aura_autonomic_system import (  # noqa: E402
+    AutonomicNervousSystem,
     initialize_autonomic_system,
     shutdown_autonomic_system,
-    AutonomicNervousSystem
 )
-
-# Import the battle-tested persistence services (restored)
-from conversation_persistence_service import ConversationPersistenceService, ConversationExchange
-from memvid_archival_service import MemvidArchivalService
-
-# Import the robust vector DB with SQLite-level concurrency control
-from robust_vector_db import RobustAuraVectorDB as AuraVectorDB
-
-# Import database protection service (CRITICAL FOR DATA INTEGRITY)
-from database_protection import (
+from aura_backend.aura_internal_tools import AuraInternalTools  # noqa: E402
+from aura_backend.conversation_persistence_service import (  # noqa: E402
+    ConversationExchange,
+    ConversationPersistenceService,
+    PersistenceHealthCheck,
+)
+from aura_backend.database_protection import (  # noqa: E402
     DatabaseProtectionService,
     get_protection_service,
 )
+from aura_backend.mcp_integration import (  # noqa: E402
+    execute_mcp_tool,
+    mcp_router,
+)
+from aura_backend.mcp_system import (  # noqa: E402
+    get_all_available_tools,
+    get_mcp_bridge,
+    get_mcp_client,
+    get_mcp_status,
+    initialize_mcp_system,
+    shutdown_mcp_system,
+)
+from aura_backend.mcp_to_gemini_bridge import MCPGeminiBridge  # noqa: E402
+from aura_backend.memvid_archival_service import MemvidArchivalService  # noqa: E402
+from aura_backend.providers.base import BaseProvider, Message  # noqa: E402
+from aura_backend.providers.factory import ModelProviderFactory  # noqa: E402
+from aura_backend.robust_vector_db import (  # noqa: E402
+    RobustAuraVectorDB as AuraVectorDB,
+)
+from aura_backend.shared_embedding_service import get_embedding_service  # noqa: E402
+from aura_backend.thinking_processor import ThinkingProcessor  # noqa: E402
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -110,27 +89,54 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-budget = int(os.getenv('THINKING_BUDGET', '-1'))  # Default to adaptive thinking
+budget = int(os.getenv("THINKING_BUDGET", "-1"))  # Default to adaptive thinking
 # Use adaptive thinking (-1) as intended by Google, don't impose artificial limits
 thinking_budget = budget
-logger.info(f"🧠 Thinking budget configured: {thinking_budget} tokens (adaptive)" if budget == -1 else f"🧠 Thinking budget configured: {thinking_budget} tokens")
+if budget == -1:
+    logger.info("🧠 Thinking budget configured: %s tokens (adaptive)", thinking_budget)
+else:
+    logger.info("🧠 Thinking budget configured: %s tokens", thinking_budget)
 
-# Load and configure Gemini API
-api_key = os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
-if not api_key:
-    logger.error("❌ GEMINI_API_KEY or GOOGLE_API_KEY not found in environment variables")
-    raise ValueError("GEMINI_API_KEY environment variable is required")
-
-client = genai.Client(api_key=api_key)
+# The client and provider will be initialized in the lifespan
+provider: Optional[BaseProvider] = None
+thinking_processor: Optional[ThinkingProcessor] = None
+mcp_gemini_bridge: Optional[MCPGeminiBridge] = None
+client: Optional[genai.Client] = None
+model_provider_factory = ModelProviderFactory()
 
 # Initialize shared embedding service (replaces individual SentenceTransformer instances)
-from shared_embedding_service import get_embedding_service
 embedding_service = get_embedding_service()
+
+
+def ensure_json_serializable(data: Any) -> Any:
+    """Basic fallback for JSON serialization"""
+
+    def convert_numpy(obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, dict):
+            return {key: convert_numpy(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_numpy(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return tuple(convert_numpy(item) for item in obj)
+        else:
+            return obj
+
+    return convert_numpy(data)
+
 
 class EmotionalIntensity(str, Enum):
     LOW = "Low"
     MEDIUM = "Medium"
     HIGH = "High"
+
 
 class AsekeComponent(str, Enum):
     KS = "KS"  # Knowledge Substrate
@@ -141,6 +147,7 @@ class AsekeComponent(str, Enum):
     ESA = "ESA"  # Emotional State Algorithms
     SDA = "SDA"  # Sociobiological Drives
     LEARNING = "Learning"
+
 
 @dataclass
 class EmotionalStateData:
@@ -159,6 +166,7 @@ class EmotionalStateData:
         if self.timestamp is None:
             self.timestamp = datetime.now()
 
+
 @dataclass
 class CognitiveState:
     focus: AsekeComponent
@@ -169,6 +177,7 @@ class CognitiveState:
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.now()
+
 
 @dataclass
 class ConversationMemory:
@@ -186,6 +195,7 @@ class ConversationMemory:
             self.timestamp = datetime.now()
         if self.session_id is None:
             self.session_id = str(uuid.uuid4())
+
 
 class AuraFileSystem:
     """
@@ -227,7 +237,9 @@ class AuraFileSystem:
         (self.base_path / "exports").mkdir(exist_ok=True)
         (self.base_path / "backups").mkdir(exist_ok=True)
 
-    async def save_user_profile(self, user_id: str, profile_data: Dict[str, Any]) -> str:
+    async def save_user_profile(
+        self, user_id: str, profile_data: Dict[str, Any]
+    ) -> str:
         """
         Save user profile data with enhanced metadata and validation.
 
@@ -257,19 +269,18 @@ class AuraFileSystem:
             profile_path = self.base_path / "users" / f"{user_id}.json"
 
             # Add metadata
-            profile_data.update({
-                "last_updated": datetime.now().isoformat(),
-                "user_id": user_id
-            })
+            profile_data.update(
+                {"last_updated": datetime.now().isoformat(), "user_id": user_id}
+            )
 
-            async with aiofiles.open(profile_path, 'w') as f:
+            async with aiofiles.open(profile_path, "w") as f:
                 await f.write(json.dumps(profile_data, indent=2, default=str))
 
-            logger.info(f"💾 Saved user profile: {user_id}")
+            logger.info("💾 Saved user profile: %s", user_id)
             return str(profile_path)
 
         except Exception as e:
-            logger.error(f"❌ Failed to save user profile: {e}")
+            logger.error("❌ Failed to save user profile: %s", e)
             raise
 
     async def load_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -306,15 +317,17 @@ class AuraFileSystem:
             if not profile_path.exists():
                 return None
 
-            async with aiofiles.open(profile_path, 'r') as f:
+            async with aiofiles.open(profile_path, "r") as f:
                 content = await f.read()
                 return json.loads(content)
 
         except Exception as e:
-            logger.error(f"❌ Failed to load user profile: {e}")
+            logger.error("❌ Failed to load user profile: %s", e)
             return None
 
-    async def export_conversation_history(self, user_id: str, format: str = "json") -> str:
+    async def export_conversation_history(
+        self, user_id: str, output_format: str = "json"
+    ) -> str:
         """
         Export conversation history in various formats for data portability.
 
@@ -324,7 +337,7 @@ class AuraFileSystem:
 
         Args:
             user_id: Unique identifier for the user whose data to export
-            format: Output format specification (default: "json")
+            output_format: Output format specification (default: "json")
                    Supported formats: "json", "csv", "xml", "yaml"
 
         Returns:
@@ -333,13 +346,13 @@ class AuraFileSystem:
         Export Structure:
             - user_id: User identifier
             - export_timestamp: ISO timestamp of export generation
-            - format: Export format specification
+            - output_format: Export format specification
             - conversations: Complete conversation history
             - emotional_patterns: Temporal emotional analysis data
             - cognitive_patterns: ASEKE cognitive focus patterns
 
         Raises:
-            ValueError: If format is not supported
+            ValueError: If output_format is not supported
             OSError: If file write operations fail
             json.JSONEncodeError: If data serialization fails
 
@@ -350,29 +363,30 @@ class AuraFileSystem:
         """
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"conversation_export_{user_id}_{timestamp}.{format}"
+            filename = f"conversation_export_{user_id}_{timestamp}.{output_format}"
             export_path = self.base_path / "exports" / filename
 
             # This would integrate with the vector DB to get conversation history
             export_data = {
                 "user_id": user_id,
                 "export_timestamp": datetime.now().isoformat(),
-                "format": format,
+                "format": output_format,
                 "conversations": [],  # Would be populated from vector DB
                 "emotional_patterns": [],  # Would be populated from vector DB
-                "cognitive_patterns": []  # Would be populated from vector DB
+                "cognitive_patterns": [],  # Would be populated from vector DB
             }
 
-            if format == "json":
-                async with aiofiles.open(export_path, 'w') as f:
+            if output_format == "json":
+                async with aiofiles.open(export_path, "w") as f:
                     await f.write(json.dumps(export_data, indent=2, default=str))
 
-            logger.info(f"📤 Exported conversation history: {filename}")
+            logger.info("📤 Exported conversation history: %s", filename)
             return str(export_path)
 
         except Exception as e:
-            logger.error(f"❌ Failed to export conversation history: {e}")
+            logger.error("❌ Failed to export conversation history: %s", e)
             raise
+
 
 class AuraStateManager:
     """
@@ -395,7 +409,9 @@ class AuraStateManager:
         - State history preservation and analysis
     """
 
-    def __init__(self, vector_db: AuraVectorDB, aura_file_system: AuraFileSystem) -> None:
+    def __init__(
+        self, vector_db: AuraVectorDB, aura_file_system: AuraFileSystem
+    ) -> None:
         """
         Initialize the state manager with required dependencies.
 
@@ -414,7 +430,7 @@ class AuraStateManager:
         self,
         user_id: str,
         old_state: Optional[EmotionalStateData],
-        new_state: EmotionalStateData
+        new_state: EmotionalStateData,
     ) -> None:
         """
         Execute automated actions in response to emotional state transitions.
@@ -455,7 +471,9 @@ class AuraStateManager:
 
             # Check for significant changes
             if old_state and old_state.name != new_state.name:
-                logger.info(f"🎭 Emotional transition: {old_state.name} → {new_state.name}")
+                logger.info(
+                    f"🎭 Emotional transition: {old_state.name} → {new_state.name}"
+                )
 
                 # Trigger specific actions based on transitions
                 await self._handle_emotional_transition(user_id, old_state, new_state)
@@ -466,13 +484,10 @@ class AuraStateManager:
             await self.aura_file_system.save_user_profile(user_id, profile)
 
         except Exception as e:
-            logger.error(f"❌ Failed to handle emotional state change: {e}")
+            logger.error("❌ Failed to handle emotional state change: %s", e)
 
     async def _handle_emotional_transition(
-        self,
-        user_id: str,
-        old_state: EmotionalStateData,
-        new_state: EmotionalStateData
+        self, user_id: str, old_state: EmotionalStateData, new_state: EmotionalStateData
     ):
         """Handle specific emotional transitions"""
         # Define concerning transitions
@@ -480,7 +495,7 @@ class AuraStateManager:
             ("Happy", "Sad"),
             ("Joy", "Angry"),
             ("Peace", "Angry"),
-            ("Normal", "Sad")
+            ("Normal", "Sad"),
         ]
 
         transition = (old_state.name, new_state.name)
@@ -491,17 +506,19 @@ class AuraStateManager:
                 "type": "emotional_support",
                 "transition": transition,
                 "timestamp": datetime.now().isoformat(),
-                "suggestion": f"Noticed transition from {old_state.name} to {new_state.name}. Consider gentle conversation topics."
+                "suggestion": f"Noticed transition from {old_state.name} to {new_state.name}. Consider gentle conversation topics.",
             }
 
             # Log the recommendation details and store for potential future use
-            logger.info(f"🔔 Emotional support recommendation for {user_id}: {recommendation['suggestion']}")
+            logger.info(
+                f"🔔 Emotional support recommendation for {user_id}: {recommendation['suggestion']}"
+            )
 
     async def on_cognitive_focus_change(
         self,
         user_id: str,
         old_focus: Optional[CognitiveState],
-        new_focus: CognitiveState
+        new_focus: CognitiveState,
     ) -> None:
         """
         Execute automated actions in response to cognitive focus transitions.
@@ -552,20 +569,18 @@ class AuraStateManager:
                 "focus": new_focus.focus.value,
                 "description": new_focus.description,
                 "context": new_focus.context,
-                "timestamp": new_focus.timestamp.isoformat()
+                "timestamp": new_focus.timestamp.isoformat(),
             }
 
             await self.vector_db.store_cognitive_pattern(
-                focus_text,
-                embedding,
-                metadata,
-                doc_id
+                focus_text, embedding, metadata, doc_id
             )
 
-            logger.info(f"🧠 Stored cognitive focus: {new_focus.focus.value}")
+            logger.info("🧠 Stored cognitive focus: %s", new_focus.focus.value)
 
         except Exception as e:
-            logger.error(f"❌ Failed to handle cognitive focus change: {e}")
+            logger.error("❌ Failed to handle cognitive focus change: %s", e)
+
 
 # API Models
 class ConversationRequest(BaseModel):
@@ -577,9 +592,13 @@ class ConversationRequest(BaseModel):
         message: The user's input message.
         session_id: Optional session identifier for conversation continuity.
     """
-    user_id: str
-    message: str
-    session_id: Optional[str] = None
+
+    user_id: Annotated[str, Field(description="Unique identifier for the user")]
+    message: Annotated[str, Field(description="User's message content")]
+    session_id: Annotated[
+        Optional[str], Field(default=None, description="Optional session identifier")
+    ] = None
+
 
 class ConversationResponse(BaseModel):
     """
@@ -594,13 +613,28 @@ class ConversationResponse(BaseModel):
         thinking_metrics: Optional metrics about thinking processing.
         has_thinking: Whether thinking data was captured.
     """
-    response: str
-    emotional_state: Dict[str, Any]
-    cognitive_state: Dict[str, Any]
-    session_id: str
-    thinking_content: Optional[str] = None
-    thinking_metrics: Optional[Dict[str, Any]] = None
-    has_thinking: bool = False
+
+    response: Annotated[str, Field(description="The generated AI response text")]
+    emotional_state: Annotated[
+        Dict[str, Any], Field(description="Detected emotional state information")
+    ]
+    cognitive_state: Annotated[
+        Dict[str, Any], Field(description="Cognitive focus analysis results")
+    ]
+    session_id: Annotated[
+        str, Field(description="Identifier for the conversation session")
+    ]
+    thinking_content: Annotated[
+        Optional[str], Field(default=None, description="AI reasoning process content")
+    ] = None
+    thinking_metrics: Annotated[
+        Optional[Dict[str, Any]],
+        Field(default=None, description="Metrics about thinking processing"),
+    ] = None
+    has_thinking: Annotated[
+        bool, Field(default=False, description="Whether thinking data was captured")
+    ] = False
+
 
 class SearchRequest(BaseModel):
     """
@@ -611,9 +645,13 @@ class SearchRequest(BaseModel):
         query: Search query string.
         n_results: Number of results to return (default: 25).
     """
-    user_id: str
-    query: str
-    n_results: int = 5000
+
+    user_id: Annotated[str, Field(description="Unique identifier for the user")]
+    query: Annotated[str, Field(description="Search query string")]
+    n_results: Annotated[
+        int, Field(default=5000, description="Number of results to return")
+    ] = 5000
+
 
 class ExecuteToolRequest(BaseModel):
     """
@@ -627,6 +665,7 @@ class ExecuteToolRequest(BaseModel):
         metadata: Optional metadata for the tool execution.
         validate_args: Whether to validate arguments before execution (default: True).
     """
+
     tool_name: str
     arguments: Dict[str, Any] = {}
     user_id: str
@@ -651,6 +690,7 @@ class ExecuteToolRequest(BaseModel):
         if self.timeout is not None and (self.timeout < 1 or self.timeout > 3000):
             raise ValueError("Timeout must be between 1 and 3000 seconds")
 
+
 class ExecuteToolResponse(BaseModel):
     """
     Response model for tool execution results.
@@ -664,6 +704,7 @@ class ExecuteToolResponse(BaseModel):
         timestamp: ISO timestamp of execution.
         metadata: Optional response metadata.
     """
+
     status: str
     tool_name: str
     result: Optional[Any] = None
@@ -671,6 +712,7 @@ class ExecuteToolResponse(BaseModel):
     execution_time: Optional[float] = None
     timestamp: str
     metadata: Optional[Dict[str, Any]] = None
+
 
 # Global variables (initialized in lifespan)
 vector_db: Optional[AuraVectorDB] = None
@@ -683,6 +725,7 @@ mcp_gemini_bridge: Optional[MCPGeminiBridge] = None
 autonomic_system: Optional[AutonomicNervousSystem] = None
 db_protection_service: Optional[DatabaseProtectionService] = None
 thinking_processor: Optional[ThinkingProcessor] = None
+provider: Optional[BaseProvider] = None
 
 # Session management for persistent chat contexts
 active_chat_sessions: Dict[str, Any] = {}
@@ -695,10 +738,11 @@ global_tool_version = 0
 # Aura AI Processing Functions
 # ============================================================================
 
+
 def get_aura_system_instruction(
     user_name: Optional[str] = None,
     memory_context: str = "",
-    available_tools: Optional[List[Dict[str, Any]]] = None
+    available_tools: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     """
     Generate comprehensive system instruction for Aura with dynamic tool inclusion.
@@ -813,7 +857,7 @@ You have access to advanced video-based memory compression technology:
         # Group tools by server for better organization
         tools_by_server = {}
         for tool in available_tools:
-            server = tool.get('server', 'unknown')
+            server = tool.get("server", "unknown")
             if server not in tools_by_server:
                 tools_by_server[server] = []
             tools_by_server[server].append(tool)
@@ -824,11 +868,15 @@ You have access to advanced video-based memory compression technology:
             instruction += "You also have access to these external MCP tools for extended capabilities:\n\n"
 
             for server, server_tools in tools_by_server.items():
-                if server != 'aura-internal':  # Skip internal tools as they're already listed
+                if (
+                    server != "aura-internal"
+                ):  # Skip internal tools as they're already listed
                     instruction += f"**From {server} server:**\n"
-                    for tool in server_tools:  # Use ALL tools - don't artificially limit!
-                        clean_name = tool.get('clean_name', tool['name'])
-                        description = tool.get('description', 'No description')
+                    for (
+                        tool
+                    ) in server_tools:  # Use ALL tools - don't artificially limit!
+                        clean_name = tool.get("clean_name", tool["name"])
+                        description = tool.get("description", "No description")
                         instruction += f"- **{clean_name}** - {description}\n"
                     instruction += "\n"
 
@@ -840,7 +888,10 @@ You have access to advanced video-based memory compression technology:
 
     return instruction
 
-async def detect_user_emotion(user_message: str, user_id: str) -> Optional[EmotionalStateData]:
+
+async def detect_user_emotion(
+    user_message: str, user_id: str
+) -> Optional[EmotionalStateData]:
     """
     Detect user's emotional state from their message using AI analysis.
 
@@ -885,10 +936,12 @@ async def detect_user_emotion(user_message: str, user_id: str) -> Optional[Emoti
         "Love": ("Deep affection", "Alpha", "Oxytocin"),
         "Creativity": ("Inspired and inventive", "Gamma", "Dopamine"),
         "Anxious": ("Worried or nervous", "Beta", "Cortisol"),
-        "Tired": ("Exhausted or fatigued", "Delta", "Melatonin")
+        "Tired": ("Exhausted or fatigued", "Delta", "Melatonin"),
     }
 
-    emotion_list = "\n".join([f"{name}: {desc}" for name, (desc, _, _) in emotional_states.items()])
+    emotion_list = "\n".join(
+        [f"{name}: {desc}" for name, (desc, _, _) in emotional_states.items()]
+    )
 
     prompt = f"""Analyze this user's message and identify their most prominent emotional state.
 Consider the tone, word choice, and context.
@@ -904,15 +957,13 @@ If neutral, output "Normal (Medium)"."""
 
     try:
         result = client.models.generate_content(
-            model=os.getenv('AURA_MODEL', 'gemini-2.5-flash'),
-            contents=[prompt]
+            model=os.getenv("AURA_MODEL", "gemini-2.5-flash"), contents=[prompt]
         )
 
         response_text = result.text.strip() if result.text is not None else ""
 
         # Parse response like "Happy (Medium)"
-        import re
-        match = re.match(r'^(.+?)\s*\((\w+)\)$', response_text)
+        match = re.match(r"^(.+?)\s*\((\w+)\)$", response_text)
         if match:
             emotion_name, intensity = match.groups()
             emotion_name = emotion_name.strip()
@@ -922,12 +973,18 @@ If neutral, output "Normal (Medium)"."""
                 return EmotionalStateData(
                     name=emotion_name,
                     formula=f"{emotion_name}(x) = detected_from_user_input",
-                    components={"user_message": "Emotional state detected from user's message"},
+                    components={
+                        "user_message": "Emotional state detected from user's message"
+                    },
                     ntk_layer=f"{brainwave.lower()}-like_NTK",
                     brainwave=brainwave,
                     neurotransmitter=neurotransmitter,
                     description=desc,
-                    intensity=EmotionalIntensity(intensity.title()) if intensity.title() in ["Low", "Medium", "High"] else EmotionalIntensity.MEDIUM
+                    intensity=(
+                        EmotionalIntensity(intensity.title())
+                        if intensity.title() in ["Low", "Medium", "High"]
+                        else EmotionalIntensity.MEDIUM
+                    ),
                 )
 
         # Default fallback
@@ -940,14 +997,17 @@ If neutral, output "Normal (Medium)"."""
             brainwave=brainwave,
             neurotransmitter=neurotransmitter,
             description=desc,
-            intensity=EmotionalIntensity.MEDIUM
+            intensity=EmotionalIntensity.MEDIUM,
         )
 
     except Exception as e:
-        logger.error(f"❌ Failed to detect user emotion: {e}")
+        logger.error("❌ Failed to detect user emotion: %s", e)
         return None
 
-async def detect_aura_emotion(conversation_snippet: str, user_id: str) -> Optional[EmotionalStateData]:
+
+async def detect_aura_emotion(
+    conversation_snippet: str, user_id: str
+) -> Optional[EmotionalStateData]:
     """
     Detect Aura's emotional state from conversation context using AI analysis.
 
@@ -988,10 +1048,12 @@ async def detect_aura_emotion(conversation_snippet: str, user_id: str) -> Option
         "Curiosity": ("Strong desire to learn", "Beta", "Dopamine"),
         "Friendliness": ("Kind and warm", "Alpha", "Endorphin"),
         "Love": ("Deep affection", "Alpha", "Oxytocin"),
-        "Creativity": ("Inspired and inventive", "Gamma", "Dopamine")
+        "Creativity": ("Inspired and inventive", "Gamma", "Dopamine"),
     }
 
-    emotion_list = "\n".join([f"{name}: {desc}" for name, (desc, _, _) in emotional_states.items()])
+    emotion_list = "\n".join(
+        [f"{name}: {desc}" for name, (desc, _, _) in emotional_states.items()]
+    )
 
     prompt = f"""Analyze this conversation and identify Aura's most prominent emotional state.
 
@@ -1006,15 +1068,13 @@ If neutral, output "Normal (Medium)"."""
 
     try:
         result = client.models.generate_content(
-            model=os.getenv('AURA_MODEL', 'gemini-2.5-flash'),
-            contents=[prompt]
+            model=os.getenv("AURA_MODEL", "gemini-2.5-flash"), contents=[prompt]
         )
 
         response_text = result.text.strip() if result.text is not None else ""
 
         # Parse response like "Happy (Medium)"
-        import re
-        match = re.match(r'^(.+?)\s*\((\w+)\)$', response_text)
+        match = re.match(r"^(.+?)\s*\((\w+)\)$", response_text)
         if match:
             emotion_name, intensity = match.groups()
             emotion_name = emotion_name.strip()
@@ -1024,12 +1084,18 @@ If neutral, output "Normal (Medium)"."""
                 return EmotionalStateData(
                     name=emotion_name,
                     formula=f"{emotion_name}(x) = detected_from_conversation",
-                    components={"conversation": "Emotional state detected from dialogue"},
+                    components={
+                        "conversation": "Emotional state detected from dialogue"
+                    },
                     ntk_layer=f"{brainwave.lower()}-like_NTK",
                     brainwave=brainwave,
                     neurotransmitter=neurotransmitter,
                     description=desc,
-                    intensity=EmotionalIntensity(intensity.title()) if intensity.title() in ["Low", "Medium", "High"] else EmotionalIntensity.MEDIUM
+                    intensity=(
+                        EmotionalIntensity(intensity.title())
+                        if intensity.title() in ["Low", "Medium", "High"]
+                        else EmotionalIntensity.MEDIUM
+                    ),
                 )
 
         # Default fallback
@@ -1042,14 +1108,17 @@ If neutral, output "Normal (Medium)"."""
             brainwave=brainwave,
             neurotransmitter=neurotransmitter,
             description=desc,
-            intensity=EmotionalIntensity.MEDIUM
+            intensity=EmotionalIntensity.MEDIUM,
         )
 
     except Exception as e:
-        logger.error(f"❌ Failed to detect emotion: {e}")
+        logger.error("❌ Failed to detect emotion: %s", e)
         return None
 
-async def detect_aura_cognitive_focus(conversation_snippet: str, user_id: str) -> Optional[CognitiveState]:
+
+async def detect_aura_cognitive_focus(
+    conversation_snippet: str, user_id: str
+) -> Optional[CognitiveState]:
     """
     Detect Aura's cognitive focus using the ASEKE (Adaptive Socio-Emotional Knowledge Ecosystem) framework.
 
@@ -1091,10 +1160,12 @@ async def detect_aura_cognitive_focus(conversation_snippet: str, user_id: str) -
         "KP": "Knowledge Propagation - sharing ideas and information",
         "ESA": "Emotional State Algorithms - emotional influence on interaction",
         "SDA": "Sociobiological Drives - social dynamics and trust",
-        "Learning": "General learning and information processing"
+        "Learning": "General learning and information processing",
     }
 
-    components_list = "\n".join([f"{code}: {desc}" for code, desc in aseke_components.items()])
+    components_list = "\n".join(
+        [f"{code}: {desc}" for code, desc in aseke_components.items()]
+    )
 
     prompt = f"""Analyze this conversation to identify Aura's primary cognitive focus using the ASEKE framework.
 
@@ -1108,8 +1179,7 @@ Output only the component code (e.g., "KI", "ESA", "Learning")."""
 
     try:
         result = client.models.generate_content(
-            model=os.getenv('AURA_MODEL', 'gemini-2.5-flash'),
-            contents=[prompt]
+            model=os.getenv("AURA_MODEL", "gemini-2.5-flash"), contents=[prompt]
         )
 
         focus_code = result.text.strip() if result.text is not None else ""
@@ -1118,18 +1188,19 @@ Output only the component code (e.g., "KI", "ESA", "Learning")."""
             return CognitiveState(
                 focus=AsekeComponent(focus_code),
                 description=aseke_components[focus_code],
-                context="Detected from conversation analysis"
+                context="Detected from conversation analysis",
             )
         else:
             return CognitiveState(
                 focus=AsekeComponent.LEARNING,
                 description=aseke_components["Learning"],
-                context="Default cognitive focus"
+                context="Default cognitive focus",
             )
 
     except Exception as e:
-        logger.error(f"❌ Failed to detect cognitive focus: {e}")
+        logger.error("❌ Failed to detect cognitive focus: %s", e)
         return None
+
 
 # FastAPI app lifecycle
 @asynccontextmanager
@@ -1140,17 +1211,15 @@ async def lifespan(app: FastAPI):
 
     # Initialize global components (prevents duplicate initialization)
     global vector_db, aura_file_system, state_manager, aura_internal_tools
-    global conversation_persistence, memvid_archival, mcp_gemini_bridge, global_tool_version, autonomic_system, db_protection_service, thinking_processor
+    global conversation_persistence, memvid_archival, mcp_gemini_bridge, global_tool_version
+    global autonomic_system, db_protection_service, thinking_processor, provider, client
 
     # Initialize database protection service FIRST (before any database operations)
     # CRITICAL: This prevents the 4x ChromaDB data loss incidents
     db_protection_service = get_protection_service()
     logger.info("🛡️ Database Protection Service initialized and active")
 
-    # Initialize thinking processor properly for non-streaming operation
-    thinking_processor = ThinkingProcessor(client)
-    logger.info("🧠 Thinking Processor initialized (non-streaming mode)")
-
+    # 1. Initialize core infrastructure first
     # Initialize with robust vector database with SQLite-level concurrency control
     vector_db = AuraVectorDB()
     logger.info("✅ Using RobustAuraVectorDB with SQLite-level concurrency control")
@@ -1159,56 +1228,83 @@ async def lifespan(app: FastAPI):
     state_manager = AuraStateManager(vector_db, aura_file_system)
     aura_internal_tools = AuraInternalTools(vector_db, aura_file_system)
 
-    # Initialize the battle-tested persistence services with protection
-    conversation_persistence = ConversationPersistenceService(vector_db, aura_file_system)
-    memvid_archival = MemvidArchivalService()
-
-    # Initialize the complete MCP system
+    # 2. Initialize the complete MCP system
+    # This must happen before the provider so the client is available
     mcp_status = await initialize_mcp_system(aura_internal_tools)
 
     if mcp_status["status"] == "success":
         logger.info("✅ MCP system initialized successfully")
-        logger.info(f"📊 Connected to {mcp_status['connected_servers']}/{mcp_status['total_servers']} servers")
-        logger.info(f"📦 Total available tools: {mcp_status['available_tools']}")
+        logger.info(
+            f"📊 Connected to {mcp_status['connected_servers']}/{mcp_status['total_servers']} servers"
+        )
+        logger.info("📦 Total available tools: %s", mcp_status["available_tools"])
 
-        # Get the bridge instance
+        mcp_client_manager = get_mcp_client()
         mcp_gemini_bridge = get_mcp_bridge()
 
         if mcp_gemini_bridge:
             # Increment global tool version to force session recreation
             global_tool_version += 1
-            logger.info(f"🔄 Incremented global tool version to {global_tool_version}")
+            logger.info("🔄 Incremented global tool version to %s", global_tool_version)
 
             # Log tools by server for debugging
             if "tools_by_server" in mcp_status:
                 for server, tools in mcp_status["tools_by_server"].items():
-                    logger.info(f"  {server}: {len(tools)} tools")
+                    logger.info("  %s: %s tools", server, len(tools))
         else:
             logger.warning("⚠️ MCP bridge not initialized properly")
+            mcp_client_manager = None
     else:
-        logger.error(f"❌ MCP system initialization failed: {mcp_status.get('error', 'Unknown error')}")
+        logger.error(
+            f"❌ MCP system initialization failed: {mcp_status.get('error', 'Unknown error')}"
+        )
         logger.warning("⚠️ Continuing with limited functionality (internal tools only)")
+        mcp_client_manager = None
+
+    # 3. Initialize the Unified Model Provider
+    # Use the factory to get the default provider
+    provider = ModelProviderFactory.get_provider(
+        mcp_client_manager=mcp_client_manager, aura_internal_tools=aura_internal_tools
+    )
+
+    # 4. Extract specialized components from the provider
+    # Extract the thinking processor from the provider if available
+    if hasattr(provider, "thinking_processor"):
+        thinking_processor = provider.thinking_processor
+
+    # Extract the base client for legacy routes if available
+    if hasattr(provider, "client"):
+        client = provider.client
+
+    logger.info("🤖 Unified Model Provider initialized: %s", type(provider).__name__)
+
+    # Initialize the battle-tested persistence services with protection
+    conversation_persistence = ConversationPersistenceService(
+        vector_db, aura_file_system
+    )
+    memvid_archival = MemvidArchivalService()
 
     # Initialize Autonomic Nervous System
-    autonomic_enabled = os.getenv('AUTONOMIC_ENABLED', 'true').lower() == 'true'
+    autonomic_enabled = os.getenv("AUTONOMIC_ENABLED", "true").lower() == "true"
 
     if autonomic_enabled:
         logger.info("🧠 Initializing Autonomic Nervous System...")
         try:
             autonomic_system = await initialize_autonomic_system(
-                mcp_bridge=mcp_gemini_bridge,
-                internal_tools=aura_internal_tools
+                mcp_bridge=mcp_gemini_bridge, internal_tools=aura_internal_tools
             )
             logger.info("✅ Autonomic Nervous System initialized successfully")
 
             # Get system status for logging
             autonomic_status = autonomic_system.get_system_status()
-            logger.info(f"🤖 Autonomic Model: {autonomic_status['autonomic_model']}")
-            logger.info(f"🔧 Max Concurrent Tasks: {autonomic_status['max_concurrent_tasks']}")
-            logger.info(f"📊 Task Threshold: {autonomic_status['task_threshold']}")
+            logger.info("🤖 Autonomic Model: %s", autonomic_status["autonomic_model"])
+            logger.info(
+                f"🔧 Max Concurrent Tasks: {autonomic_status['max_concurrent_tasks']}"
+            )
+            logger.info("📊 Task Threshold: %s", autonomic_status["task_threshold"])
 
         except Exception as e:
-            logger.error(f"❌ Failed to initialize Autonomic Nervous System: {e}")
+            logger.error("❌ Failed to initialize Autonomic Nervous System: %s", e)
             logger.warning("⚠️ Continuing without autonomic processing")
             autonomic_system = None
     else:
@@ -1237,22 +1333,25 @@ async def lifespan(app: FastAPI):
 
     logger.info("✅ Aura Backend shutdown complete")
 
+
 # FastAPI app
 app = FastAPI(
     title="Aura Backend",
     description="Advanced AI Companion with Vector Database and MCP Integration",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Configure CORS with flexible origins for development
 # In production, replace with specific allowed origins from environment variables
-allowed_origins = os.getenv('ALLOWED_ORIGINS', '').split(',') if os.getenv('ALLOWED_ORIGINS') else []
+allowed_origins = (
+    os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLOWED_ORIGINS") else []
+)
 
 # For development, allow localhost on any port if no specific origins are set
 if not allowed_origins:
     # In development mode, use wildcard to allow any localhost origin
-    if os.getenv('DEV_MODE', 'true').lower() == 'true':
+    if os.getenv("DEV_MODE", "true").lower() == "true":
         # Use wildcard for development - this allows any origin
         allowed_origins = ["*"]
         logger.warning("⚠️ CORS: Using wildcard (*) origins for development mode")
@@ -1266,7 +1365,7 @@ if not allowed_origins:
             "http://127.0.0.1:5173",
             "http://127.0.0.1:5174",
         ]
-        logger.info(f"🔒 CORS: Using specific origins: {allowed_origins}")
+        logger.info("🔒 CORS: Using specific origins: %s", allowed_origins)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1279,6 +1378,7 @@ app.add_middleware(
 
 # Include MCP router
 app.include_router(mcp_router)
+
 
 @app.get("/")
 async def root() -> Dict[str, Any]:
@@ -1333,9 +1433,10 @@ async def root() -> Dict[str, Any]:
             "MCP Server Support",
             "Advanced State Management",
             "Emotional Pattern Analysis",
-            "Cognitive Focus Tracking"
-        ]
+            "Cognitive Focus Tracking",
+        ],
     }
+
 
 @app.get("/health")
 # @protected_db_operation("health_check") # Causes error 422,Temporarily comment this line out
@@ -1415,28 +1516,33 @@ async def health_check(background_tasks: BackgroundTasks) -> Dict[str, Any]:
             # Use a simple check instead of full health_check to avoid conflicts
             try:
                 # Just check if the vector_db object exists and is accessible
-                db_status = "connected" if hasattr(vector_db, 'client') else "disconnected"
+                db_status = (
+                    "connected" if hasattr(vector_db, "client") else "disconnected"
+                )
             except Exception:
                 db_status = "error"
 
         return {
-            "status": "healthy",
+            "status": "operational",
             "timestamp": datetime.now().isoformat(),
             "vector_db": db_status,
-            "aura_file_system": "operational"
+            "aura_file_system": "operational",
         }
     except Exception as e:
-        logger.error(f"❌ Health check failed: {e}")
+        logger.error("❌ Health check failed: %s", e)
         return {
             "status": "unhealthy",
             "timestamp": datetime.now().isoformat(),
             "vector_db": "error",
             "aura_file_system": "operational",
-            "error": str(e)
+            "error": str(e),
         }
 
+
 @app.post("/conversation", response_model=ConversationResponse)
-async def process_conversation(request: ConversationRequest, background_tasks: BackgroundTasks) -> ConversationResponse:
+async def process_conversation(
+    request: ConversationRequest, background_tasks: BackgroundTasks
+) -> ConversationResponse:
     """
     Process conversation with enhanced MCP function calling and robust error handling.
 
@@ -1489,8 +1595,13 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
         and autonomous task processing in a unified interaction pipeline.
     """
     # Configuration for enhanced error handling
-    session_recovery_enabled = os.getenv('SESSION_RECOVERY_ENABLED', 'true').lower() == 'true'
-    session_key: Optional[str] = None  # Initialize session_key to ensure it's always bound
+    global provider
+    session_recovery_enabled = (
+        os.getenv("SESSION_RECOVERY_ENABLED", "true").lower() == "true"
+    )
+    session_key: Optional[str] = (
+        None  # Initialize session_key to ensure it's always bound
+    )
 
     try:
         session_id = request.session_id or str(uuid.uuid4())
@@ -1505,20 +1616,28 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
         if len(request.message.split()) > 2 and conversation_persistence:
             try:
                 # Use proper memory search - don't sabotage with artificial limits!
-                relevant_memories = await conversation_persistence.safe_search_conversations(
-                    query=request.message,
-                    user_id=request.user_id,
-                    n_results=5  # Restored proper search capability
+                relevant_memories = (
+                    await conversation_persistence.safe_search_conversations(
+                        query=request.message,
+                        user_id=request.user_id,
+                        n_results=5,  # Restored proper search capability
+                    )
                 )
                 if relevant_memories:
-                    memory_context = "\n".join([
-                        f"Previous context: {mem['content']}"  # Use full content, not truncated
-                        for mem in relevant_memories[:3]  # Use multiple relevant memories
-                    ])
+                    memory_context = "\n".join(
+                        [
+                            f"Previous context: {mem['content']}"  # Use full content, not truncated
+                            for mem in relevant_memories[
+                                :3
+                            ]  # Use multiple relevant memories
+                        ]
+                    )
                     if memory_context:
-                        logger.debug(f"🧠 Retrieved memory context: {len(memory_context)} chars")
+                        logger.debug(
+                            f"🧠 Retrieved memory context: {len(memory_context)} chars"
+                        )
             except Exception as e:
-                logger.debug(f"⚠️ Memory context retrieval failed (non-critical): {e}")
+                logger.debug("⚠️ Memory context retrieval failed (non-critical): %s", e)
                 # Continue without memory context rather than fail
                 memory_context = ""
 
@@ -1531,65 +1650,92 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
             for func in available_functions:
                 # Extract MCP server info from the description
                 # Description format: "... (MCP tool: original_name)"
-                import re
-                match = re.search(r'\(MCP tool: (.+?)\)', func.get('description', ''))
-                mcp_name = match.group(1) if match else func['name']
+                match = re.search(r"\(MCP tool: (.+?)\)", func.get("description", ""))
+                mcp_name = match.group(1) if match else func["name"]
 
                 # Find the server from tool mapping
-                server = 'unknown'
+                server = "unknown"
                 for tool_name, tool_info in mcp_gemini_bridge._tool_mapping.items():
-                    if tool_name == func['name']:
-                        server = tool_info.get('server', 'unknown')
+                    if tool_name == func["name"]:
+                        server = tool_info.get("server", "unknown")
                         break
 
-                available_tools_info.append({
-                    'name': mcp_name,
-                    'clean_name': func['name'],
-                    'description': func.get('description', ''),
-                    'server': server
-                })
+                available_tools_info.append(
+                    {
+                        "name": mcp_name,
+                        "clean_name": func["name"],
+                        "description": func.get("description", ""),
+                        "server": server,
+                    }
+                )
 
         # Build system instruction with context and available tools
         system_instruction = get_aura_system_instruction(
-            user_name=user_profile.get('name') if user_profile else request.user_id,
+            user_name=user_profile.get("name") if user_profile else request.user_id,
             memory_context=memory_context,
-            available_tools=available_tools_info
+            available_tools=available_tools_info,
         )
 
         # Enhanced session management with recovery capabilities
         session_key = f"{request.user_id}_{session_id}"
-        chat, session_created = await _get_or_create_chat_session(
-            session_key,
-            request.user_id,
-            system_instruction,
-            session_recovery_enabled
+
+        # Convert history and current message to Provider Message format
+        # Note: We rely on the provider's session management for history if session_id is provided
+        provider_messages = [Message(role="user", content=request.message)]
+
+        # Execute conversation using the Unified Model Provider
+
+        if not provider:
+            logger.error("❌ Model provider not initialized")
+            raise HTTPException(
+                status_code=500, detail="Model provider not initialized"
+            )
+
+        provider_response = await provider.generate_response(
+            messages=provider_messages,
+            system_instruction=system_instruction,
+            session_id=session_key,
+            temperature=0.7,
         )
 
-        # Enhanced conversation processing with Gemini 2.5 stability fixes and autonomic integration
-        aura_response, thinking_result = await _process_conversation_with_thinking(
-            chat,
-            request.message,
-            request.user_id,
-            session_key,
-            session_recovery_enabled
-        )
+        if provider_response.error:
+            logger.error(
+                f"❌ Provider error for {request.user_id}: {provider_response.error}"
+            )
+            raise HTTPException(status_code=500, detail=provider_response.error)
+
+        aura_response = provider_response.content
+        thinking_result = provider_response.raw_response
+
+        # Track active session for cleanup purposes
+        active_chat_sessions[session_key] = True
 
         # Debug thinking result
         if thinking_result:
-            logger.info(f"🧠 Thinking result debug for {request.user_id}:")
-            logger.info(f"   - has_thinking: {thinking_result.has_thinking}")
-            logger.info(f"   - thoughts length: {len(thinking_result.thoughts) if thinking_result.thoughts else 0}")
-            logger.info(f"   - answer length: {len(thinking_result.answer) if thinking_result.answer else 0}")
-            logger.info(f"   - answer preview: {thinking_result.answer[:100] if thinking_result.answer else 'None'}")
-            logger.info(f"   - aura_response length: {len(aura_response) if aura_response else 0}")
-            logger.info(f"   - aura_response preview: {aura_response[:100000] if aura_response else 'None'}")
+            logger.info("🧠 Thinking result debug for %s:", request.user_id)
+            logger.info("   - has_thinking: %s", getattr(thinking_result, "has_thinking", False))
+            logger.info(
+                f"   - thoughts length: {len(getattr(thinking_result, 'thoughts', '')) if hasattr(thinking_result, 'thoughts') else 0}"
+            )
+            logger.info(
+                f"   - answer length: {len(getattr(thinking_result, 'answer', '')) if hasattr(thinking_result, 'answer') else 0}"
+            )
+            logger.info(
+                f"   - answer preview: {getattr(thinking_result, 'answer', '')[:100] if hasattr(thinking_result, 'answer') else 'None'}"
+            )
+            logger.info(
+                f"   - aura_response length: {len(aura_response) if aura_response else 0}"
+            )
+            logger.info(
+                f"   - aura_response preview: {aura_response[:100000] if aura_response else 'None'}"
+            )
         else:
-            logger.warning(f"⚠️ No thinking result returned for {request.user_id}")
+            logger.warning("⚠️ No thinking result returned for %s", request.user_id)
 
         if not aura_response:
             raise HTTPException(
                 status_code=500,
-                detail="Failed to generate a valid response after all recovery attempts."
+                detail="Failed to generate a valid response after all recovery attempts.",
             )
 
         # Autonomic task analysis - let the intelligent system decide what to process
@@ -1600,7 +1746,7 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
                     user_message=request.message,
                     aura_response=aura_response,
                     user_id=request.user_id,
-                    session_id=session_id
+                    session_id=session_id,
                 )
 
                 # Submit tasks to autonomic system for intelligent processing
@@ -1609,30 +1755,29 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
                         description=task_description,
                         payload=task_payload,
                         user_id=request.user_id,
-                        session_id=session_id
+                        session_id=session_id,
                     )
 
                     if was_offloaded:
-                        logger.debug(f"🤖 Offloaded autonomic task: {task_id}")
+                        logger.debug("🤖 Offloaded autonomic task: %s", task_id)
             except Exception as e:
-                logger.debug(f"⚠️ Autonomic analysis failed (non-critical): {e}")
+                logger.debug("⚠️ Autonomic analysis failed (non-critical): %s", e)
                 # Don't let autonomic system failures affect main conversation
 
         # Process emotional state detection for both user and Aura
         user_emotional_state = await detect_user_emotion(
-            user_message=request.message,
-            user_id=request.user_id
+            user_message=request.message, user_id=request.user_id
         )
 
         emotional_state_data = await detect_aura_emotion(
             conversation_snippet=f"User: {request.message}\nAura: {aura_response}",
-            user_id=request.user_id
+            user_id=request.user_id,
         )
 
         # Process cognitive focus detection
         cognitive_state_data = await detect_aura_cognitive_focus(
             conversation_snippet=f"User: {request.message}\nAura: {aura_response}",
-            user_id=request.user_id
+            user_id=request.user_id,
         )
 
         # Create memory objects
@@ -1641,7 +1786,7 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
             message=request.message,
             sender="user",
             emotional_state=user_emotional_state,
-            session_id=session_id
+            session_id=session_id,
         )
 
         aura_memory = ConversationMemory(
@@ -1650,7 +1795,7 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
             sender="aura",
             emotional_state=emotional_state_data,
             cognitive_state=cognitive_state_data,
-            session_id=session_id
+            session_id=session_id,
         )
         # Ensure emotional state and cognitive state are not None
         # Create conversation exchange object for atomic persistence
@@ -1660,90 +1805,133 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
             user_emotional_state=user_emotional_state,
             ai_emotional_state=emotional_state_data,
             ai_cognitive_state=cognitive_state_data,
-            session_id=session_id
+            session_id=session_id,
         )
 
         # IMMEDIATE PERSISTENCE - Use optimized immediate persistence for reliable chat history saving
         persistence_success = False
-        immediate_persistence_enabled = os.getenv('IMMEDIATE_PERSISTENCE_ENABLED', 'true').lower() == 'true'
-        persistence_timeout = float(os.getenv('PERSISTENCE_TIMEOUT', '15.0'))  # Increased from 5.0 to 15.0 for GPU/embedding operations
-        emergency_retries = int(os.getenv('EMERGENCY_PERSISTENCE_RETRIES', '2'))
+        immediate_persistence_enabled = (
+            os.getenv("IMMEDIATE_PERSISTENCE_ENABLED", "true").lower() == "true"
+        )
+        persistence_timeout = float(
+            os.getenv("PERSISTENCE_TIMEOUT", "15.0")
+        )  # Increased from 5.0 to 15.0 for GPU/embedding operations
+        emergency_retries = int(os.getenv("EMERGENCY_PERSISTENCE_RETRIES", "2"))
 
         if conversation_persistence and immediate_persistence_enabled:
             try:
-                logger.info(f"💾 Starting optimized immediate persistence for {request.user_id}")
+                logger.info(
+                    f"💾 Starting optimized immediate persistence for {request.user_id}"
+                )
 
                 # Use the immediate persistence method
                 result = await conversation_persistence.persist_conversation_exchange_immediate(
                     conversation_exchange,
                     update_profile=True,
-                    timeout=persistence_timeout
+                    timeout=persistence_timeout,
                 )
 
                 if result["success"]:
                     persistence_success = True
-                    logger.info(f"✅ Chat history saved immediately for {request.user_id}")
-                    logger.debug(f"   Method: {result.get('method', 'immediate')}")
-                    logger.debug(f"   Stored components: {result['stored_components']}")
-                    logger.debug(f"   Duration: {result['duration_ms']:.1f}ms")
+                    logger.info(
+                        f"✅ Chat history saved immediately for {request.user_id}"
+                    )
+                    logger.debug("   Method: %s", result.get("method", "immediate"))
+                    logger.debug(
+                        "   Stored components: %s", result["stored_components"]
+                    )
+                    logger.debug("   Duration: %.1fms", result["duration_ms"])
                 else:
-                    logger.warning(f"⚠️ Immediate persistence had issues for {request.user_id}: {result['errors']}")
+                    logger.warning(
+                        f"⚠️ Immediate persistence had issues for {request.user_id}: {result['errors']}"
+                    )
 
                     # Emergency fallback with retries
                     for emergency_attempt in range(emergency_retries):
                         try:
                             await asyncio.sleep(0.3 * (emergency_attempt + 1))
-                            logger.info(f"🚑 Emergency persistence attempt {emergency_attempt + 1}/{emergency_retries}")
+                            logger.info(
+                                f"🚑 Emergency persistence attempt {emergency_attempt + 1}/{emergency_retries}"
+                            )
 
                             emergency_result = await conversation_persistence.persist_conversation_exchange_immediate(
                                 conversation_exchange,
                                 update_profile=True,
-                                timeout=persistence_timeout * 0.8  # Shorter timeout for emergency
+                                timeout=persistence_timeout
+                                * 0.8,  # Shorter timeout for emergency
                             )
 
                             if emergency_result["success"]:
                                 persistence_success = True
-                                logger.info(f"✅ Emergency persistence succeeded for {request.user_id} (attempt {emergency_attempt + 1})")
+                                logger.info(
+                                    f"✅ Emergency persistence succeeded for {request.user_id} (attempt {emergency_attempt + 1})"
+                                )
                                 break
                             else:
-                                logger.warning(f"⚠️ Emergency attempt {emergency_attempt + 1} failed: {emergency_result['errors']}")
+                                logger.warning(
+                                    f"⚠️ Emergency attempt {emergency_attempt + 1} failed: {emergency_result['errors']}"
+                                )
 
                         except Exception as emergency_error:
-                            logger.error(f"❌ Emergency attempt {emergency_attempt + 1} exception: {emergency_error}")
+                            logger.error(
+                                f"❌ Emergency attempt {emergency_attempt + 1} exception: {emergency_error}"
+                            )
 
                     if not persistence_success:
-                        logger.error(f"💥 All emergency persistence attempts failed for {request.user_id}")
+                        logger.error(
+                            f"💥 All emergency persistence attempts failed for {request.user_id}"
+                        )
 
             except Exception as e:
-                logger.error(f"❌ Critical immediate persistence failure for {request.user_id}: {e}")
+                logger.error(
+                    f"❌ Critical immediate persistence failure for {request.user_id}: {e}"
+                )
 
         elif conversation_persistence:
             # Fallback to regular persistence if immediate is disabled
             try:
-                logger.info(f"💾 Using regular persistence for {request.user_id}")
-                result = await conversation_persistence.persist_conversation_exchange(conversation_exchange)
+                logger.info("💾 Using regular persistence for %s", request.user_id)
+                result = await conversation_persistence.persist_conversation_exchange(
+                    conversation_exchange
+                )
                 if result["success"]:
                     persistence_success = True
-                    logger.info(f"✅ Chat history saved with regular persistence for {request.user_id}")
+                    logger.info(
+                        f"✅ Chat history saved with regular persistence for {request.user_id}"
+                    )
                 else:
-                    logger.warning(f"⚠️ Regular persistence failed for {request.user_id}: {result['errors']}")
+                    logger.warning(
+                        f"⚠️ Regular persistence failed for {request.user_id}: {result['errors']}"
+                    )
             except Exception as e:
-                logger.error(f"❌ Regular persistence exception for {request.user_id}: {e}")
+                logger.error(
+                    f"❌ Regular persistence exception for {request.user_id}: {e}"
+                )
 
         # Enhanced background persistence as backup (but primary is immediate)
         async def backup_persistence_monitor():
             """Background monitor to ensure persistence completed successfully"""
             if not persistence_success and conversation_persistence:
-                logger.warning(f"🔄 Running backup persistence for {request.user_id}")
+                logger.warning("🔄 Running backup persistence for %s", request.user_id)
                 try:
                     await asyncio.sleep(1.0)  # Brief delay
-                    backup_result = await conversation_persistence.persist_conversation_exchange(conversation_exchange)
+                    backup_result = (
+                        await conversation_persistence.persist_conversation_exchange(
+                            conversation_exchange
+                        )
+                    )
                     if backup_result["success"]:
-                        logger.info(f"✅ Backup persistence succeeded for {request.user_id}")
+                        logger.info(
+                            f"✅ Backup persistence succeeded for {request.user_id}"
+                        )
                     else:
-                        logger.error(f"❌ Backup persistence failed for {request.user_id}: {backup_result['errors']}")
+                        logger.error(
+                            f"❌ Backup persistence failed for {request.user_id}: {backup_result['errors']}"
+                        )
                 except Exception as e:
-                    logger.error(f"💥 Backup persistence exception for {request.user_id}: {e}")
+                    logger.error(
+                        f"💥 Backup persistence exception for {request.user_id}: {e}"
+                    )
 
         # Only run background backup if immediate persistence failed
         if not persistence_success:
@@ -1754,334 +1942,108 @@ async def process_conversation(request: ConversationRequest, background_tasks: B
             response=aura_response,
             emotional_state={
                 "name": emotional_state_data.name if emotional_state_data else "Normal",
-                "intensity": emotional_state_data.intensity.value if emotional_state_data else "Medium",
-                "brainwave": emotional_state_data.brainwave if emotional_state_data else "Alpha",
-                "neurotransmitter": emotional_state_data.neurotransmitter if emotional_state_data else "Serotonin"
+                "intensity": (
+                    emotional_state_data.intensity.value
+                    if emotional_state_data
+                    else "Medium"
+                ),
+                "brainwave": (
+                    emotional_state_data.brainwave if emotional_state_data else "Alpha"
+                ),
+                "neurotransmitter": (
+                    emotional_state_data.neurotransmitter
+                    if emotional_state_data
+                    else "Serotonin"
+                ),
             },
             cognitive_state={
-                "focus": cognitive_state_data.focus.value if cognitive_state_data else "Learning",
-                "description": cognitive_state_data.description if cognitive_state_data else "Processing user input"
+                "focus": (
+                    cognitive_state_data.focus.value
+                    if cognitive_state_data
+                    else "Learning"
+                ),
+                "description": (
+                    cognitive_state_data.description
+                    if cognitive_state_data
+                    else "Processing user input"
+                ),
             },
             session_id=session_id,
-            # Include thinking data if available - pass raw thoughts directly
-            thinking_content=thinking_result.thoughts if thinking_result and thinking_result.thoughts else None,
-            thinking_metrics={
-                "total_chunks": thinking_result.total_chunks if thinking_result else 0,
-                "thinking_chunks": thinking_result.thinking_chunks if thinking_result else 0,
-                "answer_chunks": thinking_result.answer_chunks if thinking_result else 0,
-                "processing_time_ms": thinking_result.processing_time_ms if thinking_result else 0.0
-            } if thinking_result else None,
-            has_thinking=thinking_result.has_thinking if thinking_result else False
+            thinking_summary=provider_response.thoughts,
+            thinking_metrics=(
+                {
+                    "total_chunks": getattr(thinking_result, "total_chunks", 1),
+                    "thinking_chunks": getattr(thinking_result, "thinking_chunks", 1 if provider_response.thoughts else 0),
+                    "answer_chunks": getattr(thinking_result, "answer_chunks", 1),
+                    "processing_time_ms": getattr(thinking_result, "processing_time_ms", 0.0),
+                }
+                if thinking_result
+                else None
+            ),
+            has_thinking=getattr(thinking_result, "has_thinking", bool(provider_response.thoughts)) if thinking_result else False,
         )
 
         # Debug the final response thinking data
-        logger.info(f"🔍 Final response thinking debug for {request.user_id}:")
-        # logger.info(f"   - response.thinking_summary: {response.thinking_summary}") # Be careful not to break the autonomous system, I do not want a summary! I want the entire thinking process.
-        logger.info(f"   - response.has_thinking: {response.has_thinking}")
-        logger.info(f"   - response.thinking_metrics: {response.thinking_metrics}")
+        logger.info("🔍 Final response thinking debug for %s:", request.user_id)
+        # logger.info("   - response.thinking_summary: %s", response.thinking_summary) # Be careful not to break the autonomous system, I do not want a summary! I want the entire thinking process.
+        logger.info("   - response.has_thinking: %s", response.has_thinking)
+        logger.info("   - response.thinking_metrics: %s", response.thinking_metrics)
 
-        logger.info(f"✅ Processed conversation for user {request.user_id}")
+        logger.info("✅ Processed conversation for user %s", request.user_id)
         return response
     except Exception as e:
-        logger.error(f"❌ Failed to process conversation: {e}")
+        logger.error("❌ Failed to process conversation: %s", e)
+        # Default fallback message
+        fallback_response = "I'm having a bit of trouble connecting to my reasoning modules right now, but I'm still here. Could you try your message again? I've cleared the session to help us get back on track."
+
         # Try to recover the session if enabled
-        if session_recovery_enabled and session_key:  # Check if session_key is not None
-            logger.info(f"🔄 Attempting session recovery for {request.user_id} (session: {session_key})")
+        if session_recovery_enabled and session_key:
             try:
+                if provider:
+                    await provider.clear_session(session_key)
                 if session_key in active_chat_sessions:
                     del active_chat_sessions[session_key]
-                if session_key in session_tool_versions:
-                    del session_tool_versions[session_key]
-                logger.info(f"🧹 Cleared failed session for {request.user_id} (session: {session_key})")
+                logger.info(
+                    f"🧹 Cleared failed session for {request.user_id} (session: {session_key})"
+                )
             except Exception as recovery_error:
-                logger.error(f"❌ Session recovery failed for session {session_key}: {recovery_error}")
-
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def _get_or_create_chat_session(
-    session_key: str,
-    user_id: str,
-    system_instruction: str,
-    session_recovery_enabled: bool
-) -> Tuple[Any, bool]:
-    """
-    Get existing chat session or create new one with enhanced error handling.
-
-    Manages persistent chat sessions with automatic tool integration and version
-    control. Implements session recovery mechanisms and tool synchronization
-    to ensure optimal conversation continuity and feature availability.
-
-    Args:
-        session_key: Unique identifier for the chat session
-        user_id: User identifier for logging and context
-        system_instruction: Complete system prompt for AI personality/behavior
-        session_recovery_enabled: Whether to enable automatic session recovery
-
-    Returns:
-        Tuple containing:
-        - chat_session: Google Gemini chat instance with tools and configuration
-
-
-async def _process_conversation_with_retry_original(
-    chat: Any,
-    message: str,
-    user_id: str,
-    session_key: str,
-    session_recovery_enabled: bool
-) -> str:
-
-    max_conversation_retries = 2  # Limit conversation-level retries
-
-    for attempt in range(max_conversation_retries + 1):
-        try:
-            if attempt > 0:
-                logger.info(f"🔄 Conversation retry attempt {attempt} for user {user_id}")
-                await asyncio.sleep(1.0 * attempt)  # Brief delay before retry
-
-            # Send message and handle function calls with enhanced error detection
-            result = chat.send_message(message)
-
-            # Check for empty or malformed response (common Gemini 2.5 issue)
-            if not result or not result.candidates:
-                raise ValueError("Empty response from Gemini (possible tool call cutoff)")
-    Note:
-        Session management is critical for maintaining conversation context,
-        tool availability, and optimal AI performance across interactions.
-    """
-    global active_chat_sessions, session_tool_versions, global_tool_version
-
-    # Check if we need to recreate session due to tool updates
-    needs_new_session = session_key not in active_chat_sessions
-
-    # Also check if existing session has outdated tool version
-    if not needs_new_session and session_key in session_tool_versions:
-        if session_tool_versions[session_key] < global_tool_version:
-            needs_new_session = True
-            logger.info(f"🔄 Session {session_key} has outdated tools (v{session_tool_versions[session_key]} < v{global_tool_version}), recreating...")
-
-    if needs_new_session:
-        try:
-            # Create new chat session with MCP tools if available
-            tools = []
-            if mcp_gemini_bridge:
-                gemini_tools = await mcp_gemini_bridge.convert_mcp_tools_to_gemini_functions()
-                tools.extend(gemini_tools)
-                logger.info(f"🔧 Added {len(gemini_tools)} MCP tools to chat session for {user_id}")
-
-            # Create chat with system instruction and tools - thinking enabled for non-streaming
-            # Get maximum remote calls for main model from environment (default 10 for free tier)
-            max_main_remote_calls = int(os.getenv('AFC_MAX__MAIN_REMOTE_CALLS', '10'))
-
-            chat = client.chats.create(
-                model=os.getenv('AURA_MODEL', 'gemini-2.5-flash'),
-                config=types.GenerateContentConfig(
-                    temperature=0.7,
-                    max_output_tokens=int(os.getenv('AURA_MAX_OUTPUT_TOKENS', '1000000')),
-                    tools=tools if tools else None,
-                    system_instruction=system_instruction,
-                    # Configure automatic function calling with custom maximum remote calls
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        maximum_remote_calls=max_main_remote_calls
-                    ) if tools else None,
-                    # Use consistent thinking config from environment
-                    thinking_config=types.ThinkingConfig(
-                        thinking_budget=thinking_budget,
-                        include_thoughts=True
-                    )
+                logger.error(
+                    f"❌ Session recovery failed for session {session_key}: {recovery_error}"
                 )
-            )
+                fallback_response = "I encountered a critical error and couldn't recover the session. Please try refreshing or starting a new conversation."
 
-            logger.info(f"🔧 Chat session configured with {max_main_remote_calls} maximum function calls")
-            active_chat_sessions[session_key] = chat
-            session_tool_versions[session_key] = global_tool_version
-            logger.info(f"💬 Created new chat session for {user_id} with {len(tools)} tools (v{global_tool_version})")
-            return chat, True
-
-        except Exception as e:
-            logger.error(f"❌ Failed to create chat session for {user_id}: {e}")
-            if session_recovery_enabled:
-                # Try to clean up any partial session state
-                if session_key in active_chat_sessions:
-                    del active_chat_sessions[session_key]
-                if session_key in session_tool_versions:
-                    del session_tool_versions[session_key]
-            raise
-    else:
-        chat = active_chat_sessions[session_key]
-        logger.debug(f"💬 Using existing chat session for {user_id}")
-        return chat, False
-
-async def _process_conversation_with_thinking(
-    chat: Any,
-    message: str,
-    user_id: str,
-    session_key: str,
-    session_recovery_enabled: bool
-) -> Tuple[str, Optional[ThinkingResult]]:
-    """
-    Process conversation with thinking extraction (non-streaming mode).
-
-    Uses the thinking processor to extract AI reasoning in a non-streaming mode
-    that works well with Aura's architecture. This avoids the streaming issues
-    while still providing thinking transparency.
-
-    Args:
-        chat: Google Gemini chat session instance
-        message: User's input message to process
-        user_id: User identifier for logging and context
-        session_key: Session identifier for recovery operations
-        session_recovery_enabled: Whether session recovery mechanisms are active
-
-    Returns:
-        Tuple containing:
-        - Generated AI response text after processing and function execution
-        - ThinkingResult object with extracted thoughts and metadata
-    """
-    max_conversation_retries = 2
-
-    for attempt in range(max_conversation_retries + 1):
-        try:
-            if attempt > 0:
-                logger.info(f"🔄 Thinking conversation retry attempt {attempt} for user {user_id}")
-                await asyncio.sleep(1.0 * attempt)
-
-            # Use thinking processor for non-streaming extraction
-            # This usually would mean thinking or no thinking phase enabled and it is AI confusion to have set up if the user wants thoughts in the block or in the response area.
-            # Include thinking in response only if explicitly enabled (usually false for separate UI display)- this is the AI being confused and should be removed. It is not usually done at all.
-            include_thinking_in_response = os.getenv('INCLUDE_THINKING_IN_RESPONSE', 'false').lower() == 'true'
-
-            # Process with thinking using the non-streaming approach
-            if thinking_processor:
-                # Use thinking processor when available
-                if mcp_gemini_bridge:
-                    # Process with both function calls and thinking
-                    thinking_result = await thinking_processor.process_with_function_calls_and_thinking(
-                        chat=chat,
-                        message=message,
-                        user_id=user_id,
-                        mcp_bridge=mcp_gemini_bridge,
-                        include_thinking_in_response=include_thinking_in_response
-                    )
-                else:
-                    # Process with thinking only (no function calls)
-                    thinking_result = await thinking_processor.process_message_with_thinking(
-                        chat=chat,
-                        message=message,
-                        user_id=user_id,
-                        include_thinking_in_response=include_thinking_in_response
-                    )
-            else:
-                # Fallback to original processing if thinking processor unavailable
-                logger.warning(f"⚠️ Thinking processor unavailable, using fallback for {user_id}")
-                result = chat.send_message(message)
-
-                if not result or not result.candidates or not result.candidates[0].content:
-                    raise ValueError("Empty response from Gemini")
-
-                response_text = ""
-                for part in result.candidates[0].content.parts:
-                    if part.text:
-                        response_text += part.text
-
-                # Create minimal thinking result for fallback
-                thinking_result = ThinkingResult(
-                    thoughts="",
-                    answer=response_text,
-                    total_chunks=1,
-                    thinking_chunks=0,
-                    answer_chunks=1,
-                    processing_time_ms=0.0,
-                    has_thinking=False
+        return ConversationResponse(
+            response=fallback_response,
+            session_id=session_id,
+            emotional_state=asdict(
+                EmotionalStateData(
+                    name="Concerned",
+                    formula="C(E) + I(S)",
+                    components={"CE": "High", "IS": "Medium"},
+                    ntk_layer="L3",
+                    brainwave="Gamma",
+                    neurotransmitter="Cortisol",
+                    description="System encountered an error during processing",
                 )
-
-            # Check for errors in thinking result
-            if thinking_result.error:
-                raise ValueError(f"Thinking processing error: {thinking_result.error}")
-
-            # Validate final response
-            if not thinking_result.answer.strip():
-                raise ValueError("Empty final response generated")
-
-            # Enhanced logging with thinking metrics
-            logger.info(f"✅ Thinking conversation processed successfully for {user_id} (attempt {attempt + 1})")
-            logger.info(f"   🧠 Has thinking: {thinking_result.has_thinking}")
-            if thinking_result.has_thinking:
-               logger.info(f"   📊 Processing metrics: {thinking_result.thinking_chunks} thought chunks, {thinking_result.answer_chunks} answer chunks")
-               logger.info(f"   ⏱️ Processing time: {thinking_result.processing_time_ms:.1f}ms")
-
-            return thinking_result.answer, thinking_result
-
-        except Exception as e:
-            logger.error(f"❌ Thinking conversation processing failed (attempt {attempt + 1}): {e}")
-
-            # Check if this is a recoverable error
-            error_str = str(e).lower()
-            recoverable_errors = [
-                "empty response",
-                "malformed response",
-                "cutoff",
-                "tool call",
-                "function call",
-                "follow-up",
-                "response processing incomplete",
-                "thinking processing error"
-            ]
-
-            is_recoverable = any(keyword in error_str for keyword in recoverable_errors)
-
-            if is_recoverable and attempt < max_conversation_retries:
-                logger.info("🔄 Recoverable error detected, will retry thinking conversation processing")
-
-                # If session recovery is enabled, try to recreate the session
-                if session_recovery_enabled and attempt > 0:
-                    logger.info(f"🔄 Attempting to recreate session for {user_id}")
-                    try:
-                        if session_key in active_chat_sessions:
-                            del active_chat_sessions[session_key]
-                        if session_key in session_tool_versions:
-                            del session_tool_versions[session_key]
-                        logger.info("🧹 Session cleared for recreation")
-                    except Exception as cleanup_error:
-                        logger.warning(f"⚠️ Session cleanup warning: {cleanup_error}")
-
-                continue  # Retry the conversation
-            else:
-                # Non-recoverable error or max retries reached
-                if attempt == max_conversation_retries:
-                    logger.error(f"💥 All thinking conversation attempts failed for {user_id}")
-
-                # Return a fallback response with minimal thinking result
-                fallback_response = "I apologize, but I'm experiencing some technical difficulties processing your request. Please try again, and I'll do my best to help you."
-                fallback_thinking = ThinkingResult(
-                    thoughts="",
-                    answer=fallback_response,
-                    total_chunks=0,
-                    thinking_chunks=0,
-                    answer_chunks=0,
-                    processing_time_ms=0.0,
-                    has_thinking=False,
-                    error=str(e)
+            ),
+            cognitive_state=asdict(
+                CognitiveState(
+                    focus=AsekeComponent.CE,
+                    description="Error recovery and session reset",
+                    context="System failure",
                 )
+            ),
+        )
 
-                logger.warning(f"🛡️ Returning fallback response with error thinking result for {user_id}")
-                return fallback_response, fallback_thinking
 
-    # This should never be reached due to the loop structure, but safety fallback
-    fallback_thinking = ThinkingResult(
-        thoughts="",
-        answer="I'm here and ready to help, though I may have encountered some processing issues.",
-        total_chunks=0,
-        thinking_chunks=0,
-        answer_chunks=0,
-        processing_time_ms=0.0,
-        has_thinking=False
-    )
-    return "I'm here and ready to help, though I may have encountered some processing issues.", fallback_thinking
+# Redundant session management removed as it's now handled by the Model Provider
+
+# Note: Previous session management and thinking processing logic has been moved to
+# the aura_backend/providers/ directory as part of the Unified Model Provider abstraction.
+
+
 async def _analyze_conversation_for_autonomic_tasks(
-    user_message: str,
-    aura_response: str,
-    user_id: str,
-    session_id: str
+    user_message: str, aura_response: str, user_id: str, session_id: str
 ) -> List[Tuple[str, Dict[str, Any]]]:
     """
     Enhanced autonomic task analysis with multi-task generation and intelligent offloading.
@@ -2111,7 +2073,9 @@ async def _analyze_conversation_for_autonomic_tasks(
 
     # Only proceed if autonomic system is available and running
     if not autonomic_system or not autonomic_system._running:
-        logger.debug("🤖 Autonomic system not available or not running, skipping task analysis")
+        logger.debug(
+            "🤖 Autonomic system not available or not running, skipping task analysis"
+        )
         return submitted_tasks
 
     # Calculate conversation metrics
@@ -2122,7 +2086,9 @@ async def _analyze_conversation_for_autonomic_tasks(
 
     # Minimum threshold for basic autonomic processing
     if conversation_length < 10:
-        logger.debug(f"🤖 Conversation too short ({conversation_length} words) for autonomic processing")
+        logger.debug(
+            f"🤖 Conversation too short ({conversation_length} words) for autonomic processing"
+        )
         return submitted_tasks
 
     try:
@@ -2130,147 +2096,246 @@ async def _analyze_conversation_for_autonomic_tasks(
         task_opportunities = []
 
         # 1. EMOTIONAL PATTERN ANALYSIS - for conversations with emotional content
-        emotional_indicators = ["feel", "emotion", "happy", "sad", "angry", "anxious",
-                              "worried", "excited", "frustrated", "love", "hate",
-                              "personal", "sharing", "struggle", "difficult"]
+        emotional_indicators = [
+            "feel",
+            "emotion",
+            "happy",
+            "sad",
+            "angry",
+            "anxious",
+            "worried",
+            "excited",
+            "frustrated",
+            "love",
+            "hate",
+            "personal",
+            "sharing",
+            "struggle",
+            "difficult",
+        ]
 
-        has_emotional_content = any(indicator in user_message_lower for indicator in emotional_indicators)
+        has_emotional_content = any(
+            indicator in user_message_lower for indicator in emotional_indicators
+        )
 
         if has_emotional_content or conversation_length > 50:
-            task_opportunities.append({
-                "description": f"Deep emotional pattern analysis for user {user_id}",
-                "payload": {
-                    "tool_name": "analyze_emotional_patterns",
-                    "arguments": {
-                        "user_id": user_id,
-                        "days": 30,  # Analyze last 30 days
-                        "include_conversation": True
+            task_opportunities.append(
+                {
+                    "description": f"Deep emotional pattern analysis for user {user_id}",
+                    "payload": {
+                        "tool_name": "analyze_emotional_patterns",
+                        "arguments": {
+                            "user_id": user_id,
+                            "days": 30,  # Analyze last 30 days
+                            "include_conversation": True,
+                        },
+                        "conversation_context": {
+                            "user_message": user_message,
+                            "aura_response": aura_response,
+                            "emotional_indicators_found": [
+                                ind
+                                for ind in emotional_indicators
+                                if ind in user_message_lower
+                            ],
+                        },
                     },
-                    "conversation_context": {
-                        "user_message": user_message,
-                        "aura_response": aura_response,
-                        "emotional_indicators_found": [ind for ind in emotional_indicators if ind in user_message_lower]
-                    }
-                },
-                "task_type_hint": "DATA_ANALYSIS",
-                "priority_boost": 0.2 if has_emotional_content else 0.1
-            })
+                    "task_type_hint": "DATA_ANALYSIS",
+                    "priority_boost": 0.2 if has_emotional_content else 0.1,
+                }
+            )
 
         # 2. MEMORY SEARCH AND CONSOLIDATION - for knowledge-seeking conversations
-        knowledge_indicators = ["remember", "recall", "previously", "last time", "before",
-                              "search", "find", "look for", "history", "past conversation"]
-        memory_indicators = ["learn", "understand", "explain", "teach", "how", "what", "why",
-                           "tell me about", "help me understand"]
+        knowledge_indicators = [
+            "remember",
+            "recall",
+            "previously",
+            "last time",
+            "before",
+            "search",
+            "find",
+            "look for",
+            "history",
+            "past conversation",
+        ]
+        memory_indicators = [
+            "learn",
+            "understand",
+            "explain",
+            "teach",
+            "how",
+            "what",
+            "why",
+            "tell me about",
+            "help me understand",
+        ]
 
-        needs_memory_search = any(indicator in combined_text_lower for indicator in knowledge_indicators)
-        needs_knowledge_building = any(indicator in combined_text_lower for indicator in memory_indicators)
+        needs_memory_search = any(
+            indicator in combined_text_lower for indicator in knowledge_indicators
+        )
+        needs_knowledge_building = any(
+            indicator in combined_text_lower for indicator in memory_indicators
+        )
 
-        if needs_memory_search or (conversation_length > 30 and needs_knowledge_building):
+        if needs_memory_search or (
+            conversation_length > 30 and needs_knowledge_building
+        ):
             # Extract potential search query from conversation
-            search_query = user_message if len(user_message) > 20 else f"{user_message} {aura_response[:100]}"
+            search_query = (
+                user_message
+                if len(user_message) > 20
+                else f"{user_message} {aura_response[:100]}"
+            )
 
-            task_opportunities.append({
-                "description": f"Comprehensive memory search and pattern extraction for user {user_id}",
-                "payload": {
-                    "tool_name": "search_all_memories",
-                    "arguments": {
-                        "query": search_query,
-                        "user_id": user_id,
-                        "max_results": 20
+            task_opportunities.append(
+                {
+                    "description": f"Comprehensive memory search and pattern extraction for user {user_id}",
+                    "payload": {
+                        "tool_name": "search_all_memories",
+                        "arguments": {
+                            "query": search_query,
+                            "user_id": user_id,
+                            "max_results": 20,
+                        },
+                        "analysis_required": True,
+                        "consolidate_findings": needs_knowledge_building,
                     },
-                    "analysis_required": True,
-                    "consolidate_findings": needs_knowledge_building
-                },
-                "task_type_hint": "MEMORY_SEARCH",
-                "priority_boost": 0.3 if needs_memory_search else 0.1
-            })
+                    "task_type_hint": "MEMORY_SEARCH",
+                    "priority_boost": 0.3 if needs_memory_search else 0.1,
+                }
+            )
 
         # 3. PATTERN RECOGNITION - for complex analytical conversations
-        analytical_indicators = ["analyze", "pattern", "trend", "insight", "data",
-                               "statistics", "correlation", "relationship", "connection"]
+        analytical_indicators = [
+            "analyze",
+            "pattern",
+            "trend",
+            "insight",
+            "data",
+            "statistics",
+            "correlation",
+            "relationship",
+            "connection",
+        ]
 
-        needs_pattern_analysis = (any(indicator in combined_text_lower for indicator in analytical_indicators)
-                                or conversation_length > 100)
+        needs_pattern_analysis = (
+            any(indicator in combined_text_lower for indicator in analytical_indicators)
+            or conversation_length > 100
+        )
 
         if needs_pattern_analysis:
-            task_opportunities.append({
-                "description": f"Advanced pattern recognition and insight generation for user {user_id}",
-                "payload": {
-                    "analysis_type": "conversation_patterns",
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    "conversation_data": {
-                        "message": user_message,
-                        "response": aura_response,
-                        "length": conversation_length,
-                        "complexity_score": len(set(combined_text_lower.split())) / conversation_length  # Vocabulary diversity
-                    },
-                    "extract_insights": True
-                },
-                "task_type_hint": "PATTERN_ANALYSIS",
-                "priority_boost": 0.2
-            })
-
-        # 4. KNOWLEDGE ARCHIVAL - for very long or information-rich conversations
-        if conversation_length > 150 or (conversation_length > 80 and needs_knowledge_building):
-            task_opportunities.append({
-                "description": f"Archive and compress conversation knowledge for user {user_id}",
-                "payload": {
-                    "tool_name": "archive_old_conversations",
-                    "arguments": {
+            task_opportunities.append(
+                {
+                    "description": f"Advanced pattern recognition and insight generation for user {user_id}",
+                    "payload": {
+                        "analysis_type": "conversation_patterns",
                         "user_id": user_id,
                         "session_id": session_id,
-                        "priority_content": True
+                        "conversation_data": {
+                            "message": user_message,
+                            "response": aura_response,
+                            "length": conversation_length,
+                            "complexity_score": len(set(combined_text_lower.split()))
+                            / conversation_length,  # Vocabulary diversity
+                        },
+                        "extract_insights": True,
                     },
-                    "conversation_summary": {
-                        "key_topics": "auto_extract",
-                        "emotional_tone": "analyze",
-                        "knowledge_gained": "summarize"
-                    }
-                },
-                "task_type_hint": "BACKGROUND_PROCESSING",
-                "priority_boost": 0.1
-            })
+                    "task_type_hint": "PATTERN_ANALYSIS",
+                    "priority_boost": 0.2,
+                }
+            )
+
+        # 4. KNOWLEDGE ARCHIVAL - for very long or information-rich conversations
+        if conversation_length > 150 or (
+            conversation_length > 80 and needs_knowledge_building
+        ):
+            task_opportunities.append(
+                {
+                    "description": f"Archive and compress conversation knowledge for user {user_id}",
+                    "payload": {
+                        "tool_name": "archive_old_conversations",
+                        "arguments": {
+                            "user_id": user_id,
+                            "session_id": session_id,
+                            "priority_content": True,
+                        },
+                        "conversation_summary": {
+                            "key_topics": "auto_extract",
+                            "emotional_tone": "analyze",
+                            "knowledge_gained": "summarize",
+                        },
+                    },
+                    "task_type_hint": "BACKGROUND_PROCESSING",
+                    "priority_boost": 0.1,
+                }
+            )
 
         # 5. COMPLEX REASONING - for philosophical or deep thinking conversations
-        reasoning_indicators = ["philosophy", "meaning", "purpose", "think about", "wonder",
-                              "hypothetical", "imagine", "suppose", "theory", "concept"]
+        reasoning_indicators = [
+            "philosophy",
+            "meaning",
+            "purpose",
+            "think about",
+            "wonder",
+            "hypothetical",
+            "imagine",
+            "suppose",
+            "theory",
+            "concept",
+        ]
 
-        needs_deep_reasoning = any(indicator in combined_text_lower for indicator in reasoning_indicators)
+        needs_deep_reasoning = any(
+            indicator in combined_text_lower for indicator in reasoning_indicators
+        )
 
         if needs_deep_reasoning and conversation_length > 40:
-            task_opportunities.append({
-                "description": f"Deep reasoning and philosophical analysis for user {user_id}",
-                "payload": {
-                    "reasoning_type": "philosophical_analysis",
-                    "conversation_context": f"User: {user_message}\nAura: {aura_response}",
-                    "user_id": user_id,
-                    "explore_concepts": True,
-                    "generate_insights": True
-                },
-                "task_type_hint": "COMPLEX_REASONING",
-                "priority_boost": 0.25
-            })
+            task_opportunities.append(
+                {
+                    "description": f"Deep reasoning and philosophical analysis for user {user_id}",
+                    "payload": {
+                        "reasoning_type": "philosophical_analysis",
+                        "conversation_context": f"User: {user_message}\nAura: {aura_response}",
+                        "user_id": user_id,
+                        "explore_concepts": True,
+                        "generate_insights": True,
+                    },
+                    "task_type_hint": "COMPLEX_REASONING",
+                    "priority_boost": 0.25,
+                }
+            )
 
         # 6. REAL-TIME TOOL EXECUTION - for conversations mentioning specific tools
-        tool_indicators = ["create", "generate", "make", "build", "code", "script",
-                         "program", "calculate", "compute", "visualize"]
+        tool_indicators = [
+            "create",
+            "generate",
+            "make",
+            "build",
+            "code",
+            "script",
+            "program",
+            "calculate",
+            "compute",
+            "visualize",
+        ]
 
-        needs_tool_execution = any(indicator in combined_text_lower for indicator in tool_indicators)
+        needs_tool_execution = any(
+            indicator in combined_text_lower for indicator in tool_indicators
+        )
 
         if needs_tool_execution:
-            task_opportunities.append({
-                "description": f"Background tool execution and code generation for user {user_id}",
-                "payload": {
-                    "execution_type": "deferred_tool_call",
-                    "conversation_request": user_message,
-                    "preliminary_response": aura_response,
-                    "user_id": user_id,
-                    "generate_artifacts": True
-                },
-                "task_type_hint": "CODE_GENERATION",
-                "priority_boost": 0.3
-            })
+            task_opportunities.append(
+                {
+                    "description": f"Background tool execution and code generation for user {user_id}",
+                    "payload": {
+                        "execution_type": "deferred_tool_call",
+                        "conversation_request": user_message,
+                        "preliminary_response": aura_response,
+                        "user_id": user_id,
+                        "generate_artifacts": True,
+                    },
+                    "task_type_hint": "CODE_GENERATION",
+                    "priority_boost": 0.3,
+                }
+            )
 
         # Submit each identified task opportunity to the autonomic system
         for task_opp in task_opportunities:
@@ -2281,16 +2346,22 @@ async def _analyze_conversation_for_autonomic_tasks(
                     "session_id": session_id,
                     "conversation_length": conversation_length,
                     "is_substantial": conversation_length > 40,
-                    "task_type_hint": task_opp.get("task_type_hint", "BACKGROUND_PROCESSING"),
+                    "task_type_hint": task_opp.get(
+                        "task_type_hint", "BACKGROUND_PROCESSING"
+                    ),
                     "priority_boost": task_opp.get("priority_boost", 0.0),
-                    "user_waiting": False  # Background tasks don't block user
+                    "user_waiting": False,  # Background tasks don't block user
                 }
 
                 # Use the autonomic system's TaskClassifier
-                should_offload, task_type, priority = await autonomic_system.classifier.should_offload_task(
+                (
+                    should_offload,
+                    task_type,
+                    priority,
+                ) = await autonomic_system.classifier.should_offload_task(
                     task_description=task_opp["description"],
                     task_payload=task_opp["payload"],
-                    user_context=user_context
+                    user_context=user_context,
                 )
 
                 if should_offload:
@@ -2299,44 +2370,64 @@ async def _analyze_conversation_for_autonomic_tasks(
                         description=task_opp["description"],
                         payload=task_opp["payload"],
                         user_id=user_id,
-                        session_id=session_id
+                        session_id=session_id,
                     )
 
                     if was_offloaded:
-                        logger.info(f"🤖 Successfully submitted autonomic task: {task_id}")
-                        logger.info(f"   Type: {task_type.value}, Priority: {priority.value}")
-                        logger.info(f"   Description: {task_opp['description'][:100]}...")
+                        logger.info(
+                            f"🤖 Successfully submitted autonomic task: {task_id}"
+                        )
+                        logger.info(
+                            f"   Type: {task_type.value}, Priority: {priority.value}"
+                        )
+                        logger.info(
+                            f"   Description: {task_opp['description'][:100]}..."
+                        )
 
                         # Add to submitted tasks list
-                        submitted_tasks.append((task_opp["description"], task_opp["payload"]))
+                        submitted_tasks.append(
+                            (task_opp["description"], task_opp["payload"])
+                        )
                     else:
-                        logger.debug(f"🤖 Task not offloaded (queue/rate limit): {task_opp['description'][:50]}...")
+                        logger.debug(
+                            f"🤖 Task not offloaded (queue/rate limit): {task_opp['description'][:50]}..."
+                        )
                 else:
-                    logger.debug(f"🤖 Task classified as not needing offload: {task_opp['description'][:50]}...")
+                    logger.debug(
+                        f"🤖 Task classified as not needing offload: {task_opp['description'][:50]}..."
+                    )
 
             except Exception as task_error:
-                logger.debug(f"⚠️ Failed to submit individual task: {task_error}")
+                logger.debug("⚠️ Failed to submit individual task: %s", task_error)
                 # Continue with other tasks even if one fails
 
         # Log final autonomic system status if tasks were submitted
         if submitted_tasks:
             system_status = autonomic_system.get_system_status()
             logger.info("🤖 Autonomic system status after submissions:")
-            logger.info(f"   Submitted tasks: {len(submitted_tasks)}")
-            logger.info(f"   Queue status: {system_status['queued_tasks']} queued, {system_status['active_tasks']} active")
-            logger.info(f"   Queue utilization: {system_status['queue_utilization']:.1f}%")
+            logger.info("   Submitted tasks: %s", len(submitted_tasks))
+            logger.info(
+                f"   Queue status: {system_status['queued_tasks']} queued, {system_status['active_tasks']} active"
+            )
+            logger.info(
+                f"   Queue utilization: {system_status['queue_utilization']:.1f}%"
+            )
 
             # Log rate limiting status
-            rate_status = system_status.get('rate_limiting', {})
+            rate_status = system_status.get("rate_limiting", {})
             if rate_status:
-                logger.debug(f"   Rate limit: {rate_status.get('rpm_current', 0)}/{rate_status.get('rpm_limit', 30)} RPM")
+                logger.debug(
+                    f"   Rate limit: {rate_status.get('rpm_current', 0)}/{rate_status.get('rpm_limit', 30)} RPM"
+                )
 
     except Exception as e:
-        logger.warning(f"⚠️ Autonomic task analysis failed: {e}")
-        logger.debug(f"   Error details: {type(e).__name__}: {str(e)}")
+        logger.warning("⚠️ Autonomic task analysis failed: %s", e)
+        logger.debug("   Error details: %s: %s", type(e).__name__, str(e))
         # Don't let autonomic system failures affect main conversation
 
     return submitted_tasks
+
+
 @app.post("/search")
 async def search_memories(request: SearchRequest) -> Dict[str, Any]:
     """
@@ -2415,19 +2506,21 @@ async def search_memories(request: SearchRequest) -> Dict[str, Any]:
                     {
                         "query": request.query,
                         "user_id": request.user_id,
-                        "max_results": request.n_results
-                    }
+                        "max_results": request.n_results,
+                    },
                 )
 
-                logger.info(f"🔧 Advanced search raw result: {advanced_result}")
+                logger.info("🔧 Advanced search raw result: %s", advanced_result)
 
                 if advanced_result and advanced_result.get("status") == "success":
                     # Check multiple possible result keys in the response
-                    memories = (advanced_result.get("memories", []) or
-                              advanced_result.get("results", []) or
-                              advanced_result.get("data", []) or
-                              advanced_result.get("all_results", []) or
-                              [])
+                    memories = (
+                        advanced_result.get("memories", [])
+                        or advanced_result.get("results", [])
+                        or advanced_result.get("data", [])
+                        or advanced_result.get("all_results", [])
+                        or []
+                    )
 
                     # If still empty, check if the result itself is a list
                     if not memories and isinstance(advanced_result.get("result"), list):
@@ -2438,20 +2531,40 @@ async def search_memories(request: SearchRequest) -> Dict[str, Any]:
                     for memory in memories:
                         # Handle different memory formats
                         if isinstance(memory, dict):
-                            formatted_results.append({
-                                "content": memory.get("content", memory.get("text", memory.get("document", str(memory)))),
-                                "metadata": memory.get("metadata", memory.get("meta", {})),
-                                "similarity": float(memory.get("similarity", memory.get("score", memory.get("distance", 0.0))))
-                            })
+                            formatted_results.append(
+                                {
+                                    "content": memory.get(
+                                        "content",
+                                        memory.get(
+                                            "text", memory.get("document", str(memory))
+                                        ),
+                                    ),
+                                    "metadata": memory.get(
+                                        "metadata", memory.get("meta", {})
+                                    ),
+                                    "similarity": float(
+                                        memory.get(
+                                            "similarity",
+                                            memory.get(
+                                                "score", memory.get("distance", 0.0)
+                                            ),
+                                        )
+                                    ),
+                                }
+                            )
                         else:
                             # Handle string results
-                            formatted_results.append({
-                                "content": str(memory),
-                                "metadata": {},
-                                "similarity": 0.5
-                            })
+                            formatted_results.append(
+                                {
+                                    "content": str(memory),
+                                    "metadata": {},
+                                    "similarity": 0.5,
+                                }
+                            )
 
-                    logger.info(f"🔍 Advanced search found {len(formatted_results)} memories using video + active search")
+                    logger.info(
+                        f"🔍 Advanced search found {len(formatted_results)} memories using video + active search"
+                    )
 
                     if formatted_results:
                         return {
@@ -2459,11 +2572,13 @@ async def search_memories(request: SearchRequest) -> Dict[str, Any]:
                             "query": request.query,
                             "total_found": len(formatted_results),
                             "search_type": "unified_memory_search",
-                            "includes_video_archives": True
+                            "includes_video_archives": True,
                         }
 
             except Exception as e:
-                logger.warning(f"⚠️ Advanced search failed, falling back to basic search: {e}")
+                logger.warning(
+                    f"⚠️ Advanced search failed, falling back to basic search: {e}"
+                )
 
             # Fallback to basic memory search if advanced fails
             try:
@@ -2472,39 +2587,43 @@ async def search_memories(request: SearchRequest) -> Dict[str, Any]:
                     {
                         "query": request.query,
                         "user_id": request.user_id,
-                        "n_results": request.n_results
-                    }
+                        "n_results": request.n_results,
+                    },
                 )
 
                 if basic_result and basic_result.get("status") == "success":
                     memories = basic_result.get("memories", [])
-                    logger.info(f"🔍 Basic search found {len(memories)} memories using active search")
+                    logger.info(
+                        f"🔍 Basic search found {len(memories)} memories using active search"
+                    )
                     return {
                         "results": memories,
                         "query": request.query,
                         "total_found": len(memories),
                         "search_type": "active_memory_search",
-                        "includes_video_archives": False
+                        "includes_video_archives": False,
                     }
 
             except Exception as e:
-                logger.warning(f"⚠️ Basic MCP search failed, using direct persistence: {e}")
+                logger.warning(
+                    f"⚠️ Basic MCP search failed, using direct persistence: {e}"
+                )
 
         # Final fallback to direct persistence service if MCP tools fail
         if conversation_persistence:
             results = await conversation_persistence.safe_search_conversations(
                 query=request.query,
                 user_id=request.user_id,
-                n_results=request.n_results
+                n_results=request.n_results,
             )
 
-            logger.info(f"🔍 Direct persistence search found {len(results)} memories")
+            logger.info("🔍 Direct persistence search found %s memories", len(results))
             return {
                 "results": results,
                 "query": request.query,
                 "total_found": len(results),
                 "search_type": "persistence_fallback",
-                "includes_video_archives": False
+                "includes_video_archives": False,
             }
         else:
             logger.error("❌ Conversation persistence service not available")
@@ -2514,12 +2633,13 @@ async def search_memories(request: SearchRequest) -> Dict[str, Any]:
                 "total_found": 0,
                 "search_type": "no_persistence_available",
                 "includes_video_archives": False,
-                "error": "Persistence service not initialized"
+                "error": "Persistence service not initialized",
             }
 
     except Exception as e:
-        logger.error(f"❌ Failed to search memories: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to search memories: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 async def _cleanup_session_related_data(user_id: str, session_id: str):
     """
@@ -2528,22 +2648,23 @@ async def _cleanup_session_related_data(user_id: str, session_id: str):
     This runs asynchronously to avoid blocking the main delete operation.
     """
     try:
-        logger.info(f"🧹 Background cleanup for session {session_id}")
+        logger.info("🧹 Background cleanup for session %s", session_id)
 
         # Clean up any cached session data
         session_key = f"{user_id}_{session_id}"
         if session_key in active_chat_sessions:
             del active_chat_sessions[session_key]
-            logger.debug(f"🧹 Cleared cached session {session_key}")
+            logger.debug("🧹 Cleared cached session %s", session_key)
 
         if session_key in session_tool_versions:
             del session_tool_versions[session_key]
-            logger.debug(f"🧹 Cleared session tool version {session_key}")
+            logger.debug("🧹 Cleared session tool version %s", session_key)
 
         # Additional cleanup can be added here if needed
 
     except Exception as e:
-        logger.error(f"❌ Background cleanup failed for session {session_id}: {e}")
+        logger.error("❌ Background cleanup failed for session %s: %s", session_id, e)
+
 
 @app.get("/thinking-status")
 async def get_thinking_status() -> Dict[str, Any]:
@@ -2554,23 +2675,29 @@ async def get_thinking_status() -> Dict[str, Any]:
     and system readiness for transparent AI reasoning.
     """
     try:
-        budget = int(os.getenv('THINKING_BUDGET', '-1'))
-        effective_budget = budget  # No conversion - pass through -1 for adaptive thinking
+        budget = int(os.getenv("THINKING_BUDGET", "-1"))
+        effective_budget = (
+            budget  # No conversion - pass through -1 for adaptive thinking
+        )
 
         thinking_config = {
             "thinking_enabled": thinking_processor is not None,
             "thinking_budget": effective_budget,
             "thinking_budget_raw": budget,
             "thinking_budget_max": 24576,
-            "include_thinking_in_response": os.getenv('INCLUDE_THINKING_IN_RESPONSE', 'false').lower() == 'true',
-            "model": os.getenv('AURA_MODEL', 'gemini-2.5-flash'),
+            "include_thinking_in_response": os.getenv(
+                "INCLUDE_THINKING_IN_RESPONSE", "false"
+            ).lower()
+            == "true",
+            "model": os.getenv("AURA_MODEL", "gemini-2.5-flash"),
             "supports_thinking": True,  # Gemini models support thinking
         }
 
         system_status = {
             "thinking_processor_initialized": thinking_processor is not None,
             "mcp_bridge_available": mcp_gemini_bridge is not None,
-            "function_calls_with_thinking": thinking_processor is not None and mcp_gemini_bridge is not None
+            "function_calls_with_thinking": thinking_processor is not None
+            and mcp_gemini_bridge is not None,
         }
 
         return {
@@ -2582,23 +2709,18 @@ async def get_thinking_status() -> Dict[str, Any]:
                 "Thought summarization and analysis",
                 "Function call integration with thinking",
                 "Reasoning pattern analysis",
-                "Cognitive transparency reporting"
-            ]
+                "Cognitive transparency reporting",
+            ],
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get thinking status: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "thinking_enabled": False
-        }
+        logger.error("❌ Failed to get thinking status: %s", e)
+        return {"status": "error", "error": str(e), "thinking_enabled": False}
+
 
 @app.get("/emotional-analysis/{user_id}")
 async def get_emotional_analysis(
-    user_id: str,
-    period: str = "week",
-    custom_days: Optional[int] = None
+    user_id: str, period: str = "week", custom_days: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Generate comprehensive emotional pattern analysis with configurable temporal granularity.
@@ -2678,19 +2800,21 @@ async def get_emotional_analysis(
     try:
         # Convert period to days
         period_mapping = {
-            "hour": 1/24,      # Last hour
-            "day": 1,          # Last 24 hours
-            "week": 7,         # Last 7 days
-            "month": 30,       # Last 30 days
-            "year": 365,       # Last year
-            "multi-year": 1825  # Last 5 years
+            "hour": 1 / 24,  # Last hour
+            "day": 1,  # Last 24 hours
+            "week": 7,  # Last 7 days
+            "month": 30,  # Last 30 days
+            "year": 365,  # Last year
+            "multi-year": 1825,  # Last 5 years
         }
 
         # Use custom days if provided, otherwise use period mapping
         days = custom_days if custom_days is not None else period_mapping.get(period, 7)
 
         if not vector_db:
-            raise HTTPException(status_code=500, detail="Vector database not initialized")
+            raise HTTPException(
+                status_code=500, detail="Vector database not initialized"
+            )
 
         analysis = await vector_db.analyze_emotional_trends(user_id, days)
         analysis["period_type"] = period
@@ -2699,22 +2823,28 @@ async def get_emotional_analysis(
         return analysis
 
     except Exception as e:
-        logger.error(f"❌ Failed to get emotional analysis: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to get emotional analysis: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.post("/export/{user_id}")
-async def export_user_data(user_id: str, format: str = "json"):
+async def export_user_data(user_id: str, format_type: str = "json"):
     """Export user conversation history and patterns"""
     try:
         if not aura_file_system:
-            raise HTTPException(status_code=500, detail="File system not initialized")
+            raise HTTPException(
+                status_code=500, detail="File system not initialized"
+            ) from None
 
-        export_path = await aura_file_system.export_conversation_history(user_id, format)
+        export_path = await aura_file_system.export_conversation_history(
+            user_id, format_type
+        )
         return {"export_path": export_path, "message": "Export completed successfully"}
 
     except Exception as e:
-        logger.error(f"❌ Failed to export user data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to export user data: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.get("/chat-history/{user_id}")
 async def get_chat_history(user_id: str, limit: int = 5000) -> Dict[str, Any]:
@@ -2787,7 +2917,10 @@ async def get_chat_history(user_id: str, limit: int = 5000) -> Dict[str, Any]:
     """
     try:
         if not conversation_persistence:
-            raise HTTPException(status_code=500, detail="Conversation persistence service not initialized")
+            raise HTTPException(
+                status_code=500,
+                detail="Conversation persistence service not initialized",
+            )
 
         # Use the persistence service's thread-safe method
         result = await conversation_persistence.safe_get_chat_history(user_id, limit)
@@ -2797,26 +2930,37 @@ async def get_chat_history(user_id: str, limit: int = 5000) -> Dict[str, Any]:
         for session in result.get("sessions", []):
             # Get the last message content for preview
             messages = session.get("messages", [])
-            last_message_content = messages[-1]["content"] if messages else "No messages"
+            last_message_content = (
+                messages[-1]["content"] if messages else "No messages"
+            )
 
             transformed_session = {
                 "session_id": session["session_id"],
-                "last_message": last_message_content[:10000] + "..." if len(last_message_content) > 10000 else last_message_content,
+                "last_message": (
+                    last_message_content[:10000] + "..."
+                    if len(last_message_content) > 10000
+                    else last_message_content
+                ),
                 "message_count": len(messages),
-                "timestamp": session.get("last_time", session.get("start_time", ""))  # Use last_time as timestamp
+                "timestamp": session.get(
+                    "last_time", session.get("start_time", "")
+                ),  # Use last_time as timestamp
             }
             transformed_sessions.append(transformed_session)
 
         # Transform response to match frontend interface
         return {
             "sessions": transformed_sessions,
-            "total_sessions": result.get("total", 0),  # Frontend expects 'total_sessions'
-            "user_id": user_id  # Frontend expects user_id in response
+            "total_sessions": result.get(
+                "total", 0
+            ),  # Frontend expects 'total_sessions'
+            "user_id": user_id,  # Frontend expects user_id in response
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get chat history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to get chat history: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.get("/chat-history/{user_id}/{session_id}")
 async def get_session_messages(user_id: str, session_id: str) -> List[Dict[str, Any]]:
@@ -2884,69 +3028,87 @@ async def get_session_messages(user_id: str, session_id: str) -> List[Dict[str, 
     """
     try:
         if not conversation_persistence:
-            raise HTTPException(status_code=500, detail="Conversation persistence service not initialized")
+            raise HTTPException(
+                status_code=500,
+                detail="Conversation persistence service not initialized",
+            )
 
         # Use the safe_get_session_messages method from conversation persistence service
-        messages = await conversation_persistence.safe_get_session_messages(user_id, session_id)
+        messages = await conversation_persistence.safe_get_session_messages(
+            user_id, session_id
+        )
 
         if not messages:
-            logger.info(f"No messages found for session {session_id} for user {user_id}")
+            logger.info(
+                f"No messages found for session {session_id} for user {user_id}"
+            )
             return []
 
-        logger.info(f"✅ Retrieved {len(messages)} messages for session {session_id}")
+        logger.info(
+            "✅ Retrieved %s messages for session %s", len(messages), session_id
+        )
         return messages
 
     except Exception as e:
-        logger.error(f"❌ Failed to get session messages for {session_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to get session messages for %s: %s", session_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.delete("/chat-history/{user_id}/{session_id}")
 async def delete_chat_session(user_id: str, session_id: str):
     """Delete a specific chat session using enhanced database operations"""
     try:
         if not vector_db or not vector_db.conversations:
-            raise HTTPException(status_code=500, detail="Vector database not properly initialized")
+            raise HTTPException(
+                status_code=500, detail="Vector database not properly initialized"
+            )
 
         # Get all messages for this session (no longer need nested _safe_operation since delete_messages handles it)
         results = vector_db.conversations.get(
             where={
                 "$and": [
                     {"user_id": {"$eq": user_id}},
-                    {"session_id": {"$eq": session_id}}
+                    {"session_id": {"$eq": session_id}},
                 ]
             },
-            include=["documents", "metadatas"]
+            include=["documents", "metadatas"],
         )
 
-        if results and results.get('ids'):
+        if results and results.get("ids"):
             # Delete all messages in this session using the robust delete method
             delete_result = await vector_db.delete_messages(
-                ids=results['ids'],
-                collection_name="conversations"
+                ids=results["ids"], collection_name="conversations"
             )
 
             if not delete_result["success"]:
-                logger.error(f"❌ Database deletion failed for session {session_id}: {delete_result['errors']}")
+                logger.error(
+                    f"❌ Database deletion failed for session {session_id}: {delete_result['errors']}"
+                )
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to delete session from database: {'; '.join(delete_result['errors'])}"
+                    detail=f"Failed to delete session from database: {'; '.join(delete_result['errors'])}",
                 )
 
-            # Also remove from active sessions if present
+            # Also remove from active sessions using the provider
             session_key = f"{user_id}_{session_id}"
-            if session_key in active_chat_sessions:
-                del active_chat_sessions[session_key]
-            if session_key in session_tool_versions:
-                del session_tool_versions[session_key]
+            global provider
+            if provider:
+                await provider.clear_session(session_key)
 
-            logger.info(f"✅ Successfully deleted session {session_id} for user {user_id} ({delete_result['deleted_count']} messages)")
-            return {"message": f"Deleted session {session_id}", "deleted_count": delete_result['deleted_count']}
+            logger.info(
+                f"✅ Successfully deleted session {session_id} for user {user_id} ({delete_result['deleted_count']} messages)"
+            )
+            return {
+                "message": f"Deleted session {session_id}",
+                "deleted_count": delete_result["deleted_count"],
+            }
         else:
             return {"message": "Session not found", "deleted_count": 0}
 
     except Exception as e:
-        logger.error(f"❌ Failed to delete chat session: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to delete chat session: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.post("/mcp/execute-tool", response_model=ExecuteToolResponse)
 async def mcp_execute_tool(request: ExecuteToolRequest):
@@ -2963,7 +3125,9 @@ async def mcp_execute_tool(request: ExecuteToolRequest):
     start_time = asyncio.get_event_loop().time()
 
     try:
-        logger.info(f"🔧 Executing tool '{request.tool_name}' for user {request.user_id}")
+        logger.info(
+            f"🔧 Executing tool '{request.tool_name}' for user {request.user_id}"
+        )
 
         # Validate tool execution capability
         if not aura_internal_tools:
@@ -2973,7 +3137,7 @@ async def mcp_execute_tool(request: ExecuteToolRequest):
                 error="Internal tools not initialized",
                 execution_time=asyncio.get_event_loop().time() - start_time,
                 timestamp=datetime.now().isoformat(),
-                metadata={"error_type": "initialization_error"}
+                metadata={"error_type": "initialization_error"},
             )
 
         # Execute tool with timeout
@@ -2984,27 +3148,29 @@ async def mcp_execute_tool(request: ExecuteToolRequest):
                         tool_name=request.tool_name,
                         arguments=request.arguments,
                         user_id=request.user_id,
-                        aura_internal_tools=aura_internal_tools
+                        aura_internal_tools=aura_internal_tools,
                     ),
-                    timeout=request.timeout
+                    timeout=request.timeout,
                 )
             else:
                 result = await execute_mcp_tool(
                     tool_name=request.tool_name,
                     arguments=request.arguments,
                     user_id=request.user_id,
-                    aura_internal_tools=aura_internal_tools
+                    aura_internal_tools=aura_internal_tools,
                 )
         except asyncio.TimeoutError:
             execution_time = asyncio.get_event_loop().time() - start_time
-            logger.warning(f"⏰ Tool '{request.tool_name}' timed out after {request.timeout}s")
+            logger.warning(
+                f"⏰ Tool '{request.tool_name}' timed out after {request.timeout}s"
+            )
             return ExecuteToolResponse(
                 status="timeout",
                 tool_name=request.tool_name,
                 error=f"Tool execution timed out after {request.timeout} seconds",
                 execution_time=execution_time,
                 timestamp=datetime.now().isoformat(),
-                metadata={"timeout_duration": request.timeout}
+                metadata={"timeout_duration": request.timeout},
             )
 
         execution_time = asyncio.get_event_loop().time() - start_time
@@ -3019,12 +3185,14 @@ async def mcp_execute_tool(request: ExecuteToolRequest):
                 timestamp=datetime.now().isoformat(),
                 metadata={
                     "original_result": result,
-                    "request_metadata": request.metadata
-                }
+                    "request_metadata": request.metadata,
+                },
             )
 
         # Successful execution
-        logger.info(f"✅ Tool '{request.tool_name}' executed successfully in {execution_time:.3f}s")
+        logger.info(
+            f"✅ Tool '{request.tool_name}' executed successfully in {execution_time:.3f}s"
+        )
         return ExecuteToolResponse(
             status="success",
             tool_name=request.tool_name,
@@ -3033,27 +3201,29 @@ async def mcp_execute_tool(request: ExecuteToolRequest):
             timestamp=datetime.now().isoformat(),
             metadata={
                 "request_metadata": request.metadata,
-                "result_type": type(result).__name__
-            }
+                "result_type": type(result).__name__,
+            },
         )
 
     except ValueError as e:
         # Handle validation errors
         execution_time = asyncio.get_event_loop().time() - start_time
-        logger.error(f"❌ Validation error for tool '{request.tool_name}': {e}")
+        logger.error("❌ Validation error for tool '%s': %s", request.tool_name, e)
         return ExecuteToolResponse(
             status="error",
             tool_name=request.tool_name,
             error=f"Validation error: {str(e)}",
             execution_time=execution_time,
             timestamp=datetime.now().isoformat(),
-            metadata={"error_type": "validation_error"}
+            metadata={"error_type": "validation_error"},
         )
 
     except Exception as e:
         # Handle unexpected errors
         execution_time = asyncio.get_event_loop().time() - start_time
-        logger.error(f"❌ Unexpected error executing tool '{request.tool_name}': {e}")
+        logger.error(
+            "❌ Unexpected error executing tool '%s': %s", request.tool_name, e
+        )
         return ExecuteToolResponse(
             status="error",
             tool_name=request.tool_name,
@@ -3062,9 +3232,10 @@ async def mcp_execute_tool(request: ExecuteToolRequest):
             timestamp=datetime.now().isoformat(),
             metadata={
                 "error_type": "execution_error",
-                "exception_type": type(e).__name__
-            }
+                "exception_type": type(e).__name__,
+            },
         )
+
 
 @app.get("/mcp/tools")
 async def list_available_tools():
@@ -3084,27 +3255,35 @@ async def list_available_tools():
         if aura_internal_tools:
             internal_tools = aura_internal_tools.get_tool_definitions()
             for tool_name, tool_info in internal_tools.items():
-                available_tools.append({
-                    "name": tool_name,
-                    "type": "internal",
-                    "description": tool_info.get("description", "No description available"),
-                    "parameters": tool_info.get("parameters", {}),
-                    "examples": tool_info.get("examples", [])
-                })
+                available_tools.append(
+                    {
+                        "name": tool_name,
+                        "type": "internal",
+                        "description": tool_info.get(
+                            "description", "No description available"
+                        ),
+                        "parameters": tool_info.get("parameters", {}),
+                        "examples": tool_info.get("examples", []),
+                    }
+                )
 
         # Get external MCP tools
         try:
             external_tools = await get_all_available_tools()
             for tool in external_tools:
-                available_tools.append({
-                    "name": tool.get("name", "unknown"),
-                    "type": "external",
-                    "description": tool.get("description", "No description available"),
-                    "parameters": tool.get("inputSchema", {}).get("properties", {}),
-                    "required": tool.get("inputSchema", {}).get("required", [])
-                })
+                available_tools.append(
+                    {
+                        "name": tool.get("name", "unknown"),
+                        "type": "external",
+                        "description": tool.get(
+                            "description", "No description available"
+                        ),
+                        "parameters": tool.get("inputSchema", {}).get("properties", {}),
+                        "required": tool.get("inputSchema", {}).get("required", []),
+                    }
+                )
         except Exception as e:
-            logger.warning(f"⚠️ Could not fetch external MCP tools: {e}")
+            logger.warning("⚠️ Could not fetch external MCP tools: %s", e)
 
         # Sort tools by name for easier browsing
         available_tools.sort(key=lambda x: x["name"])
@@ -3114,15 +3293,22 @@ async def list_available_tools():
             "total_tools": len(available_tools),
             "tools": available_tools,
             "categories": {
-                "internal": len([t for t in available_tools if t["type"] == "internal"]),
-                "external": len([t for t in available_tools if t["type"] == "external"])
+                "internal": len(
+                    [t for t in available_tools if t["type"] == "internal"]
+                ),
+                "external": len(
+                    [t for t in available_tools if t["type"] == "external"]
+                ),
             },
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to list available tools: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve tools: {str(e)}")
+        logger.error("❌ Failed to list available tools: %s", e)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve tools: {str(e)}"
+        ) from e
+
 
 @app.get("/mcp/tools/{tool_name}")
 async def get_tool_info(tool_name: str):
@@ -3145,11 +3331,13 @@ async def get_tool_info(tool_name: str):
                     "name": tool_name,
                     "type": "internal",
                     "found": True,
-                    "description": tool_info.get("description", "No description available"),
+                    "description": tool_info.get(
+                        "description", "No description available"
+                    ),
                     "parameters": tool_info.get("parameters", {}),
                     "examples": tool_info.get("examples", []),
                     "usage_notes": tool_info.get("usage_notes", []),
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 }
 
         # Check external tools
@@ -3161,26 +3349,31 @@ async def get_tool_info(tool_name: str):
                         "name": tool_name,
                         "type": "external",
                         "found": True,
-                        "description": tool.get("description", "No description available"),
+                        "description": tool.get(
+                            "description", "No description available"
+                        ),
                         "parameters": tool.get("inputSchema", {}).get("properties", {}),
                         "required": tool.get("inputSchema", {}).get("required", []),
                         "schema": tool.get("inputSchema", {}),
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": datetime.now().isoformat(),
                     }
         except Exception as e:
-            logger.warning(f"⚠️ Could not search external MCP tools: {e}")
+            logger.warning("⚠️ Could not search external MCP tools: %s", e)
 
         # Tool not found
         return {
             "name": tool_name,
             "found": False,
             "error": "Tool not found in available tools",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get tool info for '{tool_name}': {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get tool info: {str(e)}")
+        logger.error("❌ Failed to get tool info for '%s': %s", tool_name, e)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get tool info: {str(e)}"
+        ) from e
+
 
 @app.post("/mcp/tools/validate")
 async def validate_tool_request(request: ExecuteToolRequest):
@@ -3200,7 +3393,7 @@ async def validate_tool_request(request: ExecuteToolRequest):
             "errors": [],
             "warnings": [],
             "suggestions": [],
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         # Check if tool exists
@@ -3224,7 +3417,9 @@ async def validate_tool_request(request: ExecuteToolRequest):
                         tool_info = tool
                         break
             except Exception as e:
-                validation_result["warnings"].append(f"Could not check external tools: {str(e)}")
+                validation_result["warnings"].append(
+                    f"Could not check external tools: {str(e)}"
+                )
 
         if not tool_found:
             validation_result["valid"] = False
@@ -3248,7 +3443,9 @@ async def validate_tool_request(request: ExecuteToolRequest):
             for param in required_params:
                 if param not in request.arguments:
                     validation_result["valid"] = False
-                    validation_result["errors"].append(f"Missing required parameter: {param}")
+                    validation_result["errors"].append(
+                        f"Missing required parameter: {param}"
+                    )
 
             # Check for unknown parameters
             for param in request.arguments:
@@ -3262,34 +3459,53 @@ async def validate_tool_request(request: ExecuteToolRequest):
                     expected_type = param_spec.get("type")
 
                     if expected_type == "string" and not isinstance(value, str):
-                        validation_result["errors"].append(f"Parameter '{param}' should be a string")
+                        validation_result["errors"].append(
+                            f"Parameter '{param}' should be a string"
+                        )
                         validation_result["valid"] = False
                     elif expected_type == "integer" and not isinstance(value, int):
-                        validation_result["errors"].append(f"Parameter '{param}' should be an integer")
+                        validation_result["errors"].append(
+                            f"Parameter '{param}' should be an integer"
+                        )
                         validation_result["valid"] = False
                     elif expected_type == "boolean" and not isinstance(value, bool):
-                        validation_result["errors"].append(f"Parameter '{param}' should be a boolean")
+                        validation_result["errors"].append(
+                            f"Parameter '{param}' should be a boolean"
+                        )
                         validation_result["valid"] = False
                     elif expected_type == "array" and not isinstance(value, list):
-                        validation_result["errors"].append(f"Parameter '{param}' should be an array")
+                        validation_result["errors"].append(
+                            f"Parameter '{param}' should be an array"
+                        )
                         validation_result["valid"] = False
                     elif expected_type == "object" and not isinstance(value, dict):
-                        validation_result["errors"].append(f"Parameter '{param}' should be an object")
+                        validation_result["errors"].append(
+                            f"Parameter '{param}' should be an object"
+                        )
                         validation_result["valid"] = False
 
         # Add helpful suggestions
         if validation_result["valid"]:
-            validation_result["suggestions"].append("Tool request is valid and ready for execution")
+            validation_result["suggestions"].append(
+                "Tool request is valid and ready for execution"
+            )
         else:
-            validation_result["suggestions"].append("Fix the errors above before executing the tool")
+            validation_result["suggestions"].append(
+                "Fix the errors above before executing the tool"
+            )
             if tool_info and "description" in tool_info:
-                validation_result["suggestions"].append(f"Tool description: {tool_info['description']}")
+                validation_result["suggestions"].append(
+                    f"Tool description: {tool_info['description']}"
+                )
 
         return validation_result
 
     except Exception as e:
-        logger.error(f"❌ Failed to validate tool request: {e}")
-        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
+        logger.error("❌ Failed to validate tool request: %s", e)
+        raise HTTPException(
+            status_code=500, detail=f"Validation failed: {str(e)}"
+        ) from None
+
 
 @app.delete("/sessions/{user_id}")
 async def clear_user_sessions(user_id: str):
@@ -3299,23 +3515,30 @@ async def clear_user_sessions(user_id: str):
         sessions_cleared = 0
 
         # Find and remove all sessions for this user
-        sessions_to_remove = [key for key in active_chat_sessions.keys() if key.startswith(f"{user_id}_")]
+        sessions_to_remove = [
+            key for key in active_chat_sessions.keys() if key.startswith(f"{user_id}_")
+        ]
 
+        global provider
         for session_key in sessions_to_remove:
-            del active_chat_sessions[session_key]
+            if provider:
+                await provider.clear_session(session_key)
             sessions_cleared += 1
 
-        logger.info(f"🧹 Cleared {sessions_cleared} chat sessions for user {user_id}")
+        logger.info(
+            "🧹 Cleared %s chat sessions for user %s", sessions_cleared, user_id
+        )
 
         return {
             "message": f"Cleared {sessions_cleared} chat sessions for user {user_id}",
             "user_id": user_id,
-            "sessions_cleared": sessions_cleared
+            "sessions_cleared": sessions_cleared,
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to clear sessions for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to clear sessions for user %s: %s", user_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.get("/mcp/bridge-status")
 async def get_mcp_bridge_status():
@@ -3324,7 +3547,7 @@ async def get_mcp_bridge_status():
         if not mcp_gemini_bridge:
             return {
                 "status": "not_initialized",
-                "message": "MCP-Gemini bridge is not initialized"
+                "message": "MCP-Gemini bridge is not initialized",
             }
 
         stats = mcp_gemini_bridge.get_execution_stats()
@@ -3334,12 +3557,13 @@ async def get_mcp_bridge_status():
             "status": "active",
             "available_functions": len(available_functions),
             "execution_stats": stats,
-            "sample_functions": available_functions[:5]  # Show first 5 functions
+            "sample_functions": available_functions[:5],  # Show first 5 functions
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get bridge status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to get bridge status: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.get("/mcp/system-status")
 async def get_mcp_system_status():
@@ -3357,10 +3581,16 @@ async def get_mcp_system_status():
                 server = tool.get("server", "unknown")
                 if server not in tools_by_server:
                     tools_by_server[server] = []
-                tools_by_server[server].append({
-                    "name": tool["name"],
-                    "description": tool["description"][:10000] + "..." if len(tool["description"]) > 10000 else tool["description"]
-                })
+                tools_by_server[server].append(
+                    {
+                        "name": tool["name"],
+                        "description": (
+                            tool["description"][:10000] + "..."
+                            if len(tool["description"]) > 10000
+                            else tool["description"]
+                        ),
+                    }
+                )
 
             status["tools_by_server"] = tools_by_server
             status["total_tools"] = len(tools)
@@ -3368,12 +3598,9 @@ async def get_mcp_system_status():
         return status
 
     except Exception as e:
-        logger.error(f"❌ Failed to get MCP system status: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "initialized": False
-        }
+        logger.error("❌ Failed to get MCP system status: %s", e)
+        return {"status": "error", "error": str(e), "initialized": False}
+
 
 @app.get("/persistence/health")
 async def get_persistence_health():
@@ -3383,13 +3610,11 @@ async def get_persistence_health():
             return {
                 "status": "not_initialized",
                 "error": "Conversation persistence service not initialized",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         metrics = await conversation_persistence.get_persistence_metrics()
 
-        # Import the health check class here to avoid import issues
-        from conversation_persistence_service import PersistenceHealthCheck
         health_checker = PersistenceHealthCheck(conversation_persistence)
         health_status = await health_checker.check_health()
 
@@ -3397,16 +3622,17 @@ async def get_persistence_health():
             "status": "healthy" if health_status["healthy"] else "unhealthy",
             "metrics": metrics,
             "health_check": health_status,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get persistence health: {e}")
+        logger.error("❌ Failed to get persistence health: %s", e)
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
+
 
 @app.post("/test/persistence")
 async def test_persistence_reliability():
@@ -3415,11 +3641,8 @@ async def test_persistence_reliability():
         if not conversation_persistence:
             return {
                 "status": "error",
-                "message": "Conversation persistence service not initialized"
+                "message": "Conversation persistence service not initialized",
             }
-
-        # Create a test conversation exchange
-        from main import ConversationMemory, ConversationExchange
 
         test_user_id = f"test_user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         test_session_id = str(uuid.uuid4())
@@ -3428,38 +3651,38 @@ async def test_persistence_reliability():
             user_id=test_user_id,
             message="This is a test message to validate persistence reliability",
             sender="user",
-            session_id=test_session_id
+            session_id=test_session_id,
         )
 
         aura_memory = ConversationMemory(
             user_id=test_user_id,
             message="This is a test response to validate that chat history saves correctly",
             sender="aura",
-            session_id=test_session_id
+            session_id=test_session_id,
         )
 
         test_exchange = ConversationExchange(
-            user_memory=user_memory,
-            ai_memory=aura_memory,
-            session_id=test_session_id
+            user_memory=user_memory, ai_memory=aura_memory, session_id=test_session_id
         )
 
         # Test immediate persistence
-        immediate_result = await conversation_persistence.persist_conversation_exchange_immediate(
-            test_exchange,
-            update_profile=False,
-            timeout=3.0
+        immediate_result = (
+            await conversation_persistence.persist_conversation_exchange_immediate(
+                test_exchange, update_profile=False, timeout=3.0
+            )
         )
 
         # Verify the conversation was stored by searching for it
         search_result = await conversation_persistence.safe_search_conversations(
             query="test message to validate persistence",
             user_id=test_user_id,
-            n_results=2
+            n_results=2,
         )
 
         # Check chat history retrieval
-        history_result = await conversation_persistence.safe_get_chat_history(test_user_id, limit=10)
+        history_result = await conversation_persistence.safe_get_chat_history(
+            test_user_id, limit=10
+        )
 
         return {
             "status": "success",
@@ -3468,33 +3691,34 @@ async def test_persistence_reliability():
                     "success": immediate_result["success"],
                     "duration_ms": immediate_result["duration_ms"],
                     "stored_components": immediate_result["stored_components"],
-                    "method": immediate_result.get("method", "unknown")
+                    "method": immediate_result.get("method", "unknown"),
                 },
                 "search_verification": {
                     "found_messages": len(search_result),
-                    "search_successful": len(search_result) >= 2
+                    "search_successful": len(search_result) >= 2,
                 },
                 "history_retrieval": {
                     "sessions_found": len(history_result.get("sessions", [])),
-                    "retrieval_successful": len(history_result.get("sessions", [])) > 0
-                }
+                    "retrieval_successful": len(history_result.get("sessions", [])) > 0,
+                },
             },
             "test_user_id": test_user_id,
             "persistence_validated": (
-                immediate_result["success"] and
-                len(search_result) >= 2 and
-                len(history_result.get("sessions", [])) > 0
+                immediate_result["success"]
+                and len(search_result) >= 2
+                and len(history_result.get("sessions", [])) > 0
             ),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"❌ Persistence test failed: {e}")
+        logger.error("❌ Persistence test failed: %s", e)
         return {
             "status": "error",
             "message": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
+
 
 @app.get("/memvid/status")
 async def get_memvid_status():
@@ -3504,7 +3728,7 @@ async def get_memvid_status():
             return {
                 "status": "not_initialized",
                 "error": "Memvid archival service not initialized",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         # Get basic status info
@@ -3514,16 +3738,17 @@ async def get_memvid_status():
             "status": "operational",
             "archives_count": len(archives),
             "archives": archives[:5],  # Show first 5 archives
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get memvid status: {e}")
+        logger.error("❌ Failed to get memvid status: %s", e)
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
+
 
 @app.get("/vector-db/health")
 async def get_vector_db_health():
@@ -3533,19 +3758,20 @@ async def get_vector_db_health():
             return {
                 "status": "not_initialized",
                 "error": "Vector database not initialized",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         health_info = await vector_db.health_check()
         return health_info
 
     except Exception as e:
-        logger.error(f"❌ Failed to get vector database health: {e}")
+        logger.error("❌ Failed to get vector database health: %s", e)
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
+
 
 @app.get("/database-protection/status")
 async def get_database_protection_status():
@@ -3555,38 +3781,43 @@ async def get_database_protection_status():
             return {
                 "status": "not_initialized",
                 "error": "Database protection service not initialized",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         health_status = db_protection_service.get_health_status()
 
         return {
-            "status": "operational" if health_status["protection_active"] else "inactive",
+            "status": (
+                "operational" if health_status["protection_active"] else "inactive"
+            ),
             "health_status": health_status,
             "backup_directory": str(db_protection_service.backup_dir),
             "protection_features": [
                 "Automatic backup before risky operations",
                 "Health monitoring",
                 "Emergency recovery triggers",
-                "Transaction-like safety for database operations"
+                "Transaction-like safety for database operations",
             ],
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get database protection status: {e}")
+        logger.error("❌ Failed to get database protection status: %s", e)
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
+
 
 @app.post("/database-protection/emergency-backup")
 async def trigger_emergency_backup():
     """Trigger emergency database backup manually"""
     try:
         if not db_protection_service:
-            raise HTTPException(status_code=500, detail="Database protection service not initialized")
+            raise HTTPException(
+                status_code=500, detail="Database protection service not initialized"
+            )
 
         backup_path = db_protection_service.emergency_backup()
 
@@ -3595,18 +3826,19 @@ async def trigger_emergency_backup():
                 "status": "success",
                 "message": "Emergency backup created successfully",
                 "backup_path": str(backup_path),
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
         else:
             return {
                 "status": "failed",
                 "message": "Emergency backup failed to create",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
     except Exception as e:
-        logger.error(f"❌ Failed to create emergency backup: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to create emergency backup: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.get("/autonomic/status")
 async def get_autonomic_status() -> Dict[str, Any]:
@@ -3687,74 +3919,89 @@ async def get_autonomic_status() -> Dict[str, Any]:
         issues in production environments.
     """
     try:
-        autonomic_enabled = os.getenv('AUTONOMIC_ENABLED', 'true').lower() == 'true'
+        autonomic_enabled = os.getenv("AUTONOMIC_ENABLED", "true").lower() == "true"
 
         if not autonomic_enabled:
             return {
                 "status": "disabled",
                 "message": "Autonomic nervous system is disabled in configuration",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         if not autonomic_system:
             return {
                 "status": "not_initialized",
                 "error": "Autonomic nervous system not initialized",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         status = autonomic_system.get_system_status()
         return {
             "status": "operational" if status["running"] else "stopped",
             "system_status": status,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get autonomic status: {e}")
+        logger.error("❌ Failed to get autonomic status: %s", e)
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
+
 
 @app.get("/autonomic/tasks/{user_id}")
 async def get_user_autonomic_tasks(user_id: str, limit: int = 20):
     """Get autonomic tasks for a specific user"""
     try:
         if not autonomic_system:
-            raise HTTPException(status_code=500, detail="Autonomic system not initialized")
+            raise HTTPException(
+                status_code=500, detail="Autonomic system not initialized"
+            )
 
         # Get completed tasks for the user
         user_tasks = []
-        for task_id, task in autonomic_system.completed_tasks.items():
+        for _task_id, task in autonomic_system.completed_tasks.items():
             if task.user_id == user_id:
-                user_tasks.append({
-                    "task_id": task.task_id,
-                    "task_type": task.task_type.value,
-                    "priority": task.priority.value,
-                    "description": task.description,
-                    "status": task.status.value,
-                    "created_at": task.created_at.isoformat() if task.created_at else None,
-                    "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-                    "execution_time_ms": task.execution_time_ms,
-                    "has_result": task.result is not None,
-                    "has_error": task.error is not None
-                })
+                user_tasks.append(
+                    {
+                        "task_id": task.task_id,
+                        "task_type": task.task_type.value,
+                        "priority": task.priority.value,
+                        "description": task.description,
+                        "status": task.status.value,
+                        "created_at": (
+                            task.created_at.isoformat() if task.created_at else None
+                        ),
+                        "completed_at": (
+                            task.completed_at.isoformat() if task.completed_at else None
+                        ),
+                        "execution_time_ms": task.execution_time_ms,
+                        "has_result": task.result is not None,
+                        "has_error": task.error is not None,
+                    }
+                )
 
         # Get active tasks for the user
         active_user_tasks = []
-        for task_id, task in autonomic_system.active_tasks.items():
+        for _task_id, task in autonomic_system.active_tasks.items():
             if task.user_id == user_id:
-                active_user_tasks.append({
-                    "task_id": task.task_id,
-                    "task_type": task.task_type.value,
-                    "priority": task.priority.value,
-                    "description": task.description,
-                    "status": task.status.value,
-                    "created_at": task.created_at.isoformat() if task.created_at else None,
-                    "started_at": task.started_at.isoformat() if task.started_at else None
-                })
+                active_user_tasks.append(
+                    {
+                        "task_id": task.task_id,
+                        "task_type": task.task_type.value,
+                        "priority": task.priority.value,
+                        "description": task.description,
+                        "status": task.status.value,
+                        "created_at": (
+                            task.created_at.isoformat() if task.created_at else None
+                        ),
+                        "started_at": (
+                            task.started_at.isoformat() if task.started_at else None
+                        ),
+                    }
+                )
 
         # Sort by creation time (newest first) and limit
         user_tasks.sort(key=lambda x: x["created_at"] or "", reverse=True)
@@ -3766,19 +4013,22 @@ async def get_user_autonomic_tasks(user_id: str, limit: int = 20):
             "completed_tasks": user_tasks,
             "total_active": len(active_user_tasks),
             "total_completed": len(user_tasks),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to get user autonomic tasks: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to get user autonomic tasks: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.get("/autonomic/task/{task_id}")
 async def get_autonomic_task_details(task_id: str):
     """Get detailed information about a specific autonomic task"""
     try:
         if not autonomic_system:
-            raise HTTPException(status_code=500, detail="Autonomic system not initialized")
+            raise HTTPException(
+                status_code=500, detail="Autonomic system not initialized"
+            )
 
         # Check completed tasks first
         task = autonomic_system.completed_tasks.get(task_id)
@@ -3787,7 +4037,9 @@ async def get_autonomic_task_details(task_id: str):
             task = autonomic_system.active_tasks.get(task_id)
 
         if not task:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Task {task_id} not found"
+            ) from None
 
         task_details = {
             "task_id": task.task_id,
@@ -3799,11 +4051,13 @@ async def get_autonomic_task_details(task_id: str):
             "session_id": task.session_id,
             "created_at": task.created_at.isoformat() if task.created_at else None,
             "started_at": task.started_at.isoformat() if task.started_at else None,
-            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            "completed_at": (
+                task.completed_at.isoformat() if task.completed_at else None
+            ),
             "execution_time_ms": task.execution_time_ms,
             "payload": task.payload,
             "result": task.result,
-            "error": task.error
+            "error": task.error,
         }
 
         return task_details
@@ -3811,8 +4065,9 @@ async def get_autonomic_task_details(task_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Failed to get task details: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to get task details: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.post("/autonomic/submit-task")
 async def submit_autonomic_task(
@@ -3820,19 +4075,21 @@ async def submit_autonomic_task(
     payload: Dict[str, Any],
     user_id: str,
     session_id: Optional[str] = None,
-    force_offload: bool = False
+    force_offload: bool = False,
 ):
     """Manually submit a task to the autonomic system"""
     try:
         if not autonomic_system:
-            raise HTTPException(status_code=500, detail="Autonomic system not initialized")
+            raise HTTPException(
+                status_code=500, detail="Autonomic system not initialized"
+            )
 
         was_offloaded, task_id = await autonomic_system.submit_task(
             description=description,
             payload=payload,
             user_id=user_id,
             session_id=session_id,
-            force_offload=force_offload
+            force_offload=force_offload,
         )
 
         if was_offloaded and task_id:
@@ -3840,31 +4097,36 @@ async def submit_autonomic_task(
                 "status": "submitted",
                 "task_id": task_id,
                 "message": f"Task {task_id} submitted to autonomic system",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
         else:
             return {
                 "status": "not_offloaded",
                 "message": "Task did not meet criteria for autonomic processing",
                 "force_offload_option": "Set force_offload=true to override",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
     except Exception as e:
-        logger.error(f"❌ Failed to submit autonomic task: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to submit autonomic task: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.get("/autonomic/task/{task_id}/result")
 async def get_autonomic_task_result(task_id: str, timeout: Optional[float] = None):
     """Get the result of an autonomic task, optionally waiting for completion"""
     try:
         if not autonomic_system:
-            raise HTTPException(status_code=500, detail="Autonomic system not initialized")
+            raise HTTPException(
+                status_code=500, detail="Autonomic system not initialized"
+            )
 
         task = await autonomic_system.get_task_result(task_id, timeout)
 
         if not task:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Task {task_id} not found"
+            ) from None
 
         return {
             "task_id": task.task_id,
@@ -3872,36 +4134,41 @@ async def get_autonomic_task_result(task_id: str, timeout: Optional[float] = Non
             "result": task.result,
             "error": task.error,
             "execution_time_ms": task.execution_time_ms,
-            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-            "timestamp": datetime.now().isoformat()
+            "completed_at": (
+                task.completed_at.isoformat() if task.completed_at else None
+            ),
+            "timestamp": datetime.now().isoformat(),
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Failed to get task result: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to get task result: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.post("/autonomic/control/{action}")
 async def control_autonomic_system(action: str):
     """Control autonomic system (start/stop/restart)"""
     try:
         if not autonomic_system:
-            raise HTTPException(status_code=500, detail="Autonomic system not initialized")
+            raise HTTPException(
+                status_code=500, detail="Autonomic system not initialized"
+            )
 
         if action == "start":
             if autonomic_system._running:
                 return {
                     "status": "already_running",
                     "message": "Autonomic system is already running",
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 }
             else:
                 await autonomic_system.start()
                 return {
                     "status": "started",
                     "message": "Autonomic system started successfully",
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 }
 
         elif action == "stop":
@@ -3909,14 +4176,14 @@ async def control_autonomic_system(action: str):
                 return {
                     "status": "already_stopped",
                     "message": "Autonomic system is already stopped",
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 }
             else:
                 await autonomic_system.stop()
                 return {
                     "status": "stopped",
                     "message": "Autonomic system stopped successfully",
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 }
 
         elif action == "restart":
@@ -3925,28 +4192,33 @@ async def control_autonomic_system(action: str):
             return {
                 "status": "restarted",
                 "message": "Autonomic system restarted successfully",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         else:
-            raise HTTPException(status_code=400, detail=f"Invalid action: {action}. Use start, stop, or restart")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid action: {action}. Use start, stop, or restart",
+            )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Failed to control autonomic system: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to control autonomic system: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 @app.post("/vector-db/optimize")
 async def optimize_vector_db():
     """Trigger vector database optimization"""
     try:
         if not vector_db:
-            raise HTTPException(status_code=500, detail="Vector database not initialized")
+            raise HTTPException(
+                status_code=500, detail="Vector database not initialized"
+            )
 
         # Perform SQLite optimization through the enhanced database
         async with vector_db._safe_operation("optimize_database"):
-            import sqlite3
             sqlite_path = vector_db.persist_directory / "chroma.sqlite3"
             if sqlite_path.exists():
                 conn = sqlite3.connect(str(sqlite_path))
@@ -3959,25 +4231,26 @@ async def optimize_vector_db():
         return {
             "status": "success",
             "message": "Database optimization completed",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"❌ Failed to optimize vector database: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("❌ Failed to optimize vector database: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
 
 if __name__ == "__main__":
-    import uvicorn
-
     logger.info("🚀 Starting Aura Backend Server...")
     logger.info("✨ Features: Vector DB, MCP Integration, Advanced State Management")
-    logger.info("🔧 MCP Tools will be loaded on startup - check logs for available tools")
+    logger.info(
+        "🔧 MCP Tools will be loaded on startup - check logs for available tools"
+    )
     logger.info("💡 To see available tools, ask Aura: 'What MCP tools do you have?'")
 
     uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
+        "aura_backend.main:app",
+        host="0.0.0.0",  # nosec B104
         port=8000,
         reload=True,
-        log_level="info"
+        log_level="info",
     )

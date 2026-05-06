@@ -10,9 +10,7 @@ for advanced memory, emotional pattern analysis, and semantic search.
 import asyncio
 import logging
 from datetime import datetime
-from typing import List, Dict, Any
 import uuid
-import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,7 +26,7 @@ def test_chroma_installation():
         print("✅ ChromaDB imported successfully")
 
         # Test basic client creation
-        client = chromadb.Client(Settings(allow_reset=True, is_persistent=False))
+        chromadb.Client(Settings(allow_reset=True, is_persistent=False))
         print("✅ ChromaDB client created successfully")
         return True
     except ImportError as e:
@@ -384,10 +382,10 @@ def test_aura_knowledge_integration():
             if results and results['documents'] and results['documents'][0]:
                 for i, doc in enumerate(results['documents'][0]):
                     if results['metadatas'] and results['metadatas'][0] and results['metadatas'][0][i]:
-                        category = results['metadatas'][0][i]['category']
-                        knowledge_type = results['metadatas'][0][i]['type']
-                        similarity = 1 - results['distances'][0][i] if results['distances'] and results['distances'][0] else 0
-                        content_preview = doc[:60] + "..." if len(doc) > 60 else doc
+                        results['metadatas'][0][i]['category']
+                        results['metadatas'][0][i]['type']
+                        1 - results['distances'][0][i] if results['distances'] and results['distances'][0] else 0
+                        doc[:60] + "..." if len(doc) > 60 else doc
                     else:
                         print("   Metadata is missing for this result.")
             else:

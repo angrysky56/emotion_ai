@@ -6,7 +6,6 @@ Uses curl for HTTP requests to avoid dependency issues
 
 import subprocess
 import json
-import sys
 import time
 
 def run_curl_request(endpoint, data=None):
@@ -45,7 +44,7 @@ def test_search_endpoint():
     })
     
     if response:
-        print(f"✅ Response received:")
+        print("✅ Response received:")
         print(f"   📊 Total found: {response.get('total_found', 0)}")
         print(f"   🔍 Search type: {response.get('search_type', 'unknown')}")
         print(f"   🎥 Video archives: {response.get('includes_video_archives', False)}")

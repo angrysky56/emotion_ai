@@ -12,7 +12,6 @@ import asyncio
 import tempfile
 import json
 from pathlib import Path
-from datetime import datetime
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(name)s:%(message)s')
@@ -55,7 +54,7 @@ async def demo_memvid_integration():
             video_path = temp_path / "demo_knowledge.mp4"
             index_path = temp_path / "demo_knowledge.json"
 
-            logger.info(f"🎥 Creating video archive at {video_path}")
+            logger.info("🎥 Creating video archive at %s", video_path)
 
             build_stats = encoder.build_video(
                 str(video_path),
@@ -65,7 +64,7 @@ async def demo_memvid_integration():
             )
 
             logger.info("✅ Video created successfully!")
-            logger.info(f"   📊 Stats: {json.dumps(build_stats, indent=2)}")
+            logger.info("   📊 Stats: %s", json.dumps(build_stats, indent=2))
 
             # Test retrieval
             logger.info("🔍 Testing video search...")
@@ -73,15 +72,15 @@ async def demo_memvid_integration():
 
             # Search the video
             search_results = retriever.search_with_metadata("emotional intelligence", top_k=3)
-            logger.info(f"✅ Found {len(search_results)} results for 'emotional intelligence'")
+            logger.info("✅ Found %s results for 'emotional intelligence'", len(search_results))
 
             for i, result in enumerate(search_results):
-                logger.info(f"   Result {i+1}: Score {result['score']:.3f} - {result['text'][:100]}...")
+                logger.info("   Result %s: Score %s - %s...", i+1, result['score']:.3f, result['text'][:100])
 
             logger.info("🎉 Basic memvid functionality: WORKING!")
 
     except Exception as e:
-        logger.error(f"❌ Basic memvid test failed: {e}")
+        logger.error("❌ Basic memvid test failed: %s", e)
         return False
 
     # Test 2: Aura Integration
@@ -162,7 +161,7 @@ async def demo_memvid_integration():
         )
 
         logger.info("✅ Knowledge imported to video successfully!")
-        logger.info(f"   📊 Result: {json.dumps(import_result, indent=2, default=str)}")
+        logger.info("   📊 Result: %s", json.dumps(import_result, indent=2, default=str))
 
         # Test unified search
         logger.info("🔍 Testing unified search across video archives...")
@@ -174,22 +173,22 @@ async def demo_memvid_integration():
         )
 
         logger.info("✅ Unified search completed!")
-        logger.info(f"   📊 Results: {search_result['total_results']} total")
-        logger.info(f"   💾 Active memory results: {len(search_result['active_results'])}")
-        logger.info(f"   🎥 Video archive results: {len(search_result['video_archive_results'])}")
+        logger.info("   📊 Results: %s total", search_result['total_results'])
+        logger.info("   💾 Active memory results: %s", len(search_result['active_results']))
+        logger.info("   🎥 Video archive results: %s", len(search_result['video_archive_results']))
 
         # Show video archive results
         for result in search_result['video_archive_results']:
-            logger.info(f"   🎬 Video result: Score {result['score']:.3f} - {result['text'][:100]}...")
+            logger.info("   🎬 Video result: Score %s - %s...", result['score']:.3f, result['text'][:100])
 
         # Test system stats
         logger.info("📊 Getting system statistics...")
         stats = aura_memvid.get_system_stats()
 
         logger.info("✅ System stats retrieved!")
-        logger.info(f"   🎥 Memvid type: {stats['memvid_type']}")
-        logger.info(f"   💾 Video archives: {len(stats.get('video_archives', {}))}")
-        logger.info(f"   📐 Total video size: {stats.get('total_video_size_mb', 0):.2f} MB")
+        logger.info("   🎥 Memvid type: %s", stats['memvid_type'])
+        logger.info("   💾 Video archives: %s))}", len(stats.get('video_archives', {)
+        logger.info("   📐 Total video size: %s MB", stats.get('total_video_size_mb', 0):.2f)
 
         # Clean up
         Path(temp_file_path).unlink()
@@ -197,7 +196,7 @@ async def demo_memvid_integration():
         logger.info("🎉 Aura+Memvid integration: FULLY WORKING!")
 
     except Exception as e:
-        logger.error(f"❌ Aura+Memvid integration test failed: {e}")
+        logger.error("❌ Aura+Memvid integration test failed: %s", e)
         import traceback
         traceback.print_exc()
         return False
@@ -223,14 +222,14 @@ async def demo_memvid_integration():
         mock_mcp = MockMCP()
         add_compatible_memvid_tools(mock_mcp)
 
-        logger.info(f"✅ MCP tools registered: {len(mock_mcp.tools)} tools")
+        logger.info("✅ MCP tools registered: %s tools", len(mock_mcp.tools))
         for tool_name in mock_mcp.tools:
-            logger.info(f"   🔧 {tool_name}")
+            logger.info("   🔧 %s", tool_name)
 
         logger.info("🎉 MCP tools integration: WORKING!")
 
     except Exception as e:
-        logger.error(f"❌ MCP tools test failed: {e}")
+        logger.error("❌ MCP tools test failed: %s", e)
         return False
 
     # Final Summary
@@ -260,7 +259,7 @@ async def main():
             logger.error("\n❌ Integration demo failed!")
         return success
     except Exception as e:
-        logger.error(f"\n💥 Demo crashed: {e}")
+        logger.error("\n💥 Demo crashed: %s", e)
         import traceback
         traceback.print_exc()
         return False

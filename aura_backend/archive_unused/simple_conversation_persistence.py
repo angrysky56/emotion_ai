@@ -11,7 +11,6 @@ import logging
 from typing import Dict, Optional, List, Any
 from dataclasses import dataclass
 from datetime import datetime
-import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +69,15 @@ class SimpleConversationPersistence:
             start_time = datetime.now()
             stored_components = []
             
-            logger.info(f"💾 Storing conversation for {exchange.user_memory.user_id}")
+            logger.info("💾 Storing conversation for %s", exchange.user_memory.user_id)
             
             # Store user message
             try:
                 user_doc_id = await self.vector_db.store_conversation(exchange.user_memory)
                 stored_components.append(f"user_message:{user_doc_id}")
-                logger.debug(f"✅ Stored user message: {user_doc_id}")
+                logger.debug("✅ Stored user message: %s", user_doc_id)
             except Exception as e:
-                logger.error(f"❌ Failed to store user message: {e}")
+                logger.error("❌ Failed to store user message: %s", e)
                 raise
             
             # Small delay to prevent conflicts
@@ -88,9 +87,9 @@ class SimpleConversationPersistence:
             try:
                 ai_doc_id = await self.vector_db.store_conversation(exchange.ai_memory)
                 stored_components.append(f"ai_message:{ai_doc_id}")
-                logger.debug(f"✅ Stored AI message: {ai_doc_id}")
+                logger.debug("✅ Stored AI message: %s", ai_doc_id)
             except Exception as e:
-                logger.error(f"❌ Failed to store AI message: {e}")
+                logger.error("❌ Failed to store AI message: %s", e)
                 raise
             
             # Store emotional patterns if present
@@ -109,7 +108,7 @@ class SimpleConversationPersistence:
                     )
                     stored_components.append("user_emotional_pattern")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to store emotional patterns: {e}")
+                logger.warning("⚠️ Failed to store emotional patterns: %s", e)
                 # Non-critical, don't fail the whole operation
             
             # Update user profile if requested
@@ -118,7 +117,7 @@ class SimpleConversationPersistence:
                     await self._update_user_profile(exchange)
                     stored_components.append("user_profile")
                 except Exception as e:
-                    logger.warning(f"⚠️ Failed to update user profile: {e}")
+                    logger.warning("⚠️ Failed to update user profile: %s", e)
                     # Non-critical, don't fail the whole operation
             
             # Update metrics
@@ -134,12 +133,12 @@ class SimpleConversationPersistence:
                 "session_id": exchange.session_id
             }
             
-            logger.info(f"✅ Conversation stored successfully in {duration:.1f}ms")
+            logger.info("✅ Conversation stored successfully in %sms", duration)
             return result
             
         except Exception as e:
             self.storage_failures += 1
-            logger.error(f"❌ Failed to store conversation: {e}")
+            logger.error("❌ Failed to store conversation: %s", e)
             
             return {
                 "success": False,
@@ -172,10 +171,10 @@ class SimpleConversationPersistence:
                 }
             
             await self.file_system.save_user_profile(user_id, profile)
-            logger.debug(f"✅ Updated profile for {user_id}")
+            logger.debug("✅ Updated profile for %s", user_id)
             
         except Exception as e:
-            logger.error(f"❌ Failed to update user profile: {e}")
+            logger.error("❌ Failed to update user profile: %s", e)
             raise
 
     async def get_chat_history(self, user_id: str, limit: int = 50) -> Dict[str, Any]:
@@ -190,7 +189,7 @@ class SimpleConversationPersistence:
             Dict with sessions and message data
         """
         try:
-            logger.info(f"📖 Getting chat history for {user_id}")
+            logger.info("📖 Getting chat history for %s", user_id)
             
             # Get conversations from vector DB
             results = self.vector_db.conversations.get(
@@ -200,7 +199,7 @@ class SimpleConversationPersistence:
             )
             
             if not results or not results.get('documents'):
-                logger.info(f"📭 No chat history found for {user_id}")
+                logger.info("📭 No chat history found for %s", user_id)
                 return {"sessions": [], "total": 0}
             
             # Group by session
@@ -242,7 +241,7 @@ class SimpleConversationPersistence:
                             sessions[session_id]["last_time"] = timestamp
                             
                 except Exception as e:
-                    logger.warning(f"⚠️ Error processing message {i}: {e}")
+                    logger.warning("⚠️ Error processing message %s: %s", i, e)
                     continue
             
             # Convert to list and sort
@@ -253,11 +252,11 @@ class SimpleConversationPersistence:
             for session in session_list:
                 session["messages"].sort(key=lambda m: m.get("timestamp", ""))
             
-            logger.info(f"✅ Retrieved {len(session_list)} sessions with {processed_messages} messages")
+            logger.info("✅ Retrieved %s sessions with %s messages", len(session_list), processed_messages)
             return {"sessions": session_list, "total": len(session_list)}
             
         except Exception as e:
-            logger.error(f"❌ Failed to get chat history: {e}")
+            logger.error("❌ Failed to get chat history: %s", e)
             return {"sessions": [], "total": 0, "error": str(e)}
 
     async def get_session_messages(self, user_id: str, session_id: str) -> List[Dict[str, Any]]:
@@ -272,7 +271,7 @@ class SimpleConversationPersistence:
             List of message dictionaries
         """
         try:
-            logger.info(f"📖 Getting session {session_id} for {user_id}")
+            logger.info("📖 Getting session %s for %s", session_id, user_id)
             
             results = self.vector_db.conversations.get(
                 where={
@@ -285,7 +284,7 @@ class SimpleConversationPersistence:
             )
             
             if not results or not results.get('ids'):
-                logger.info(f"📭 No messages found for session {session_id}")
+                logger.info("📭 No messages found for session %s", session_id)
                 return []
             
             messages = []
@@ -310,17 +309,17 @@ class SimpleConversationPersistence:
                     messages.append(message_item)
                     
                 except Exception as e:
-                    logger.warning(f"⚠️ Error processing message {i}: {e}")
+                    logger.warning("⚠️ Error processing message %s: %s", i, e)
                     continue
             
             # Sort by timestamp
             messages.sort(key=lambda x: x.get('timestamp', ''))
             
-            logger.info(f"✅ Retrieved {len(messages)} messages for session {session_id}")
+            logger.info("✅ Retrieved %s messages for session %s", len(messages), session_id)
             return messages
             
         except Exception as e:
-            logger.error(f"❌ Failed to get session messages: {e}")
+            logger.error("❌ Failed to get session messages: %s", e)
             return []
 
     async def search_conversations(
@@ -343,7 +342,7 @@ class SimpleConversationPersistence:
             List of search results
         """
         try:
-            logger.info(f"🔍 Searching conversations for {user_id}: {query}")
+            logger.info("🔍 Searching conversations for %s: %s", user_id, query)
             
             results = await self.vector_db.search_conversations(
                 query=query,
@@ -352,11 +351,11 @@ class SimpleConversationPersistence:
                 where_filter=where_filter
             )
             
-            logger.info(f"✅ Found {len(results)} conversation results")
+            logger.info("✅ Found %s conversation results", len(results))
             return results
             
         except Exception as e:
-            logger.error(f"❌ Search failed: {e}")
+            logger.error("❌ Search failed: %s", e)
             return []
 
     def get_metrics(self) -> Dict[str, Any]:

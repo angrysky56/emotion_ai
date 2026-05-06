@@ -4,7 +4,6 @@ Debug script to test MCP client initialization
 """
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 import sys
@@ -73,7 +72,7 @@ async def test_mcp_initialization():
             print(f"{server_name}: {status}")
             
     except Exception as e:
-        logger.error(f"❌ Test failed: {e}")
+        logger.error("❌ Test failed: %s", e)
         import traceback
         traceback.print_exc()
     finally:

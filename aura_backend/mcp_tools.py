@@ -7,15 +7,16 @@ This module provides utility functions to help Aura use MCP tools more effective
 parsing tool calls from messages and integrating tool results into responses.
 """
 
-import re
+import asyncio
 import json
 import logging
-import asyncio
-from typing import Dict, List, Any, Optional, Tuple
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 class MCPToolParser:
     """
@@ -25,8 +26,12 @@ class MCPToolParser:
 
     def __init__(self, available_tools: Optional[List[Dict[str, Any]]] = None):
         self.available_tools = available_tools or []
-        self.tool_pattern = re.compile(r'@(?:mcp\.)?tool\s*\(\s*["\']?([a-zA-Z0-9_.-]+)["\']?\s*(?:,\s*({.*?}))?\s*\)')
-        self.multi_line_tool_pattern = re.compile(r'@(?:mcp\.)?tool\s*\(\s*["\']?([a-zA-Z0-9_.-]+)["\']?\s*,\s*\n([\s\S]+?)\n\s*\)')
+        self.tool_pattern = re.compile(
+            r'@(?:mcp\.)?tool\s*\(\s*["\']?([a-zA-Z0-9_.-]+)["\']?\s*(?:,\s*({.*?}))?\s*\)'
+        )
+        self.multi_line_tool_pattern = re.compile(
+            r'@(?:mcp\.)?tool\s*\(\s*["\']?([a-zA-Z0-9_.-]+)["\']?\s*,\s*\n([\s\S]+?)\n\s*\)'
+        )
 
     def extract_tool_calls(self, message: str) -> List[Dict[str, Any]]:
         """
@@ -43,13 +48,13 @@ class MCPToolParser:
                 args = {}
                 if args_str:
                     args = json.loads(args_str)
-                calls.append({
-                    "tool_name": tool_name,
-                    "arguments": args,
-                    "source": "single_line"
-                })
+                calls.append(
+                    {"tool_name": tool_name, "arguments": args, "source": "single_line"}
+                )
             except json.JSONDecodeError:
-                logger.warning(f"⚠️ Failed to parse arguments for tool {tool_name}: {args_str}")
+                logger.warning(
+                    f"⚠️ Failed to parse arguments for tool {tool_name}: {args_str}"
+                )
 
         # Then try multi-line pattern
         multi_matches = self.multi_line_tool_pattern.findall(message)
@@ -57,21 +62,28 @@ class MCPToolParser:
             try:
                 # Remove any leading/trailing spaces and try to parse JSON
                 args_str = args_str.strip()
-                if not args_str.startswith('{'):
-                    args_str = '{' + args_str
-                if not args_str.endswith('}'):
-                    args_str = args_str + '}'
+                if not args_str.startswith("{"):
+                    args_str = "{" + args_str
+                if not args_str.endswith("}"):
+                    args_str = args_str + "}"
                 args = json.loads(args_str)
 
                 # Check if this call was already found in single-line pattern
-                if not any(c["tool_name"] == tool_name and c["source"] == "single_line" for c in calls):
-                    calls.append({
-                        "tool_name": tool_name,
-                        "arguments": args,
-                        "source": "multi_line"
-                    })
+                if not any(
+                    c["tool_name"] == tool_name and c["source"] == "single_line"
+                    for c in calls
+                ):
+                    calls.append(
+                        {
+                            "tool_name": tool_name,
+                            "arguments": args,
+                            "source": "multi_line",
+                        }
+                    )
             except json.JSONDecodeError:
-                logger.warning(f"⚠️ Failed to parse multi-line arguments for tool {tool_name}")
+                logger.warning(
+                    f"⚠️ Failed to parse multi-line arguments for tool {tool_name}"
+                )
 
         # Add information about whether the tool exists
         for call in calls:
@@ -101,7 +113,9 @@ class MCPToolParser:
                 return tool["name"]
         return None
 
-    def replace_tool_calls_with_results(self, message: str, tool_results: Dict[str, Any]) -> str:
+    def replace_tool_calls_with_results(
+        self, message: str, tool_results: Dict[str, Any]
+    ) -> str:
         """
         Replace tool call notation in the message with the actual results.
         This makes the final message cleaner for the user.
@@ -109,7 +123,9 @@ class MCPToolParser:
         # First do the single-line replacements
         for tool_name, result in tool_results.items():
             # Create a pattern that matches this specific tool call
-            tool_pattern = re.compile(rf'@(?:mcp\.)?tool\s*\(\s*["\']?{re.escape(tool_name)}["\']?\s*(?:,\s*{{.*?}})?\s*\)')
+            tool_pattern = re.compile(
+                rf'@(?:mcp\.)?tool\s*\(\s*["\']?{re.escape(tool_name)}["\']?\s*(?:,\s*{{.*?}})?\s*\)'
+            )
 
             # Format the result nicely for insertion
             if isinstance(result, dict):
@@ -122,7 +138,9 @@ class MCPToolParser:
 
         # Then do the multi-line replacements
         for tool_name, result in tool_results.items():
-            multi_pattern = re.compile(rf'@(?:mcp\.)?tool\s*\(\s*["\']?{re.escape(tool_name)}["\']?\s*,\s*\n[\s\S]+?\n\s*\)')
+            multi_pattern = re.compile(
+                rf'@(?:mcp\.)?tool\s*\(\s*["\']?{re.escape(tool_name)}["\']?\s*,\s*\n[\s\S]+?\n\s*\)'
+            )
 
             # Format the result nicely for insertion
             if isinstance(result, dict):
@@ -135,11 +153,9 @@ class MCPToolParser:
 
         return message
 
+
 async def process_mcp_tool_calls(
-    message: str,
-    user_id: str,
-    execute_tool_fn,
-    available_tools: List[Dict[str, Any]]
+    message: str, user_id: str, execute_tool_fn, available_tools: List[Dict[str, Any]]
 ) -> Tuple[str, Dict[str, Any]]:
     """
     Process MCP tool calls in a message, execute the tools, and replace calls with results.
@@ -172,29 +188,34 @@ async def process_mcp_tool_calls(
             # Add user_id if not present and tool accepts it
             if "user_id" not in arguments:
                 # Check if the tool accepts user_id parameter
-                tool_info = next((t for t in available_tools if t["name"] == tool_name), None)
-                if tool_info and tool_info.get("parameters", {}).get("properties", {}).get("user_id"):
+                tool_info = next(
+                    (t for t in available_tools if t["name"] == tool_name), None
+                )
+                if tool_info and tool_info.get("parameters", {}).get(
+                    "properties", {}
+                ).get("user_id"):
                     arguments["user_id"] = user_id
 
             # Create task for execution
             task = asyncio.create_task(execute_tool_fn(tool_name, arguments, user_id))
             execution_tasks.append((tool_name, task))
-            logger.info(f"🔄 Executing MCP tool: {tool_name}")
+            logger.info("🔄 Executing MCP tool: %s", tool_name)
 
     # Wait for all tool executions to complete
     for tool_name, task in execution_tasks:
         try:
             result = await task
             tool_results[tool_name] = result
-            logger.info(f"✅ Completed MCP tool execution: {tool_name}")
+            logger.info("✅ Completed MCP tool execution: %s", tool_name)
         except Exception as e:
-            logger.error(f"❌ Error executing tool {tool_name}: {e}")
+            logger.error("❌ Error executing tool %s: %s", tool_name, e)
             tool_results[tool_name] = {"status": "error", "error": str(e)}
 
     # Replace tool calls with results
     updated_message = parser.replace_tool_calls_with_results(message, tool_results)
 
     return updated_message, tool_results
+
 
 def create_tool_usage_guide(available_tools: List[Dict[str, Any]]) -> str:
     """
@@ -205,7 +226,7 @@ def create_tool_usage_guide(available_tools: List[Dict[str, Any]]) -> str:
         return "No MCP tools are currently available."
 
     guide = "# Available MCP Tools\n\n"
-    guide += "You can use these tools by typing `@mcp.tool(\"tool_name\", {parameters})` in your message.\n\n"
+    guide += 'You can use these tools by typing `@mcp.tool("tool_name", {parameters})` in your message.\n\n'
 
     # Group tools by server
     tools_by_server = {}
@@ -234,7 +255,9 @@ def create_tool_usage_guide(available_tools: List[Dict[str, Any]]) -> str:
                     for param_name, param_info in properties.items():
                         param_type = param_info.get("type", "any")
                         param_desc = param_info.get("description", "")
-                        param_required = "Required" if param_name in required else "Optional"
+                        param_required = (
+                            "Required" if param_name in required else "Optional"
+                        )
 
                         guide += f"- `{param_name}` ({param_type}, {param_required}): {param_desc}\n"
 
@@ -267,6 +290,7 @@ def create_tool_usage_guide(available_tools: List[Dict[str, Any]]) -> str:
 
     return guide
 
+
 # Function to test the MCP tool parser
 async def test_parser():
     """Test the MCP tool parser functionality"""
@@ -284,11 +308,13 @@ async def test_parser():
     And here's one without arguments: @tool("simple_tool")
     """
 
-    parser = MCPToolParser([
-        {"name": "search_tool", "description": "A search tool"},
-        {"name": "complex_tool", "description": "A complex tool"},
-        {"name": "server.simple_tool", "description": "A simple tool"}
-    ])
+    parser = MCPToolParser(
+        [
+            {"name": "search_tool", "description": "A search tool"},
+            {"name": "complex_tool", "description": "A complex tool"},
+            {"name": "server.simple_tool", "description": "A simple tool"},
+        ]
+    )
 
     tool_calls = parser.extract_tool_calls(test_message)
     print("Found tool calls:", json.dumps(tool_calls, indent=2))
@@ -297,12 +323,13 @@ async def test_parser():
     tool_results = {
         "search_tool": {"results": ["result1", "result2"]},
         "complex_tool": "Simple text result",
-        "simple_tool": {"status": "success"}
+        "simple_tool": {"status": "success"},
     }
 
     updated_message = parser.replace_tool_calls_with_results(test_message, tool_results)
     print("\nUpdated message:")
     print(updated_message)
+
 
 if __name__ == "__main__":
     # Run tests

@@ -16,16 +16,17 @@ Features:
 import asyncio
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Set
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
-from contextlib import AsyncExitStack
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
 # MCP client imports
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import Resource, TextContent, Tool
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -33,24 +34,29 @@ logger = logging.getLogger(__name__)
 # Data Models
 # ============================================================================
 
+
 @dataclass
 class MCPServerConnection:
     """Represents a connection to an MCP server"""
+
     name: str
     command: str
     args: List[str]
     description: str
     enabled: bool = True
     session: Optional[ClientSession] = None
-    tools: Dict[str, 'Tool'] = field(default_factory=dict)
+    tools: Dict[str, "Tool"] = field(default_factory=dict)
     resources: Dict[str, Resource] = field(default_factory=dict)
     connected: bool = False
     error_count: int = 0
     last_error: Optional[str] = None
+    exit_stack: Optional[AsyncExitStack] = None
+
 
 @dataclass
 class MCPToolCall:
     """Represents a tool call to an MCP server"""
+
     server_name: str
     tool_name: str
     arguments: Dict[str, Any]
@@ -58,9 +64,11 @@ class MCPToolCall:
     result: Optional[Any] = None
     error: Optional[str] = None
 
+
 # ============================================================================
 # Aura MCP Client
 # ============================================================================
+
 
 class AuraMCPClient:
     """
@@ -77,7 +85,7 @@ class AuraMCPClient:
         self._connection_tasks: Set[asyncio.Task] = set()
 
         # Tool registry: maps qualified tool names to (server_name, tool)
-        self.tool_registry: Dict[str, tuple[str, 'Tool']] = {}
+        self.tool_registry: Dict[str, tuple[str, "Tool"]] = {}
 
         # Resource registry: maps qualified resource names to (server_name, resource)
         self.resource_registry: Dict[str, tuple[str, Resource]] = {}
@@ -89,19 +97,19 @@ class AuraMCPClient:
         self.connection_status: Dict[str, bool] = {}
         self.last_error: Optional[str] = None
 
-        logger.info(f"🔗 Initialized Aura MCP Client with config: {config_path}")
+        logger.info("🔗 Initialized Aura MCP Client with config: %s", config_path)
 
     def _load_config(self) -> Dict[str, Any]:
         """Load MCP client configuration"""
         try:
             if self.config_path.exists():
-                with open(self.config_path, 'r') as f:
+                with open(self.config_path, "r") as f:
                     return json.load(f)
             else:
-                logger.warning(f"Config file not found: {self.config_path}")
+                logger.warning("Config file not found: %s", self.config_path)
                 return {"mcpServers": {}, "client_settings": {}}
         except Exception as e:
-            logger.error(f"Failed to load config: {e}")
+            logger.error("Failed to load config: %s", e)
             return {"mcpServers": {}, "client_settings": {}}
 
     async def start(self):
@@ -126,7 +134,8 @@ class AuraMCPClient:
                     command=server_config["command"],
                     args=server_config.get("args", []),
                     description=server_config.get("description", ""),
-                    enabled=True
+                    enabled=True,
+                    exit_stack=AsyncExitStack(),
                 )
 
                 # Track this server's connection status
@@ -138,7 +147,9 @@ class AuraMCPClient:
         # Log connection summary
         connected_count = sum(1 for s in self.connection_status.values() if s)
         total_count = len(self.connection_status)
-        logger.info(f"✅ MCP Client startup complete: {connected_count}/{total_count} servers connected")
+        logger.info(
+            f"✅ MCP Client startup complete: {connected_count}/{total_count} servers connected"
+        )
 
     async def _connect_all_servers(self):
         """Connect to all enabled MCP servers"""
@@ -151,10 +162,12 @@ class AuraMCPClient:
                 tasks.append(task)
 
         if tasks:
+            # Important: We gather in the main task to keep the stacks tied to the main task if possible,
+            # or we ensure they are managed per server.
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for server_name, result in zip(self.servers.keys(), results):
+            for server_name, result in zip(self.servers.keys(), results, strict=False):
                 if isinstance(result, Exception):
-                    logger.error(f"❌ Failed to connect to {server_name}: {result}")
+                    logger.error("❌ Failed to connect to %s: %s", server_name, result)
 
     async def _connect_to_server(self, server_name: str):
         """Connect to a specific MCP server"""
@@ -163,29 +176,31 @@ class AuraMCPClient:
             return
 
         try:
-            logger.info(f"🔌 Connecting to MCP server: {server_name}")
+            logger.info("🔌 Connecting to MCP server: %s", server_name)
 
             # Create server parameters with environment variables if specified
             env_vars = None
             # Get the environment variables from the config
             if "env" in self.config.get("mcpServers", {}).get(server_name, {}):
                 env_vars = self.config["mcpServers"][server_name]["env"]
-                logger.info(f"Using environment variables for {server_name}: {list(env_vars.keys())}")
+                logger.info(
+                    f"Using environment variables for {server_name}: {list(env_vars.keys())}"
+                )
 
             # Create server parameters
             server_params = StdioServerParameters(
-                command=server.command,
-                args=server.args,
-                env=env_vars
+                command=server.command, args=server.args, env=env_vars
             )
 
-            # Connect to server
-            transport = await self.exit_stack.enter_async_context(
+            # Connect to server using its own exit stack
+            # This ensures that contexts are properly managed and avoids anyio cross-task errors
+            # if we close them from the task that created them.
+            transport = await server.exit_stack.enter_async_context(
                 stdio_client(server_params)
             )
 
             # Create session
-            session = await self.exit_stack.enter_async_context(
+            session = await server.exit_stack.enter_async_context(
                 ClientSession(transport[0], transport[1])
             )
 
@@ -200,7 +215,9 @@ class AuraMCPClient:
             # Discover tools and resources
             await self._discover_server_capabilities(server_name)
 
-            logger.info(f"✅ Connected to {server_name} - Found {len(server.tools)} tools, {len(server.resources)} resources")
+            logger.info(
+                f"✅ Connected to {server_name} - Found {len(server.tools)} tools, {len(server.resources)} resources"
+            )
 
         except Exception as e:
             server.connected = False
@@ -208,7 +225,7 @@ class AuraMCPClient:
             server.last_error = str(e)
             self.connection_status[server_name] = False
             self.last_error = f"Failed to connect to {server_name}: {e}"
-            logger.error(f"❌ Failed to connect to {server_name}: {e}")
+            logger.error("❌ Failed to connect to %s: %s", server_name, e)
             # Don't raise, just log the error to allow other servers to connect
 
     async def _discover_server_capabilities(self, server_name: str):
@@ -224,7 +241,7 @@ class AuraMCPClient:
                 qualified_name = f"{server_name}_{tool.name}"
                 server.tools[tool.name] = tool
                 self.tool_registry[qualified_name] = (server_name, tool)
-                logger.debug(f"  📦 Tool: {qualified_name} - {tool.description}")
+                logger.debug("  📦 Tool: %s - %s", qualified_name, tool.description)
 
             # List resources
             try:
@@ -233,12 +250,12 @@ class AuraMCPClient:
                     qualified_name = f"{server_name}_{resource.name}"
                     server.resources[resource.name] = resource
                     self.resource_registry[qualified_name] = (server_name, resource)
-                    logger.debug(f"  📄 Resource: {qualified_name}")
+                    logger.debug("  📄 Resource: %s", qualified_name)
             except Exception as e:
-                logger.debug(f"Server {server_name} doesn't support resources: {e}")
+                logger.debug("Server %s doesn't support resources: %s", server_name, e)
 
         except Exception as e:
-            logger.error(f"Failed to discover capabilities for {server_name}: {e}")
+            logger.error("Failed to discover capabilities for %s: %s", server_name, e)
 
     async def list_all_tools(self) -> Dict[str, Dict[str, Any]]:
         """List all available tools from all connected servers"""
@@ -250,7 +267,7 @@ class AuraMCPClient:
                 "name": tool.name,
                 "description": tool.description,
                 "input_schema": tool.inputSchema,
-                "connected": self.servers[server_name].connected
+                "connected": self.servers[server_name].connected,
             }
 
         return all_tools
@@ -272,13 +289,18 @@ class AuraMCPClient:
             server_name, tool = self.tool_registry[tool_name]
         else:
             # Search for unqualified name
-            matches = [(sn, t) for qn, (sn, t) in self.tool_registry.items()
-                      if t.name == tool_name]
+            matches = [
+                (sn, t)
+                for qn, (sn, t) in self.tool_registry.items()
+                if t.name == tool_name
+            ]
             if not matches:
                 raise ValueError(f"Tool not found: {tool_name}")
             elif len(matches) > 1:
                 servers = [m[0] for m in matches]
-                raise ValueError(f"Tool {tool_name} found in multiple servers: {servers}. Use qualified name.")
+                raise ValueError(
+                    f"Tool {tool_name} found in multiple servers: {servers}. Use qualified name."
+                )
             server_name, tool = matches[0]
 
         # Check if server is connected
@@ -288,35 +310,35 @@ class AuraMCPClient:
 
         # Record the call
         call_record = MCPToolCall(
-            server_name=server_name,
-            tool_name=tool.name,
-            arguments=arguments
+            server_name=server_name, tool_name=tool.name, arguments=arguments
         )
         self.call_history.append(call_record)
 
         try:
             # Make the tool call
-            logger.info(f"🔧 Calling tool {tool.name} on server {server_name}")
+            logger.info("🔧 Calling tool %s on server %s", tool.name, server_name)
             if server.session is None:
                 raise ValueError(f"Session is not initialized for server {server_name}")
             result = await server.session.call_tool(tool.name, arguments)
 
             # Extract text content from result
-            if hasattr(result, 'content') and result.content:
+            if hasattr(result, "content") and result.content:
                 text_content = []
                 for content in result.content:
                     if isinstance(content, TextContent):
                         text_content.append(content.text)
-                call_record.result = '\n'.join(text_content) if text_content else str(result)
+                call_record.result = (
+                    "\n".join(text_content) if text_content else str(result)
+                )
             else:
                 call_record.result = str(result)
 
-            logger.info(f"✅ Tool call successful: {tool.name}")
+            logger.info("✅ Tool call successful: %s", tool.name)
             return call_record.result
 
         except Exception as e:
             call_record.error = str(e)
-            logger.error(f"❌ Tool call failed: {e}")
+            logger.error("❌ Tool call failed: %s", e)
             raise
 
     async def read_resource(self, resource_uri: str) -> Any:
@@ -326,9 +348,12 @@ class AuraMCPClient:
             if server.connected and server.session:
                 try:
                     from pydantic.networks import AnyUrl
+
                     uri_obj = AnyUrl(resource_uri)
                     result = await server.session.read_resource(uri_obj)
-                    logger.info(f"📄 Read resource {resource_uri} from {server_name}")
+                    logger.info(
+                        "📄 Read resource %s from %s", resource_uri, server_name
+                    )
                     return result
                 except Exception:
                     continue
@@ -347,13 +372,17 @@ class AuraMCPClient:
         for task in self._connection_tasks:
             task.cancel()
 
-        # Clean up connections
-        await self.exit_stack.aclose()
-
-        # Reset server states
+        # Clean up connections per server
         for server in self.servers.values():
+            if server.exit_stack:
+                try:
+                    await server.exit_stack.aclose()
+                except Exception as e:
+                    logger.error("Error closing stack for %s: %s", server.name, e)
             server.connected = False
             server.session = None
+
+        await self.exit_stack.aclose()
 
         logger.info("✅ MCP Client stopped")
 
@@ -361,19 +390,23 @@ class AuraMCPClient:
         """Get recent tool call history"""
         history = []
         for call in self.call_history[-limit:]:
-            history.append({
-                "timestamp": call.timestamp.isoformat(),
-                "server": call.server_name,
-                "tool": call.tool_name,
-                "arguments": call.arguments,
-                "success": call.error is None,
-                "error": call.error
-            })
+            history.append(
+                {
+                    "timestamp": call.timestamp.isoformat(),
+                    "server": call.server_name,
+                    "tool": call.tool_name,
+                    "arguments": call.arguments,
+                    "success": call.error is None,
+                    "error": call.error,
+                }
+            )
         return history
+
 
 # ============================================================================
 # Integration with Aura
 # ============================================================================
+
 
 class AuraMCPIntegration:
     """
@@ -390,27 +423,30 @@ class AuraMCPIntegration:
         tools = await self.mcp_client.list_all_tools()
 
         capabilities = {
-            "connected_servers": len([s for s in self.mcp_client.servers.values() if s.connected]),
+            "connected_servers": len(
+                [s for s in self.mcp_client.servers.values() if s.connected]
+            ),
             "total_servers": len(self.mcp_client.servers),
-            "available_tools": len([t for t in tools.values() if t['connected']]),
-            "tools_by_server": {}
+            "available_tools": len([t for t in tools.values() if t["connected"]]),
+            "tools_by_server": {},
         }
 
         # Group tools by server
-        for tool_name, tool_info in tools.items():
-            server = tool_info['server']
-            if server not in capabilities['tools_by_server']:
-                capabilities['tools_by_server'][server] = []
-            capabilities['tools_by_server'][server].append({
-                "name": tool_info['name'],
-                "description": tool_info['description']
-            })
+        for _tool_name, tool_info in tools.items():
+            server = tool_info["server"]
+            if server not in capabilities["tools_by_server"]:
+                capabilities["tools_by_server"][server] = []
+            capabilities["tools_by_server"][server].append(
+                {"name": tool_info["name"], "description": tool_info["description"]}
+            )
 
         return capabilities
+
 
 # ============================================================================
 # Standalone Testing
 # ============================================================================
+
 
 async def test_mcp_client():
     """Test the MCP client functionality"""
@@ -430,11 +466,14 @@ async def test_mcp_client():
         # Get capabilities summary
         capabilities = await integration.get_available_capabilities()
         print("\n📊 MCP Capabilities:")
-        print(f"  Connected servers: {capabilities['connected_servers']}/{capabilities['total_servers']}")
+        print(
+            f"  Connected servers: {capabilities['connected_servers']}/{capabilities['total_servers']}"
+        )
         print(f"  Available tools: {capabilities['available_tools']}")
 
     finally:
         await client.stop()
+
 
 if __name__ == "__main__":
     # Run test

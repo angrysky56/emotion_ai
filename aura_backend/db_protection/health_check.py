@@ -2,7 +2,6 @@
 """Database health check script"""
 import chromadb
 import json
-from pathlib import Path
 
 def check_database_health(db_path="./aura_chroma_db"):
     try:

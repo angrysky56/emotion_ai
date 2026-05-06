@@ -44,7 +44,7 @@ async def debug_gemini_thinking_response():
     # Test message
     test_message = "How is your memory doing?"
 
-    logger.info(f"🤔 Testing with message: {test_message}")
+    logger.info("🤔 Testing with message: %s", test_message)
 
     try:
         # Send message and get response
@@ -52,54 +52,54 @@ async def debug_gemini_thinking_response():
 
         # Debug the response structure
         logger.info("🔍 RAW RESPONSE ANALYSIS:")
-        logger.info(f"   Response type: {type(result)}")
-        logger.info(f"   Has candidates: {hasattr(result, 'candidates')}")
+        logger.info("   Response type: %s", type(result))
+        logger.info("   Has candidates: %s", hasattr(result, 'candidates'))
 
         if result.candidates:
-            logger.info(f"   Candidates count: {len(result.candidates)}")
+            logger.info("   Candidates count: %s", len(result.candidates))
 
             candidate = result.candidates[0]
-            logger.info(f"   Candidate type: {type(candidate)}")
-            logger.info(f"   Has content: {hasattr(candidate, 'content')}")
+            logger.info("   Candidate type: %s", type(candidate))
+            logger.info("   Has content: %s", hasattr(candidate, 'content'))
 
             if candidate.content:
-                logger.info(f"   Content type: {type(candidate.content)}")
-                logger.info(f"   Has parts: {hasattr(candidate.content, 'parts')}")
+                logger.info("   Content type: %s", type(candidate.content))
+                logger.info("   Has parts: %s", hasattr(candidate.content, 'parts'))
 
                 if candidate.content.parts:
-                    logger.info(f"   Parts count: {len(candidate.content.parts)}")
+                    logger.info("   Parts count: %s", len(candidate.content.parts))
 
                     for i, part in enumerate(candidate.content.parts):
-                        logger.info(f"\n   🔍 PART {i} ANALYSIS:")
-                        logger.info(f"      Part type: {type(part)}")
-                        logger.info(f"      Has text: {hasattr(part, 'text')}")
-                        logger.info(f"      Has thought: {hasattr(part, 'thought')}")
+                        logger.info("\n   🔍 PART %s ANALYSIS:", i)
+                        logger.info("      Part type: %s", type(part))
+                        logger.info("      Has text: %s", hasattr(part, 'text'))
+                        logger.info("      Has thought: %s", hasattr(part, 'thought'))
 
                         if hasattr(part, 'text'):
                             text_value = part.text
-                            logger.info(f"      Text type: {type(text_value)}")
-                            logger.info(f"      Text length: {len(str(text_value)) if text_value else 0}")
+                            logger.info("      Text type: %s", type(text_value))
+                            logger.info("      Text length: %s", len(str(text_value)) if text_value else 0)
                             if text_value:
                                 text_str = str(text_value)
-                                logger.info(f"      Text preview: {repr(text_str[:100])}")
+                                logger.info("      Text preview: %s", repr(text_str[:100]))
 
                         if hasattr(part, 'thought'):
                             thought_value = part.thought
-                            logger.info(f"      Thought type: {type(thought_value)}")
-                            logger.info(f"      Thought value: {thought_value}")
+                            logger.info("      Thought type: %s", type(thought_value))
+                            logger.info("      Thought value: %s", thought_value)
 
                         # Check all attributes of the part
-                        logger.info(f"      All attributes: {[attr for attr in dir(part) if not attr.startswith('_')]}")
+                        logger.info("      All attributes: %s", [attr for attr in dir(part) if not attr.startswith('_')])
 
         # Also check usage metadata
         if hasattr(result, 'usage_metadata'):
-            logger.info(f"\n🔍 USAGE METADATA:")
-            logger.info(f"   Usage metadata: {result.usage_metadata}")
+            logger.info("\n🔍 USAGE METADATA:")
+            logger.info("   Usage metadata: %s", result.usage_metadata)
             if hasattr(result.usage_metadata, 'thoughts_token_count'):
-                logger.info(f"   Thoughts token count: {result.usage_metadata.thoughts_token_count}")
+                logger.info("   Thoughts token count: %s", result.usage_metadata.thoughts_token_count)
 
     except Exception as e:
-        logger.error(f"❌ Debug failed: {e}")
+        logger.error("❌ Debug failed: %s", e)
         import traceback
         traceback.print_exc()
 

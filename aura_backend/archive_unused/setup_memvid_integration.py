@@ -5,9 +5,7 @@ Works with UV environment and existing Aura setup
 """
 
 import subprocess
-import sys
 from pathlib import Path
-import json
 
 def run_uv_command(args: list, cwd: str | None = None) -> bool:
     """Run UV command safely"""
@@ -39,7 +37,7 @@ def install_memvid_deps():
         "opencv-python",
         "qrcode[pil]",
         "faiss-cpu",
-        "PyPDF2",
+        "pypdf",
         "ebooklib",
         "beautifulsoup4"
     ]
@@ -133,7 +131,7 @@ def add_memvid_tools(mcp_server):
             )
 
         except Exception as e:
-            logger.error(f"Error in hybrid memory search: {e}")
+            logger.error("Error in hybrid memory search: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -164,7 +162,7 @@ def add_memvid_tools(mcp_server):
             )
 
         except Exception as e:
-            logger.error(f"Error archiving memories: {e}")
+            logger.error("Error archiving memories: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -198,7 +196,7 @@ def add_memvid_tools(mcp_server):
             )
 
         except Exception as e:
-            logger.error(f"Error importing knowledge: {e}")
+            logger.error("Error importing knowledge: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -229,7 +227,7 @@ def add_memvid_tools(mcp_server):
             )
 
         except Exception as e:
-            logger.error(f"Error getting stats: {e}")
+            logger.error("Error getting stats: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",

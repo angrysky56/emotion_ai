@@ -10,20 +10,23 @@ This service provides:
 4. Transaction-like safety for database operations
 """
 
-import os
-import time
-import threading
-from pathlib import Path
-from datetime import datetime, timedelta
-import logging
 import json
-from typing import Optional, Callable, Any
+import logging
+import os
+import threading
+import time
 from contextlib import contextmanager
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+
 class DatabaseProtectionService:
-    def __init__(self, db_path: str = "./aura_chroma_db", backup_interval_hours: int = 6):
+    def __init__(
+        self, db_path: str = "./aura_chroma_db", backup_interval_hours: int = 6
+    ):
         self.db_path = Path(db_path)
         self.backup_dir = self.db_path.parent / "auto_backups"
         self.backup_dir.mkdir(exist_ok=True)
@@ -64,7 +67,7 @@ class DatabaseProtectionService:
                     self._create_safety_backup("auto_backup")
                 time.sleep(300)  # Check every 5 minutes
             except Exception as e:
-                logger.error(f"Backup daemon error: {e}")
+                logger.error("Backup daemon error: %s", e)
                 time.sleep(600)  # Wait longer on error
 
     def _should_create_backup(self) -> bool:
@@ -84,13 +87,14 @@ class DatabaseProtectionService:
 
             # Create a simple file system backup instead of using ChromaDB API
             # This avoids conflicts with running ChromaDB instances
-            logger.info(f"🛡️ Creating file system backup: {backup_path}")
+            logger.info("🛡️ Creating file system backup: %s", backup_path)
 
             import shutil
+
             shutil.copytree(self.db_path, backup_path)
 
             self.last_backup = datetime.now()
-            logger.info(f"🛡️  Safety backup created: {backup_path}")
+            logger.info("🛡️  Safety backup created: %s", backup_path)
 
             # Clean old backups (keep last 10)
             self._cleanup_old_backups()
@@ -98,7 +102,7 @@ class DatabaseProtectionService:
             return backup_path
 
         except Exception as e:
-            logger.error(f"Failed to create safety backup: {e}")
+            logger.error("Failed to create safety backup: %s", e)
             return None
 
     def _cleanup_old_backups(self):
@@ -113,27 +117,28 @@ class DatabaseProtectionService:
                         ctime = os.path.getctime(item)
                         backup_candidates.append((item, ctime))
                     except (OSError, PermissionError) as e:
-                        logger.warning(f"Skipping backup {item} - cannot access: {e}")
+                        logger.warning("Skipping backup %s - cannot access: %s", item, e)
                         continue
-            
+
             # Sort by creation time
             backups = sorted(backup_candidates, key=lambda x: x[1])
             backup_paths = [backup[0] for backup in backups]
-            
+
             # Keep only the 10 most recent backups
             if len(backup_paths) > 10:
                 for old_backup in backup_paths[:-10]:
                     try:
                         if old_backup.exists() and old_backup.is_dir():
                             import shutil
-                            logger.info(f"🛡️ Removing old backup: {old_backup.name}")
+
+                            logger.info("🛡️ Removing old backup: %s", old_backup.name)
                             shutil.rmtree(old_backup, ignore_errors=True)
                     except (OSError, PermissionError) as e:
-                        logger.warning(f"Could not remove backup {old_backup}: {e}")
+                        logger.warning("Could not remove backup %s: %s", old_backup, e)
                         continue
-                        
+
         except Exception as e:
-            logger.error(f"Failed to cleanup old backups: {e}")
+            logger.error("Failed to cleanup old backups: %s", e)
 
     @contextmanager
     def protected_operation(self, operation_name: str, force_backup: bool = False):
@@ -148,30 +153,36 @@ class DatabaseProtectionService:
             # Create backup if needed
             if force_backup or self._is_risky_operation(operation_name):
                 backup_path = self._create_safety_backup(f"pre_{operation_name}")
-                logger.info(f"🛡️  Pre-operation backup created for: {operation_name}")
+                logger.info("🛡️  Pre-operation backup created for: %s", operation_name)
 
             # Yield control to the operation
             yield {
                 "operation_id": operation_id,
                 "backup_path": backup_path,
-                "start_time": datetime.now()
+                "start_time": datetime.now(),
             }
 
             # Log successful completion
-            self._log_operation(operation_id, "completed", {"operation": operation_name})
+            self._log_operation(
+                operation_id, "completed", {"operation": operation_name}
+            )
 
         except Exception as e:
             # Log error and attempt recovery
-            self._log_operation(operation_id, "failed", {
-                "operation": operation_name,
-                "error": str(e),
-                "backup_available": backup_path is not None
-            })
+            self._log_operation(
+                operation_id,
+                "failed",
+                {
+                    "operation": operation_name,
+                    "error": str(e),
+                    "backup_available": backup_path is not None,
+                },
+            )
 
-            logger.error(f"🚨 Protected operation failed: {operation_name} - {e}")
+            logger.error("🚨 Protected operation failed: %s - %s", operation_name, e)
 
             if backup_path:
-                logger.info(f"🔄 Recovery backup available at: {backup_path}")
+                logger.info("🔄 Recovery backup available at: %s", backup_path)
 
             raise
 
@@ -182,7 +193,7 @@ class DatabaseProtectionService:
             "database_reset",
             "bulk_update",
             "schema_migration",
-            "collection_recreate"
+            "collection_recreate",
         ]
         return any(risky in operation_name.lower() for risky in risky_operations)
 
@@ -192,14 +203,14 @@ class DatabaseProtectionService:
             "operation_id": operation_id,
             "timestamp": datetime.now().isoformat(),
             "status": status,
-            "metadata": metadata
+            "metadata": metadata,
         }
 
         self.operation_log.append(log_entry)
 
         # Keep log size manageable
         if len(self.operation_log) > self.max_log_entries:
-            self.operation_log = self.operation_log[-self.max_log_entries//2:]
+            self.operation_log = self.operation_log[-self.max_log_entries // 2 :]
 
         # Save critical operations to file
         if status == "failed":
@@ -208,14 +219,16 @@ class DatabaseProtectionService:
     def _save_critical_log(self, log_entry: dict):
         """Save critical operations to persistent log"""
         log_file = self.backup_dir / "critical_operations.log"
-        with open(log_file, 'a') as f:
+        with open(log_file, "a") as f:
             f.write(json.dumps(log_entry) + "\n")
 
     def get_health_status(self) -> dict:
         """Get protection service health status"""
         recent_operations = [
-            op for op in self.operation_log
-            if datetime.fromisoformat(op["timestamp"]) > datetime.now() - timedelta(hours=24)
+            op
+            for op in self.operation_log
+            if datetime.fromisoformat(op["timestamp"])
+            > datetime.now() - timedelta(hours=24)
         ]
 
         failed_operations = [op for op in recent_operations if op["status"] == "failed"]
@@ -226,7 +239,7 @@ class DatabaseProtectionService:
             "backup_count": len(list(self.backup_dir.glob("*_backup_*"))),
             "recent_operations": len(recent_operations),
             "failed_operations": len(failed_operations),
-            "status": "healthy" if len(failed_operations) == 0 else "warning"
+            "status": "healthy" if len(failed_operations) == 0 else "warning",
         }
 
     def emergency_backup(self) -> Optional[Path]:
@@ -234,8 +247,10 @@ class DatabaseProtectionService:
         logger.warning("🚨 Emergency backup triggered!")
         return self._create_safety_backup("emergency_backup")
 
+
 # Global protection service instance
 _protection_service: Optional[DatabaseProtectionService] = None
+
 
 def get_protection_service() -> DatabaseProtectionService:
     """Get the global protection service instance"""
@@ -245,15 +260,20 @@ def get_protection_service() -> DatabaseProtectionService:
         _protection_service.start_protection()
     return _protection_service
 
+
 def protected_db_operation(operation_name: str, force_backup: bool = False):
     """Decorator for protecting database operations"""
+
     def decorator(func: Callable) -> Callable:
         def wrapper(*args, **kwargs) -> Any:
             protection = get_protection_service()
             with protection.protected_operation(operation_name, force_backup):
                 return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
+
 
 # Example usage:
 # @protected_db_operation("collection_recreate", force_backup=True)

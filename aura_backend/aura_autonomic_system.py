@@ -14,18 +14,19 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Tuple
-from dataclasses import dataclass
-from enum import Enum
 from collections import deque
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any, Dict, Optional, Tuple
 
 from google.genai import types
 
-from mcp_to_gemini_bridge import MCPGeminiBridge
-from aura_internal_tools import AuraInternalTools
+from aura_backend.aura_internal_tools import AuraInternalTools
+from aura_backend.mcp_to_gemini_bridge import MCPGeminiBridge
 
 logger = logging.getLogger(__name__)
+
 
 class RateLimiter:
     """
@@ -44,14 +45,16 @@ class RateLimiter:
 
         # Daily request tracking
         self.daily_requests = 0
-        self.daily_reset_time = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        self.daily_reset_time = datetime.now().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ) + timedelta(days=1)
 
         # Statistics tracking
         self.total_requests = 0
         self.total_rejected = 0
         self.last_request_time: Optional[datetime] = None
 
-        logger.info(f"🚦 Rate limiter initialized: {rpm_limit} RPM, {rpd_limit} RPD")
+        logger.info("🚦 Rate limiter initialized: %s RPM, %s RPD", rpm_limit, rpd_limit)
 
     async def can_make_request(self) -> bool:
         """Check if a request can be made without exceeding rate limits"""
@@ -65,7 +68,9 @@ class RateLimiter:
         # Reset daily counter if needed
         if current_time >= self.daily_reset_time:
             self.daily_requests = 0
-            self.daily_reset_time = current_time.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            self.daily_reset_time = current_time.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) + timedelta(days=1)
             logger.info("🔄 Daily rate limit counter reset")
 
         # Check both RPM and RPD limits
@@ -115,14 +120,16 @@ class RateLimiter:
             if self.minute_requests:
                 # Wait until the oldest request in the current minute expires
                 oldest_request = self.minute_requests[0]
-                wait_time = (oldest_request + timedelta(minutes=1) - datetime.now()).total_seconds()
+                wait_time = (
+                    oldest_request + timedelta(minutes=1) - datetime.now()
+                ).total_seconds()
                 wait_time = max(0.1, min(wait_time, 5.0))  # Wait 0.1-5 seconds
             else:
                 wait_time = 0.1  # Brief wait if no current requests
 
             await asyncio.sleep(wait_time)
 
-        logger.warning(f"⏰ Rate limiter timeout after {max_wait_seconds}s")
+        logger.warning("⏰ Rate limiter timeout after %ss", max_wait_seconds)
         return False
 
     def get_status(self) -> Dict[str, Any]:
@@ -131,7 +138,9 @@ class RateLimiter:
 
         # Clean up old requests for accurate counting
         cutoff_time = current_time - timedelta(minutes=1)
-        current_minute_requests = sum(1 for req_time in self.minute_requests if req_time >= cutoff_time)
+        current_minute_requests = sum(
+            1 for req_time in self.minute_requests if req_time >= cutoff_time
+        )
 
         return {
             "rpm_limit": self.rpm_limit,
@@ -142,16 +151,23 @@ class RateLimiter:
             "rpd_available": self.rpd_limit - self.daily_requests,
             "total_requests": self.total_requests,
             "total_rejected": self.total_rejected,
-            "rejection_rate": (self.total_rejected / max(1, self.total_requests + self.total_rejected)) * 100,
-            "last_request": self.last_request_time.isoformat() if self.last_request_time else None,
-            "daily_reset_time": self.daily_reset_time.isoformat()
+            "rejection_rate": (
+                self.total_rejected / max(1, self.total_requests + self.total_rejected)
+            )
+            * 100,
+            "last_request": (
+                self.last_request_time.isoformat() if self.last_request_time else None
+            ),
+            "daily_reset_time": self.daily_reset_time.isoformat(),
         }
+
 
 class TaskPriority(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
 
 class TaskType(str, Enum):
     MCP_TOOL_CALL = "mcp_tool_call"
@@ -162,6 +178,7 @@ class TaskType(str, Enum):
     COMPLEX_REASONING = "complex_reasoning"
     BACKGROUND_PROCESSING = "background_processing"
 
+
 class TaskStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"
@@ -169,9 +186,11 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
     TIMEOUT = "timeout"
 
+
 @dataclass
 class AutonomicTask:
     """Represents a task that can be offloaded to the autonomic system"""
+
     task_id: str
     task_type: TaskType
     priority: TaskPriority
@@ -191,6 +210,7 @@ class AutonomicTask:
         if self.created_at is None:
             self.created_at = datetime.now()
 
+
 class TaskClassifier:
     """Intelligent task classification system to determine offload candidates"""
 
@@ -202,14 +222,14 @@ class TaskClassifier:
             "analysis": 0.7,
             "memory_operations": 0.6,
             "code_generation": 0.8,
-            "pattern_recognition": 0.9
+            "pattern_recognition": 0.9,
         }
 
     async def should_offload_task(
         self,
         task_description: str,
         task_payload: Dict[str, Any],
-        user_context: Optional[Dict[str, Any]] = None
+        user_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, TaskType, TaskPriority]:
         """
         Analyze whether a task should be offloaded to autonomic system
@@ -218,7 +238,9 @@ class TaskClassifier:
             Tuple of (should_offload, task_type, priority)
         """
         # Analyze task complexity and type
-        task_analysis = await self._analyze_task_complexity(task_description, task_payload)
+        task_analysis = await self._analyze_task_complexity(
+            task_description, task_payload
+        )
 
         task_type = self._classify_task_type(task_description, task_payload)
         priority = self._determine_priority(task_analysis, user_context)
@@ -229,9 +251,7 @@ class TaskClassifier:
         return should_offload, task_type, priority
 
     async def _analyze_task_complexity(
-        self,
-        description: str,
-        payload: Dict[str, Any]
+        self, description: str, payload: Dict[str, Any]
     ) -> Dict[str, float]:
         """Analyze task complexity across multiple dimensions"""
 
@@ -240,13 +260,21 @@ class TaskClassifier:
             "data_volume": 0.0,
             "tool_complexity": 0.0,
             "reasoning_depth": 0.0,
-            "time_sensitivity": 0.0
+            "time_sensitivity": 0.0,
         }
 
         # Analyze computational load
-        if any(keyword in description.lower() for keyword in [
-            "analyze", "process", "compute", "calculate", "generate", "search"
-        ]):
+        if any(
+            keyword in description.lower()
+            for keyword in [
+                "analyze",
+                "process",
+                "compute",
+                "calculate",
+                "generate",
+                "search",
+            ]
+        ):
             complexity_indicators["computational_load"] += 0.3
 
         # Analyze data volume
@@ -260,32 +288,51 @@ class TaskClassifier:
                 "analyze_emotional_patterns": 0.8,
                 "create_knowledge_summary": 0.6,
                 "archive_old_conversations": 0.9,
-                "complex_analysis": 0.9
+                "complex_analysis": 0.9,
             }
             tool_name = payload.get("tool_name", "")
-            complexity_indicators["tool_complexity"] = tool_complexity_map.get(tool_name, 0.3)
+            complexity_indicators["tool_complexity"] = tool_complexity_map.get(
+                tool_name, 0.3
+            )
 
         # Analyze reasoning depth
-        reasoning_keywords = ["deep", "complex", "comprehensive", "detailed", "thorough"]
+        reasoning_keywords = [
+            "deep",
+            "complex",
+            "comprehensive",
+            "detailed",
+            "thorough",
+        ]
         if any(keyword in description.lower() for keyword in reasoning_keywords):
             complexity_indicators["reasoning_depth"] += 0.5
 
         return complexity_indicators
 
-    def _classify_task_type(self, description: str, payload: Dict[str, Any]) -> TaskType:
+    def _classify_task_type(
+        self, description: str, payload: Dict[str, Any]
+    ) -> TaskType:
         """Classify the type of task based on description and payload"""
 
         description_lower = description.lower()
 
         if "tool_name" in payload or "function_call" in payload:
             return TaskType.MCP_TOOL_CALL
-        elif any(keyword in description_lower for keyword in ["analyze", "analysis", "pattern"]):
+        elif any(
+            keyword in description_lower
+            for keyword in ["analyze", "analysis", "pattern"]
+        ):
             return TaskType.DATA_ANALYSIS
-        elif any(keyword in description_lower for keyword in ["code", "generate", "script"]):
+        elif any(
+            keyword in description_lower for keyword in ["code", "generate", "script"]
+        ):
             return TaskType.CODE_GENERATION
-        elif any(keyword in description_lower for keyword in ["search", "memory", "recall"]):
+        elif any(
+            keyword in description_lower for keyword in ["search", "memory", "recall"]
+        ):
             return TaskType.MEMORY_SEARCH
-        elif any(keyword in description_lower for keyword in ["reason", "think", "complex"]):
+        elif any(
+            keyword in description_lower for keyword in ["reason", "think", "complex"]
+        ):
             return TaskType.COMPLEX_REASONING
         else:
             return TaskType.BACKGROUND_PROCESSING
@@ -293,7 +340,7 @@ class TaskClassifier:
     def _determine_priority(
         self,
         complexity_analysis: Dict[str, float],
-        user_context: Optional[Dict[str, Any]]
+        user_context: Optional[Dict[str, Any]],
     ) -> TaskPriority:
         """Determine task priority based on complexity and context"""
 
@@ -318,29 +365,28 @@ class TaskClassifier:
             return TaskPriority.LOW
 
     def _make_offload_decision(
-        self,
-        complexity_analysis: Dict[str, float],
-        priority: TaskPriority
+        self, complexity_analysis: Dict[str, float], priority: TaskPriority
     ) -> bool:
         """Make the final decision on whether to offload"""
 
         # Threshold mapping
-        threshold_map = {
-            "low": 0.3,
-            "medium": 0.5,
-            "high": 0.7
-        }
+        threshold_map = {"low": 0.3, "medium": 0.5, "high": 0.7}
 
         threshold_value = threshold_map.get(self.threshold, 0.5)
         complexity_score = sum(complexity_analysis.values()) / len(complexity_analysis)
 
         # Decision logic
         if priority == TaskPriority.CRITICAL:
-            return complexity_score > threshold_value * 0.8  # Lower threshold for critical
+            return (
+                complexity_score > threshold_value * 0.8
+            )  # Lower threshold for critical
         elif priority == TaskPriority.HIGH:
             return complexity_score > threshold_value
         else:
-            return complexity_score > threshold_value * 1.2  # Higher threshold for low priority
+            return (
+                complexity_score > threshold_value * 1.2
+            )  # Higher threshold for low priority
+
 
 class AutonomicProcessor:
     """Core processor for autonomic task execution with rate limiting"""
@@ -351,7 +397,7 @@ class AutonomicProcessor:
         max_output_tokens: int = 100000,
         timeout_seconds: int = 30,
         rpm_limit: int = 25,
-        rpd_limit: int = 1200
+        rpd_limit: int = 1200,
     ):
         self.autonomic_model = autonomic_model
         self.max_output_tokens = max_output_tokens
@@ -366,14 +412,14 @@ class AutonomicProcessor:
             "tasks_failed": 0,
             "tasks_rate_limited": 0,
             "average_execution_time": 0.0,
-            "total_execution_time": 0.0
+            "total_execution_time": 0.0,
         }
 
     async def execute_task(
         self,
         task: AutonomicTask,
         mcp_bridge: Optional[MCPGeminiBridge] = None,
-        internal_tools: Optional[AuraInternalTools] = None
+        internal_tools: Optional[AuraInternalTools] = None,
     ) -> AutonomicTask:
         """Execute a task using the autonomic processor"""
 
@@ -382,11 +428,17 @@ class AutonomicProcessor:
         start_time = time.time()
 
         try:
-            logger.info(f"🤖 Autonomic processor executing task: {task.task_id} ({task.task_type.value})")
+            logger.info(
+                "🤖 Autonomic processor executing task: %s (%s)",
+                task.task_id,
+                task.task_type.value,
+            )
 
             # Route task to appropriate handler
             if task.task_type == TaskType.MCP_TOOL_CALL:
-                result = await self._execute_mcp_tool_task(task, mcp_bridge, internal_tools)
+                result = await self._execute_mcp_tool_task(
+                    task, mcp_bridge, internal_tools
+                )
             elif task.task_type == TaskType.DATA_ANALYSIS:
                 result = await self._execute_analysis_task(task)
             elif task.task_type == TaskType.CODE_GENERATION:
@@ -406,7 +458,11 @@ class AutonomicProcessor:
             task.execution_time_ms = execution_time
             self._update_execution_stats(execution_time, True)
 
-            logger.info(f"✅ Autonomic task completed: {task.task_id} ({execution_time:.1f}ms)")
+            logger.info(
+                "✅ Autonomic task completed: %s (%s.1fms)",
+                task.task_id,
+                execution_time,
+            )
             return task
 
         except asyncio.TimeoutError:
@@ -414,7 +470,7 @@ class AutonomicProcessor:
             task.error = f"Task exceeded timeout of {self.timeout_seconds} seconds"
             task.completed_at = datetime.now()
             self._update_execution_stats((time.time() - start_time) * 1000, False)
-            logger.warning(f"⏰ Autonomic task timeout: {task.task_id}")
+            logger.warning("⏰ Autonomic task timeout: %s", task.task_id)
             return task
 
         except Exception as e:
@@ -422,14 +478,14 @@ class AutonomicProcessor:
             task.error = str(e)
             task.completed_at = datetime.now()
             self._update_execution_stats((time.time() - start_time) * 1000, False)
-            logger.error(f"❌ Autonomic task failed: {task.task_id} - {e}")
+            logger.error("❌ Autonomic task failed: %s - %s", task.task_id, e)
             return task
 
     async def _execute_mcp_tool_task(
         self,
         task: AutonomicTask,
         mcp_bridge: Optional[MCPGeminiBridge],
-        internal_tools: Optional[AuraInternalTools]
+        internal_tools: Optional[AuraInternalTools],
     ) -> Dict[str, Any]:
         """Execute MCP tool calls through autonomic processor"""
 
@@ -445,18 +501,18 @@ class AutonomicProcessor:
         elif mcp_bridge and tool_name:
             # Create a mock function call for the MCP bridge
             from google.genai.types import FunctionCall
+
             function_call = FunctionCall(name=tool_name, args=arguments)
 
             execution_result = await mcp_bridge.execute_function_call(
-                function_call,
-                task.user_id
+                function_call, task.user_id
             )
 
             return {
                 "tool_result": execution_result.result,
                 "success": execution_result.success,
                 "error": execution_result.error,
-                "execution_method": "mcp_bridge"
+                "execution_method": "mcp_bridge",
             }
 
         else:
@@ -483,7 +539,9 @@ class AutonomicProcessor:
         result = await self._call_autonomic_model(analysis_prompt)
         return {"analysis_result": result, "task_type": "data_analysis"}
 
-    async def _execute_code_generation_task(self, task: AutonomicTask) -> Dict[str, Any]:
+    async def _execute_code_generation_task(
+        self, task: AutonomicTask
+    ) -> Dict[str, Any]:
         """Execute code generation tasks using autonomic model"""
 
         code_prompt = f"""
@@ -505,9 +563,7 @@ class AutonomicProcessor:
         return {"code_result": result, "task_type": "code_generation"}
 
     async def _execute_memory_search_task(
-        self,
-        task: AutonomicTask,
-        internal_tools: Optional[AuraInternalTools]
+        self, task: AutonomicTask, internal_tools: Optional[AuraInternalTools]
     ) -> Dict[str, Any]:
         """Execute memory search tasks using internal tools"""
 
@@ -521,11 +577,7 @@ class AutonomicProcessor:
         # Use comprehensive memory search
         result = await internal_tools.execute_tool(
             "aura.search_all_memories",
-            {
-                "query": search_query,
-                "user_id": user_id,
-                "max_results": max_results
-            }
+            {"query": search_query, "user_id": user_id, "max_results": max_results},
         )
 
         return {"memory_search_result": result, "task_type": "memory_search"}
@@ -552,26 +604,36 @@ class AutonomicProcessor:
 
         # Import client from main module
         import os
+
         from google import genai
 
-        api_key = os.getenv('GOOGLE_API_KEY')
+        api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("Google API key not available")
 
         client = genai.Client(api_key=api_key)
 
         # Rate limiting: Wait for availability with timeout
-        rate_limit_acquired = await self.rate_limiter.wait_for_availability(max_wait_seconds=60.0)
+        rate_limit_acquired = await self.rate_limiter.wait_for_availability(
+            max_wait_seconds=60.0
+        )
 
         if not rate_limit_acquired:
             self.execution_stats["tasks_rate_limited"] += 1
-            raise RuntimeError("Rate limit exceeded - unable to acquire request slot within timeout")
+            raise RuntimeError(
+                "Rate limit exceeded - unable to acquire request slot within timeout"
+            )
 
         # Create timeout wrapper
         async def model_call():
             # Get maximum remote calls for autonomic model from environment
-            autonomic_max_remote_calls = int(os.getenv('AFC_AUTONOMIC_MAX_REMOTE_CALLS', '30'))
-            logger.debug(f"🤖 Autonomic model configured with {autonomic_max_remote_calls} maximum function calls")
+            autonomic_max_remote_calls = int(
+                os.getenv("AFC_AUTONOMIC_MAX_REMOTE_CALLS", "30")
+            )
+            logger.debug(
+                "🤖 Autonomic model configured with %s maximum function calls",
+                autonomic_max_remote_calls,
+            )
 
             result = client.models.generate_content(
                 model=self.autonomic_model,
@@ -583,19 +645,18 @@ class AutonomicProcessor:
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(
                         maximum_remote_calls=autonomic_max_remote_calls
                     ),
-                )
+                ),
             )
             return result.text if result.text else ""
 
         # Execute with timeout
         try:
-            result = await asyncio.wait_for(
-                model_call(),
-                timeout=self.timeout_seconds
-            )
+            result = await asyncio.wait_for(model_call(), timeout=self.timeout_seconds)
             return result
         except asyncio.TimeoutError:
-            raise asyncio.TimeoutError(f"Model call exceeded {self.timeout_seconds}s timeout")
+            raise asyncio.TimeoutError(
+                f"Model call exceeded {self.timeout_seconds}s timeout"
+            ) from None
 
     def _update_execution_stats(self, execution_time: float, success: bool):
         """Update execution statistics"""
@@ -619,6 +680,7 @@ class AutonomicProcessor:
         stats["rate_limiter"] = self.rate_limiter.get_status()
         return stats
 
+
 class AutonomicNervousSystem:
     """
     Complete autonomic nervous system for Aura
@@ -636,7 +698,7 @@ class AutonomicNervousSystem:
         timeout_seconds: int = 60,
         rpm_limit: int = 30,
         rpd_limit: int = 1400,
-        queue_max_size: int = 100
+        queue_max_size: int = 100,
     ):
         self.classifier = TaskClassifier(threshold=task_threshold)
         self.processor = AutonomicProcessor(
@@ -644,7 +706,7 @@ class AutonomicNervousSystem:
             max_output_tokens=max_output_tokens,
             timeout_seconds=timeout_seconds,
             rpm_limit=rpm_limit,
-            rpd_limit=rpd_limit
+            rpd_limit=rpd_limit,
         )
 
         self.max_concurrent_tasks = max_concurrent_tasks
@@ -662,16 +724,16 @@ class AutonomicNervousSystem:
         self.internal_tools: Optional[AuraInternalTools] = None
 
         logger.info("🧠 Autonomic Nervous System initialized")
-        logger.info(f"   Model: {autonomic_model}")
-        logger.info(f"   Max concurrent tasks: {max_concurrent_tasks}")
-        logger.info(f"   Task threshold: {task_threshold}")
-        logger.info(f"   Rate limits: {rpm_limit} RPM, {rpd_limit} RPD")
-        logger.info(f"   Queue capacity: {queue_max_size}")
+        logger.info("   Model: %s", autonomic_model)
+        logger.info("   Max concurrent tasks: %s", max_concurrent_tasks)
+        logger.info("   Task threshold: %s", task_threshold)
+        logger.info("   Rate limits: %s RPM, %s RPD", rpm_limit, rpd_limit)
+        logger.info("   Queue capacity: %s", queue_max_size)
 
     def set_external_systems(
         self,
         mcp_bridge: Optional[MCPGeminiBridge] = None,
-        internal_tools: Optional[AuraInternalTools] = None
+        internal_tools: Optional[AuraInternalTools] = None,
     ):
         """Set references to external systems"""
         self.mcp_bridge = mcp_bridge
@@ -704,7 +766,9 @@ class AutonomicNervousSystem:
 
         # Wait for active tasks to complete (with timeout)
         if self.active_tasks:
-            logger.info(f"⏳ Waiting for {len(self.active_tasks)} active tasks to complete...")
+            logger.info(
+                "⏳ Waiting for %s active tasks to complete...", len(self.active_tasks)
+            )
             await asyncio.sleep(2)  # Brief grace period
 
         logger.info("🛑 Autonomic nervous system stopped")
@@ -715,7 +779,7 @@ class AutonomicNervousSystem:
         payload: Dict[str, Any],
         user_id: str,
         session_id: Optional[str] = None,
-        force_offload: bool = False
+        force_offload: bool = False,
     ) -> Tuple[bool, Optional[str]]:
         """
         Submit a task for potential autonomic processing
@@ -726,8 +790,10 @@ class AutonomicNervousSystem:
 
         # Analyze whether task should be offloaded
         if not force_offload:
-            should_offload, task_type, priority = await self.classifier.should_offload_task(
-                description, payload, {"user_id": user_id}
+            should_offload, task_type, priority = (
+                await self.classifier.should_offload_task(
+                    description, payload, {"user_id": user_id}
+                )
             )
         else:
             should_offload = True
@@ -746,22 +812,24 @@ class AutonomicNervousSystem:
             description=description,
             payload=payload,
             user_id=user_id,
-            session_id=session_id
+            session_id=session_id,
         )
 
         # Queue task with size limit handling
         try:
             self.task_queue.put_nowait(task)
-            logger.info(f"📋 Queued autonomic task: {task_id} ({task_type.value}, {priority.value})")
+            logger.info(
+                f"📋 Queued autonomic task: {task_id} ({task_type.value}, {priority.value})"
+            )
             return True, task_id
         except asyncio.QueueFull:
-            logger.warning(f"⚠️ Task queue full ({self.queue_max_size}), rejecting task: {task_id}")
+            logger.warning(
+                f"⚠️ Task queue full ({self.queue_max_size}), rejecting task: {task_id}"
+            )
             return False, None
 
     async def get_task_result(
-        self,
-        task_id: str,
-        timeout: Optional[float] = None
+        self, task_id: str, timeout: Optional[float] = None
     ) -> Optional[AutonomicTask]:
         """Get the result of a completed task"""
 
@@ -797,7 +865,7 @@ class AutonomicNervousSystem:
                 # No tasks in queue, continue
                 continue
             except Exception as e:
-                logger.error(f"❌ Task worker error: {e}")
+                logger.error("❌ Task worker error: %s", e)
                 await asyncio.sleep(1.0)
 
     async def _process_task(self, task: AutonomicTask):
@@ -808,9 +876,7 @@ class AutonomicNervousSystem:
 
             # Execute task
             completed_task = await self.processor.execute_task(
-                task,
-                self.mcp_bridge,
-                self.internal_tools
+                task, self.mcp_bridge, self.internal_tools
             )
 
             # Move to completed tasks
@@ -825,13 +891,13 @@ class AutonomicNervousSystem:
                 # Remove oldest tasks
                 oldest_tasks = sorted(
                     self.completed_tasks.keys(),
-                    key=lambda k: self.completed_tasks[k].completed_at or datetime.min
+                    key=lambda k: self.completed_tasks[k].completed_at or datetime.min,
                 )[:100]
                 for old_task_id in oldest_tasks:
                     del self.completed_tasks[old_task_id]
 
         except Exception as e:
-            logger.error(f"❌ Error processing task {task.task_id}: {e}")
+            logger.error("❌ Error processing task %s: %s", task.task_id, e)
             # Ensure task is moved to completed even on error
             if task.task_id in self.active_tasks:
                 del self.active_tasks[task.task_id]
@@ -851,15 +917,17 @@ class AutonomicNervousSystem:
             "processor_stats": processor_stats,
             "rate_limiting": processor_stats.get("rate_limiter", {}),
             "task_threshold": self.classifier.threshold,
-            "autonomic_model": self.processor.autonomic_model
+            "autonomic_model": self.processor.autonomic_model,
         }
+
 
 # Global autonomic system instance
 _autonomic_system: Optional[AutonomicNervousSystem] = None
 
+
 async def initialize_autonomic_system(
     mcp_bridge: Optional[MCPGeminiBridge] = None,
-    internal_tools: Optional[AuraInternalTools] = None
+    internal_tools: Optional[AuraInternalTools] = None,
 ) -> AutonomicNervousSystem:
     """Initialize the global autonomic nervous system with proper rate limiting"""
     global _autonomic_system
@@ -867,16 +935,16 @@ async def initialize_autonomic_system(
     import os
 
     # Get configuration from environment with optimized defaults
-    autonomic_model = os.getenv('AURA_AUTONOMIC_MODEL', 'gemini-2.0-flash-lite')
-    max_concurrent = int(os.getenv('AUTONOMIC_MAX_CONCURRENT_TASKS', '30'))
-    task_threshold = os.getenv('AUTONOMIC_TASK_THRESHOLD', 'medium')
-    max_tokens = int(os.getenv('AURA_AUTONOMIC_MAX_OUTPUT_TOKENS', '100000'))
-    timeout = int(os.getenv('AUTONOMIC_TIMEOUT_SECONDS', '60'))
+    autonomic_model = os.getenv("AURA_AUTONOMIC_MODEL", "gemini-2.0-flash-lite")
+    max_concurrent = int(os.getenv("AUTONOMIC_MAX_CONCURRENT_TASKS", "30"))
+    task_threshold = os.getenv("AUTONOMIC_TASK_THRESHOLD", "medium")
+    max_tokens = int(os.getenv("AURA_AUTONOMIC_MAX_OUTPUT_TOKENS", "100000"))
+    timeout = int(os.getenv("AUTONOMIC_TIMEOUT_SECONDS", "60"))
 
     # Rate limiting configuration
-    rpm_limit = int(os.getenv('AUTONOMIC_RATE_LIMIT_RPM', '30'))
-    rpd_limit = int(os.getenv('AUTONOMIC_RATE_LIMIT_RPD', '1400'))
-    queue_max_size = int(os.getenv('AUTONOMIC_QUEUE_MAX_SIZE', '40'))
+    rpm_limit = int(os.getenv("AUTONOMIC_RATE_LIMIT_RPM", "30"))
+    rpd_limit = int(os.getenv("AUTONOMIC_RATE_LIMIT_RPD", "1400"))
+    queue_max_size = int(os.getenv("AUTONOMIC_QUEUE_MAX_SIZE", "40"))
 
     _autonomic_system = AutonomicNervousSystem(
         autonomic_model=autonomic_model,
@@ -886,7 +954,7 @@ async def initialize_autonomic_system(
         timeout_seconds=timeout,
         rpm_limit=rpm_limit,
         rpd_limit=rpd_limit,
-        queue_max_size=queue_max_size
+        queue_max_size=queue_max_size,
     )
 
     # Set external system references
@@ -896,12 +964,16 @@ async def initialize_autonomic_system(
     await _autonomic_system.start()
 
     logger.info("🧠 Global autonomic nervous system initialized and started")
-    logger.info(f"📊 Configuration: {max_concurrent} concurrent, {rpm_limit} RPM, {rpd_limit} RPD")
+    logger.info(
+        f"📊 Configuration: {max_concurrent} concurrent, {rpm_limit} RPM, {rpd_limit} RPD"
+    )
     return _autonomic_system
+
 
 def get_autonomic_system() -> Optional[AutonomicNervousSystem]:
     """Get the global autonomic system instance"""
     return _autonomic_system
+
 
 async def shutdown_autonomic_system():
     """Shutdown the global autonomic system"""

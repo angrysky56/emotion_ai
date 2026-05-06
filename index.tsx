@@ -866,7 +866,6 @@ class AuraUIManager {
     }
 
     // Update current user display
-    this.updateCurrentUserDisplay();
     this.updateUserGreeting();
 
     // Handle search UI based on username status

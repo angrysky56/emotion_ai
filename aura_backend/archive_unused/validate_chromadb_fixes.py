@@ -18,7 +18,6 @@ import tempfile
 import shutil
 from datetime import datetime
 from typing import Dict, Any
-import uuid
 
 # Add the backend directory to the path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -42,7 +41,7 @@ class ChromaDBFixValidator:
     async def setup_test_environment(self):
         """Set up isolated test environment"""
         self.test_dir = Path(tempfile.mkdtemp(prefix="aura_validation_"))
-        logger.info(f"🧪 Created test environment: {self.test_dir}")
+        logger.info("🧪 Created test environment: %s", self.test_dir)
 
         # Create test data directories
         (self.test_dir / "aura_chroma_db").mkdir()
@@ -53,7 +52,7 @@ class ChromaDBFixValidator:
         """Clean up test environment"""
         if self.test_dir and self.test_dir.exists():
             shutil.rmtree(self.test_dir)
-            logger.info(f"🧹 Cleaned up test environment")
+            logger.info("🧹 Cleaned up test environment")
 
     async def validate_division_by_zero_fix(self) -> bool:
         """
@@ -76,7 +75,7 @@ class ChromaDBFixValidator:
             persistence_service = ConversationPersistenceService(vector_db, file_system)
 
             # Test the critical scenario: call _update_average_store_time with total_stores = 0
-            initial_metrics = persistence_service._metrics.copy()
+            persistence_service._metrics.copy()
             
             # This should NOT cause a division by zero error
             persistence_service._update_average_store_time(100.0)
@@ -89,14 +88,14 @@ class ChromaDBFixValidator:
                 logger.info("✅ Division by zero fix verified - handles zero total_stores correctly")
                 return True
             else:
-                logger.error(f"❌ Division by zero fix failed - expected 100.0, got {updated_metrics['average_store_time']}")
+                logger.error("❌ Division by zero fix failed - expected 100.0, got %s", updated_metrics['average_store_time'])
                 return False
 
         except ZeroDivisionError as e:
-            logger.error(f"❌ Division by zero error still occurs: {e}")
+            logger.error("❌ Division by zero error still occurs: %s", e)
             return False
         except Exception as e:
-            logger.error(f"❌ Unexpected error testing division by zero fix: {e}")
+            logger.error("❌ Unexpected error testing division by zero fix: %s", e)
             return False
 
     async def validate_chromadb_client_sharing(self) -> bool:
@@ -131,7 +130,7 @@ class ChromaDBFixValidator:
                 return False
 
         except Exception as e:
-            logger.error(f"❌ Error testing ChromaDB client sharing: {e}")
+            logger.error("❌ Error testing ChromaDB client sharing: %s", e)
             return False
 
     async def validate_persistence_metrics(self) -> bool:
@@ -195,11 +194,11 @@ class ChromaDBFixValidator:
                 logger.info("✅ Persistence metrics validation passed")
                 return True
             else:
-                logger.error(f"❌ Persistence metrics validation failed: {result}")
+                logger.error("❌ Persistence metrics validation failed: %s", result)
                 return False
 
         except Exception as e:
-            logger.error(f"❌ Error testing persistence metrics: {e}")
+            logger.error("❌ Error testing persistence metrics: %s", e)
             return False
 
     async def validate_memvid_initialization(self) -> bool:
@@ -235,7 +234,7 @@ class ChromaDBFixValidator:
                 return True  # Not a failure if memvid isn't available
 
         except Exception as e:
-            logger.error(f"❌ Error testing memvid initialization: {e}")
+            logger.error("❌ Error testing memvid initialization: %s", e)
             return False
 
     async def run_validation(self) -> Dict[str, Any]:
@@ -269,11 +268,11 @@ class ChromaDBFixValidator:
 
             # Log summary
             if overall_success:
-                logger.info(f"🎉 All {total_tests} validation tests PASSED!")
+                logger.info("🎉 All %s validation tests PASSED!", total_tests)
                 logger.info("✅ ChromaDB conflict fixes are working correctly")
             else:
                 failed_tests = [name for name, result in self.validation_results.items() if not result]
-                logger.error(f"❌ {len(failed_tests)} validation tests FAILED: {failed_tests}")
+                logger.error("❌ %s validation tests FAILED: %s", len(failed_tests), failed_tests)
 
             return report
 

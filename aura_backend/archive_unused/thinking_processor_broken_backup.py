@@ -85,7 +85,7 @@ class ThinkingProcessor:
         has_thinking = False
 
         try:
-            logger.info(f"🧠 Starting non-streaming thinking processing for user {user_id}")
+            logger.info("🧠 Starting non-streaming thinking processing for user %s", user_id)
 
             # Use the chat session directly (it should have thinking enabled)
             result = chat.send_message(message)
@@ -93,8 +93,8 @@ class ThinkingProcessor:
             # Debug logging for raw response (only in debug mode)
             debug_mode = os.getenv('THINKING_DEBUG', 'false').lower() == 'true'
             if debug_mode:
-                logger.debug(f"🔍 Raw response structure for {user_id}: {type(result)}")
-                logger.debug(f"🔍 Response candidates: {len(result.candidates) if result.candidates else 0}")
+                logger.debug("🔍 Raw response structure for %s: %s", user_id, type(result))
+                logger.debug("🔍 Response candidates: %s", len(result.candidates) if result.candidates else 0)
 
             # Check for valid response
             if not result or not result.candidates:
@@ -106,14 +106,14 @@ class ThinkingProcessor:
 
             # Debug candidate structure
             if debug_mode:
-                logger.debug(f"🔍 Candidate parts count: {len(candidate.content.parts)}")
+                logger.debug("🔍 Candidate parts count: %s", len(candidate.content.parts))
 
             # Extract the answer text and check for thinking attributes
             for i, part in enumerate(candidate.content.parts):
                 if debug_mode:
                     has_text = hasattr(part, 'text')
                     has_thought = hasattr(part, 'thought')
-                    logger.debug(f"🔍 Part {i}: type={type(part)}, has_text={has_text}, has_thought={has_thought}")
+                    logger.debug("🔍 Part %s: type=%s, has_text=%s, has_thought=%s", i, type(part), has_text, has_thought)
 
                 # Skip parts without text
                 if not hasattr(part, 'text') or not part.text:
@@ -129,37 +129,37 @@ class ThinkingProcessor:
                     thoughts += text_content
                     has_thinking = True
                     thinking_chunks += 1
-                    logger.info(f"🎯 Found thinking content in response part {i}: {len(text_content)} chars")
+                    logger.info("🎯 Found thinking content in response part %s: %s chars", i, len(text_content))
                     if debug_mode:
-                        logger.debug(f"🔍 Thinking content preview: {text_content[:100]}...")
+                        logger.debug("🔍 Thinking content preview: %s...", text_content[:100])
                 else:
                     # This is regular answer content (including when part.thought is None or False)
                     answer += text_content
                     if debug_mode:
-                        logger.debug(f"🔍 Added answer part: {len(text_content)} chars")
+                        logger.debug("🔍 Added answer part: %s chars", len(text_content))
 
             if debug_mode:
-                logger.debug(f"🔍 Total answer length: {len(answer)} chars")
-                logger.debug(f"🔍 Total thoughts length: {len(thoughts)} chars")
-                logger.debug(f"🔍 Has thinking: {has_thinking}")
+                logger.debug("🔍 Total answer length: %s chars", len(answer))
+                logger.debug("🔍 Total thoughts length: %s chars", len(thoughts))
+                logger.debug("🔍 Has thinking: %s", has_thinking)
 
             # Calculate processing time
             processing_time = (datetime.now() - start_time).total_seconds() * 1000
 
             # Log results
-            logger.info(f"✅ Non-streaming thinking processing complete for user {user_id}")
-            logger.info(f"   � Total chunks: {total_chunks}")
-            logger.info(f"   🧠 Thinking chunks: {thinking_chunks}")
-            logger.info(f"   💬 Answer chunks: {answer_chunks}")
-            logger.info(f"   ⏱️ Processing time: {processing_time:.1f}ms")
-            logger.info(f"   🎯 Has thinking: {has_thinking}")
+            logger.info("✅ Non-streaming thinking processing complete for user %s", user_id)
+            logger.info("   � Total chunks: %s", total_chunks)
+            logger.info("   🧠 Thinking chunks: %s", thinking_chunks)
+            logger.info("   💬 Answer chunks: %s", answer_chunks)
+            logger.info("   ⏱️ Processing time: %sms", processing_time)
+            logger.info("   🎯 Has thinking: %s", has_thinking)
             if has_thinking:
-              logger.info(f"   🧠 Thinking content length: {len(thoughts)} chars")
-              logger.info(f"   💬 Answer content length: {len(answer)} chars")
-            logger.info(f"   🧠 Thinking chunks: {thinking_chunks}")
-            logger.info(f"   💬 Answer chunks: {answer_chunks}")
-            logger.info(f"   ⏱️ Processing time: {processing_time:.1f}ms")
-            logger.info(f"   🎯 Has thinking: {has_thinking}")
+              logger.info("   🧠 Thinking content length: %s chars", len(thoughts))
+              logger.info("   💬 Answer content length: %s chars", len(answer))
+            logger.info("   🧠 Thinking chunks: %s", thinking_chunks)
+            logger.info("   💬 Answer chunks: %s", answer_chunks)
+            logger.info("   ⏱️ Processing time: %sms", processing_time)
+            logger.info("   🎯 Has thinking: %s", has_thinking)
 
             # Optionally include thinking in response
             final_answer = answer
@@ -179,7 +179,7 @@ class ThinkingProcessor:
 
         except Exception as e:
             processing_time = (datetime.now() - start_time).total_seconds() * 1000
-            logger.error(f"❌ Non-streaming thinking processing failed for user {user_id}: {e}")
+            logger.error("❌ Non-streaming thinking processing failed for user %s: %s", user_id, e)
 
             return ThinkingResult(
                 thoughts="",
@@ -266,7 +266,7 @@ class ThinkingProcessor:
         Returns:
             ThinkingResult with thinking extraction
         """
-        logger.info(f"🔧 Processing message with thinking for user {user_id}")
+        logger.info("🔧 Processing message with thinking for user %s", user_id)
 
         # Simply delegate to the standard thinking processor
         # Function calls are handled by aura_autonomic_system.py
@@ -316,5 +316,5 @@ def create_thinking_enabled_chat(
         )
     )
 
-    logger.info(f"🧠 Created thinking-enabled chat session (budget: {thinking_budget})")
+    logger.info("🧠 Created thinking-enabled chat session (budget: %s)", thinking_budget)
     return chat

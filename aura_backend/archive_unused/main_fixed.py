@@ -27,17 +27,12 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
 import uuid
-from contextlib import asynccontextmanager
 
 import chromadb
 from chromadb.config import Settings
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
-from google.genai import types
 from google import genai
 
 from dotenv import load_dotenv
@@ -45,21 +40,8 @@ import os
 import aiofiles
 
 # Import MCP-Gemini Bridge
-from mcp_to_gemini_bridge import MCPGeminiBridge, format_function_call_result_for_model
 
 # Import MCP integration
-from mcp_system import (
-    initialize_mcp_system,
-    shutdown_mcp_system,
-    get_mcp_status,
-    get_mcp_bridge,
-    get_all_available_tools
-)
-from mcp_integration import (
-    execute_mcp_tool,
-    mcp_router,
-)
-from aura_internal_tools import AuraInternalTools
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -187,7 +169,7 @@ class AuraVectorDB:
             logger.info("✅ Vector database collections initialized successfully")
 
         except Exception as e:
-            logger.error(f"❌ Failed to initialize vector collections: {e}")
+            logger.error("❌ Failed to initialize vector collections: %s", e)
             raise
 
     async def store_conversation(self, memory: ConversationMemory) -> str:
@@ -234,11 +216,11 @@ class AuraVectorDB:
                 ids=[doc_id]
             )
 
-            logger.info(f"📝 Stored conversation memory: {doc_id}")
+            logger.info("📝 Stored conversation memory: %s", doc_id)
             return doc_id
 
         except Exception as e:
-            logger.error(f"❌ Failed to store conversation memory: {e}")
+            logger.error("❌ Failed to store conversation memory: %s", e)
             raise
     async def search_conversations(
         self,
@@ -282,11 +264,11 @@ class AuraVectorDB:
                         "similarity": 1 - results['distances'][0][i]  # Convert distance to similarity
                     })
 
-            logger.info(f"🔍 Found {len(formatted_results)} relevant memories for query: {query}")
+            logger.info("🔍 Found %s relevant memories for query: %s", len(formatted_results), query)
             return formatted_results
 
         except Exception as e:
-            logger.error(f"❌ Failed to search conversations: {e}")
+            logger.error("❌ Failed to search conversations: %s", e)
             return []
     async def store_emotional_pattern(self, emotional_state: EmotionalStateData, user_id: str) -> str:
         """Store emotional state pattern for analysis"""
@@ -317,11 +299,11 @@ class AuraVectorDB:
                 ids=[doc_id]
             )
 
-            logger.info(f"🎭 Stored emotional pattern: {emotional_state.name} ({emotional_state.intensity.value})")
+            logger.info("🎭 Stored emotional pattern: %s (%s)", emotional_state.name, emotional_state.intensity.value)
             return doc_id
 
         except Exception as e:
-            logger.error(f"❌ Failed to store emotional pattern: {e}")
+            logger.error("❌ Failed to store emotional pattern: %s", e)
             raise
 
     async def analyze_emotional_trends(self, user_id: str, days: int = 7) -> Dict[str, Any]:
@@ -358,11 +340,11 @@ class AuraVectorDB:
                 "recommendations": self._generate_emotional_recommendations(emotions, intensities)
             }
 
-            logger.info(f"📊 Generated emotional analysis for user {user_id}")
+            logger.info("📊 Generated emotional analysis for user %s", user_id)
             return analysis
 
         except Exception as e:
-            logger.error(f"❌ Failed to analyze emotional trends: {e}")
+            logger.error("❌ Failed to analyze emotional trends: %s", e)
             return {"error": str(e)}
     def _get_top_items(self, items: List[str], top_n: int) -> List[Tuple[str, int]]:
         """Get top N most frequent items"""
@@ -438,11 +420,11 @@ class AuraFileSystem:
             async with aiofiles.open(profile_path, 'w') as f:
                 await f.write(json.dumps(profile_data, indent=2, default=str))
 
-            logger.info(f"💾 Saved user profile: {user_id}")
+            logger.info("💾 Saved user profile: %s", user_id)
             return str(profile_path)
 
         except Exception as e:
-            logger.error(f"❌ Failed to save user profile: {e}")
+            logger.error("❌ Failed to save user profile: %s", e)
             raise
 
     async def load_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -458,7 +440,7 @@ class AuraFileSystem:
                 return json.loads(content)
 
         except Exception as e:
-            logger.error(f"❌ Failed to load user profile: {e}")
+            logger.error("❌ Failed to load user profile: %s", e)
             return None
 
     async def export_conversation_history(self, user_id: str, format: str = "json") -> str:
@@ -484,11 +466,11 @@ class AuraFileSystem:
                 async with aiofiles.open(export_path, 'w') as f:
                     await f.write(json.dumps(export_data, indent=2, default=str))
 
-            logger.info(f"📤 Exported conversation history: {filename}")
+            logger.info("📤 Exported conversation history: %s", filename)
             return str(export_path)
 
         except Exception as e:
-            logger.error(f"❌ Failed to export conversation history: {e}")
+            logger.error("❌ Failed to export conversation history: %s", e)
             raise
 
 class AuraStateManager:
@@ -512,7 +494,7 @@ class AuraStateManager:
 
             # Check for significant changes
             if old_state and old_state.name != new_state.name:
-                logger.info(f"🎭 Emotional transition: {old_state.name} → {new_state.name}")
+                logger.info("🎭 Emotional transition: %s → %s", old_state.name, new_state.name)
 
                 # Trigger specific actions based on transitions
                 await self._handle_emotional_transition(user_id, old_state, new_state)
@@ -523,7 +505,7 @@ class AuraStateManager:
             await self.aura_file_system.save_user_profile(user_id, profile)
 
         except Exception as e:
-            logger.error(f"❌ Failed to handle emotional state change: {e}")
+            logger.error("❌ Failed to handle emotional state change: %s", e)
 
     async def _handle_emotional_transition(
         self,
@@ -552,7 +534,7 @@ class AuraStateManager:
             }
 
             # Log the recommendation details and store for potential future use
-            logger.info(f"🔔 Emotional support recommendation for {user_id}: {recommendation['suggestion']}")
+            logger.info("🔔 Emotional support recommendation for %s: %s", user_id, recommendation['suggestion'])
 
             # TODO: Could store recommendation in database for analysis or trigger gentle conversation adjustments
             #

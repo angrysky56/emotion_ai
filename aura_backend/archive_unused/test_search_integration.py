@@ -5,7 +5,6 @@ Test to verify the search endpoint now properly routes through Aura's MCP tools
 
 import asyncio
 import aiohttp
-import json
 import sys
 import logging
 
@@ -31,7 +30,7 @@ async def test_memory_search_integration():
     async with aiohttp.ClientSession() as session:
         for i, test_case in enumerate(test_cases, 1):
             try:
-                logger.info(f"🧪 Test {i}: Searching for '{test_case['query']}'")
+                logger.info("🧪 Test %s: Searching for '%s'", i, test_case['query'])
                 
                 async with session.post(
                     "http://localhost:8000/search",
@@ -42,20 +41,20 @@ async def test_memory_search_integration():
                     if response.status == 200:
                         result = await response.json()
                         
-                        logger.info(f"✅ Test {i} successful!")
-                        logger.info(f"   📊 Found: {result.get('total_found', 0)} memories")
-                        logger.info(f"   🔍 Search type: {result.get('search_type', 'unknown')}")
-                        logger.info(f"   🎥 Video archives: {result.get('includes_video_archives', False)}")
+                        logger.info("✅ Test %s successful!", i)
+                        logger.info("   📊 Found: %s memories", result.get('total_found', 0))
+                        logger.info("   🔍 Search type: %s", result.get('search_type', 'unknown'))
+                        logger.info("   🎥 Video archives: %s", result.get('includes_video_archives', False))
                         
                         if result.get('results'):
-                            logger.info(f"   📄 Sample result: {result['results'][0].get('content', '')[:100]}...")
+                            logger.info("   📄 Sample result: %s...", result['results'][0].get('content', '')[:100])
                         
                     else:
                         error_text = await response.text()
-                        logger.error(f"❌ Test {i} failed: {response.status} - {error_text}")
+                        logger.error("❌ Test %s failed: %s - %s", i, response.status, error_text)
                         
             except Exception as e:
-                logger.error(f"❌ Test {i} error: {e}")
+                logger.error("❌ Test %s error: %s", i, e)
                 
         logger.info("🎉 Memory search integration test completed!")
 

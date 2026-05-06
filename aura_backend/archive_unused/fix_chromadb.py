@@ -35,7 +35,7 @@ class ChromaDBRecovery:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = self.backup_dir / f"chroma_backup_{timestamp}"
 
-        logger.info(f"Creating backup at: {backup_path}")
+        logger.info("Creating backup at: %s", backup_path)
         shutil.copytree(self.db_path, backup_path)
         return backup_path
 
@@ -55,11 +55,11 @@ class ChromaDBRecovery:
                 logger.info("✅ Database integrity check passed")
                 return True
             else:
-                logger.error(f"❌ Database integrity check failed: {result}")
+                logger.error("❌ Database integrity check failed: %s", result)
                 return False
 
         except Exception as e:
-            logger.error(f"❌ Error checking database integrity: {e}")
+            logger.error("❌ Error checking database integrity: %s", e)
             return False
 
     def clean_wal_files(self):
@@ -68,11 +68,11 @@ class ChromaDBRecovery:
         shm_file = self.db_path / "chroma.sqlite3-shm"
 
         if wal_file.exists():
-            logger.info(f"Removing WAL file: {wal_file}")
+            logger.info("Removing WAL file: %s", wal_file)
             wal_file.unlink()
 
         if shm_file.exists():
-            logger.info(f"Removing SHM file: {shm_file}")
+            logger.info("Removing SHM file: %s", shm_file)
             shm_file.unlink()
 
     def vacuum_database(self):
@@ -93,7 +93,7 @@ class ChromaDBRecovery:
             logger.info("✅ Database optimization completed")
 
         except Exception as e:
-            logger.error(f"❌ Error during database optimization: {e}")
+            logger.error("❌ Error during database optimization: %s", e)
             raise
 
     def fix_permissions(self):
@@ -124,7 +124,7 @@ class ChromaDBRecovery:
             if cursor.fetchone():
                 cursor.execute("SELECT COUNT(*) FROM embeddings_queue")
                 count = cursor.fetchone()[0]
-                logger.info(f"Embeddings queue contains {count} entries")
+                logger.info("Embeddings queue contains %s entries", count)
 
                 if count > 0:
                     logger.warning("⚠️ Found entries in embeddings_queue - this might cause issues")
@@ -132,7 +132,7 @@ class ChromaDBRecovery:
             conn.close()
 
         except Exception as e:
-            logger.error(f"❌ Error checking embeddings queue: {e}")
+            logger.error("❌ Error checking embeddings queue: %s", e)
 
     def clear_embeddings_queue(self):
         """Clear the embeddings queue to resolve stuck processing"""
@@ -151,13 +151,13 @@ class ChromaDBRecovery:
                 count = cursor.fetchone()[0]
 
                 if count > 0:
-                    logger.warning(f"⚠️ Found {count} stuck entries in embeddings_queue")
+                    logger.warning("⚠️ Found %s stuck entries in embeddings_queue", count)
                     logger.info("🧹 Clearing embeddings queue...")
 
                     cursor.execute("DELETE FROM embeddings_queue")
                     conn.commit()
 
-                    logger.info(f"✅ Cleared {count} entries from embeddings_queue")
+                    logger.info("✅ Cleared %s entries from embeddings_queue", count)
                 else:
                     logger.info("✅ Embeddings queue is already empty")
             else:
@@ -166,7 +166,7 @@ class ChromaDBRecovery:
             conn.close()
 
         except Exception as e:
-            logger.error(f"❌ Error clearing embeddings queue: {e}")
+            logger.error("❌ Error clearing embeddings queue: %s", e)
             raise
 
     def force_wal_checkpoint(self):
@@ -180,7 +180,7 @@ class ChromaDBRecovery:
             # Force checkpoint to merge WAL into main database
             cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             result = cursor.fetchone()
-            logger.info(f"WAL checkpoint result: {result}")
+            logger.info("WAL checkpoint result: %s", result)
 
             # Disable WAL mode temporarily and re-enable to force cleanup
             cursor.execute("PRAGMA journal_mode=DELETE")
@@ -192,7 +192,7 @@ class ChromaDBRecovery:
             logger.info("✅ WAL checkpoint completed")
 
         except Exception as e:
-            logger.error(f"❌ Error during WAL checkpoint: {e}")
+            logger.error("❌ Error during WAL checkpoint: %s", e)
             # Don't raise - this might fail in some cases but still help
 
     def analyze_collections(self):
@@ -209,9 +209,9 @@ class ChromaDBRecovery:
             """)
             collections = cursor.fetchall()
 
-            logger.info(f"Found {len(collections)} collections:")
+            logger.info("Found %s collections:", len(collections))
             for collection_id, name, dimension in collections:
-                logger.info(f"  - {name} (ID: {collection_id}, Dimension: {dimension})")
+                logger.info("  - %s (ID: %s, Dimension: %s)", name, collection_id, dimension)
 
                 # Check embeddings count for each collection
                 cursor.execute("""
@@ -219,7 +219,7 @@ class ChromaDBRecovery:
                 """, (collection_id,))
                 embedding_count = cursor.fetchone()[0]
 
-                logger.info(f"    └─ {embedding_count} embeddings")
+                logger.info("    └─ %s embeddings", embedding_count)
 
                 # Check for orphaned segments
                 cursor.execute("""
@@ -227,12 +227,12 @@ class ChromaDBRecovery:
                 """, (collection_id,))
                 segment_count = cursor.fetchone()[0]
 
-                logger.info(f"    └─ {segment_count} segments")
+                logger.info("    └─ %s segments", segment_count)
 
             conn.close()
 
         except Exception as e:
-            logger.error(f"❌ Error analyzing collections: {e}")
+            logger.error("❌ Error analyzing collections: %s", e)
 
     def rebuild_search_index(self):
         """Attempt to rebuild search indices"""
@@ -250,10 +250,10 @@ class ChromaDBRecovery:
 
             for (table_name,) in tables:
                 try:
-                    logger.info(f"Reindexing table: {table_name}")
+                    logger.info("Reindexing table: %s", table_name)
                     cursor.execute(f"REINDEX {table_name}")
                 except Exception as e:
-                    logger.warning(f"⚠️ Could not reindex {table_name}: {e}")
+                    logger.warning("⚠️ Could not reindex %s: %s", table_name, e)
 
             conn.commit()
             conn.close()
@@ -261,7 +261,7 @@ class ChromaDBRecovery:
             logger.info("✅ Index rebuild completed")
 
         except Exception as e:
-            logger.error(f"❌ Error rebuilding indices: {e}")
+            logger.error("❌ Error rebuilding indices: %s", e)
 
     def check_compaction_state(self):
         """Check for signs of failed compaction"""
@@ -279,9 +279,9 @@ class ChromaDBRecovery:
             temp_tables = cursor.fetchall()
 
             if temp_tables:
-                logger.warning(f"⚠️ Found {len(temp_tables)} temporary tables - possible stuck compaction")
+                logger.warning("⚠️ Found %s temporary tables - possible stuck compaction", len(temp_tables))
                 for (table_name,) in temp_tables:
-                    logger.warning(f"  - {table_name}")
+                    logger.warning("  - %s", table_name)
 
             # Check segments table for inconsistencies
             cursor.execute("""
@@ -293,12 +293,12 @@ class ChromaDBRecovery:
 
             for collection_id, count in segment_counts:
                 if count > 10:  # Unusually high number of segments
-                    logger.warning(f"⚠️ Collection {collection_id} has {count} segments (may need compaction)")
+                    logger.warning("⚠️ Collection %s has %s segments (may need compaction)", collection_id, count)
 
             conn.close()
 
         except Exception as e:
-            logger.error(f"❌ Error checking compaction state: {e}")
+            logger.error("❌ Error checking compaction state: %s", e)
 
     def emergency_recovery(self):
         """Emergency recovery for severely corrupted databases"""
@@ -306,7 +306,7 @@ class ChromaDBRecovery:
 
         # Step 1: Backup current database
         backup_path = self.backup_database()
-        logger.info(f"✅ Emergency backup created at: {backup_path}")
+        logger.info("✅ Emergency backup created at: %s", backup_path)
 
         # Step 2: Force WAL checkpoint before anything else
         self.force_wal_checkpoint()
@@ -328,7 +328,7 @@ class ChromaDBRecovery:
         try:
             self.vacuum_database()
         except Exception as e:
-            logger.error(f"Failed final vacuum: {e}")
+            logger.error("Failed final vacuum: %s", e)
 
         # Step 8: Fix permissions
         self.fix_permissions()
@@ -341,7 +341,7 @@ class ChromaDBRecovery:
 
         # Step 1: Backup current database
         backup_path = self.backup_database()
-        logger.info(f"✅ Backup created at: {backup_path}")
+        logger.info("✅ Backup created at: %s", backup_path)
 
         # Step 2: Check integrity
         if not self.check_database_integrity():
@@ -360,7 +360,7 @@ class ChromaDBRecovery:
         try:
             self.vacuum_database()
         except Exception as e:
-            logger.error(f"Failed to vacuum: {e}")
+            logger.error("Failed to vacuum: %s", e)
 
         # Step 7: Fix permissions
         self.fix_permissions()

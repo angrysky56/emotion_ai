@@ -8,7 +8,6 @@ This script tests that Aura can now use its internal memvid tools directly.
 
 import asyncio
 import logging
-from pathlib import Path
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -25,10 +24,10 @@ async def test_aura_internal_memvid_tools():
     try:
         from aura_internal_tools import AuraInternalTools
         from aura_internal_memvid_tools import INTERNAL_MEMVID_AVAILABLE
-        logger.info(f"✅ AuraInternalTools imported successfully")
-        logger.info(f"✅ Internal memvid available: {INTERNAL_MEMVID_AVAILABLE}")
+        logger.info("✅ AuraInternalTools imported successfully")
+        logger.info("✅ Internal memvid available: %s", INTERNAL_MEMVID_AVAILABLE)
     except Exception as e:
-        logger.error(f"❌ Failed to import: {e}")
+        logger.error("❌ Failed to import: %s", e)
         return False
     
     # Test 2: Initialize AuraInternalTools (mock vector DB)
@@ -52,18 +51,18 @@ async def test_aura_internal_memvid_tools():
         tool_names = list(internal_tools.tools.keys())
         memvid_tools = [name for name in tool_names if 'video' in name or 'archive' in name or 'memvid' in name]
         
-        logger.info(f"✅ AuraInternalTools initialized with {len(tool_names)} total tools")
-        logger.info(f"🎥 Memvid tools found: {len(memvid_tools)}")
+        logger.info("✅ AuraInternalTools initialized with %s total tools", len(tool_names))
+        logger.info("🎥 Memvid tools found: %s", len(memvid_tools))
         
         for tool in memvid_tools:
-            logger.info(f"   📹 {tool}")
+            logger.info("   📹 %s", tool)
         
         if len(memvid_tools) == 0:
             logger.warning("⚠️ No memvid tools found in internal tools")
             return False
             
     except Exception as e:
-        logger.error(f"❌ Failed to initialize AuraInternalTools: {e}")
+        logger.error("❌ Failed to initialize AuraInternalTools: %s", e)
         import traceback
         traceback.print_exc()
         return False
@@ -84,16 +83,16 @@ async def test_aura_internal_memvid_tools():
             if tool_name in internal_tools.tools:
                 found_tools.append(tool_name)
                 tool_def = internal_tools.tools[tool_name]
-                logger.info(f"   ✅ {tool_name}: {tool_def['description'][:80]}...")
+                logger.info("   ✅ %s: %s...", tool_name, tool_def['description'][:80])
         
-        logger.info(f"✅ Found {len(found_tools)}/{len(expected_memvid_tools)} expected memvid tools")
+        logger.info("✅ Found %s/%s expected memvid tools", len(found_tools), len(expected_memvid_tools))
         
         if len(found_tools) < len(expected_memvid_tools):
             missing = set(expected_memvid_tools) - set(found_tools)
-            logger.warning(f"⚠️ Missing tools: {missing}")
+            logger.warning("⚠️ Missing tools: %s", missing)
             
     except Exception as e:
-        logger.error(f"❌ Failed to check tool definitions: {e}")
+        logger.error("❌ Failed to check tool definitions: %s", e)
         return False
     
     # Test 4: Test tool execution (with error handling for missing memvid system)
@@ -102,17 +101,17 @@ async def test_aura_internal_memvid_tools():
         # Test a simple tool that should work even without full memvid system
         result = await internal_tools.execute_tool("aura.get_memory_statistics", {})
         
-        logger.info(f"✅ Tool execution successful")
-        logger.info(f"   📊 Result type: {type(result)}")
-        logger.info(f"   📊 Status: {result.get('status', 'unknown')}")
+        logger.info("✅ Tool execution successful")
+        logger.info("   📊 Result type: %s", type(result))
+        logger.info("   📊 Status: %s", result.get('status', 'unknown'))
         
         if result.get('status') == 'error':
-            logger.info(f"   ℹ️ Expected error (no full memvid system): {result.get('message', 'No message')}")
+            logger.info("   ℹ️ Expected error (no full memvid system): %s", result.get('message', 'No message'))
         else:
-            logger.info(f"   🎉 Memvid system appears to be working!")
+            logger.info("   🎉 Memvid system appears to be working!")
             
     except Exception as e:
-        logger.error(f"❌ Tool execution failed: {e}")
+        logger.error("❌ Tool execution failed: %s", e)
         return False
     
     # Test 5: Check integration with main system
@@ -122,15 +121,15 @@ async def test_aura_internal_memvid_tools():
         tool_list = internal_tools.get_tool_list()
         memvid_tools_in_list = [tool for tool in tool_list if 'video' in tool['name'] or 'archive' in tool['name']]
         
-        logger.info(f"✅ Tool list contains {len(memvid_tools_in_list)} memvid tools")
-        logger.info(f"✅ Tools are ready for Gemini function calling integration")
+        logger.info("✅ Tool list contains %s memvid tools", len(memvid_tools_in_list))
+        logger.info("✅ Tools are ready for Gemini function calling integration")
         
         # Sample a few tools
         for tool in memvid_tools_in_list[:3]:
-            logger.info(f"   🔧 {tool['name']}: {tool['description'][:60]}...")
+            logger.info("   🔧 %s: %s...", tool['name'], tool['description'][:60])
             
     except Exception as e:
-        logger.error(f"❌ Integration check failed: {e}")
+        logger.error("❌ Integration check failed: %s", e)
         return False
     
     # Final Summary
@@ -164,7 +163,7 @@ async def main():
             logger.error("\n❌ Integration test failed!")
         return success
     except Exception as e:
-        logger.error(f"\n💥 Test crashed: {e}")
+        logger.error("\n💥 Test crashed: %s", e)
         import traceback
         traceback.print_exc()
         return False

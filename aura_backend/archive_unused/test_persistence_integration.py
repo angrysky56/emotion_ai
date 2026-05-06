@@ -59,7 +59,7 @@ async def test_persistence_integration():
         logger.info("✅ ConversationPersistenceService initialized")
 
         # Test memvid service initialization
-        memvid_service = MemvidArchivalService(isolation_mode=True)
+        MemvidArchivalService(isolation_mode=True)
         logger.info("✅ MemvidArchivalService initialized")
 
         # Test conversation exchange creation
@@ -77,23 +77,23 @@ async def test_persistence_integration():
         result = await persistence_service.persist_conversation_exchange(exchange)
         
         if result["success"]:
-            logger.info(f"✅ Mock persistence successful: {result['stored_components']}")
-            logger.info(f"   Duration: {result['duration_ms']:.1f}ms")
+            logger.info("✅ Mock persistence successful: %s", result['stored_components'])
+            logger.info("   Duration: %sms", result['duration_ms'])
         else:
-            logger.warning(f"⚠️ Mock persistence had issues: {result['errors']}")
+            logger.warning("⚠️ Mock persistence had issues: %s", result['errors'])
 
         # Test metrics
         metrics = await persistence_service.get_persistence_metrics()
-        logger.info(f"📊 Persistence metrics: {metrics}")
+        logger.info("📊 Persistence metrics: %s", metrics)
 
         logger.info("🎉 All tests passed! Integration appears to be working correctly.")
         return True
 
     except ImportError as e:
-        logger.error(f"❌ Import error: {e}")
+        logger.error("❌ Import error: %s", e)
         return False
     except Exception as e:
-        logger.error(f"❌ Test failed: {e}")
+        logger.error("❌ Test failed: %s", e)
         return False
 
 def main():

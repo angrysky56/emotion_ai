@@ -5,7 +5,6 @@ Test script for MCP Bridge functionality
 
 import asyncio
 import sys
-import os
 import logging
 from pathlib import Path
 
@@ -56,7 +55,7 @@ async def test_mcp_bridge():
             await mcp_client.start()
             logger.info("✅ MCP client started successfully")
         except Exception as e:
-            logger.warning(f"⚠️ MCP client failed to start: {e}")
+            logger.warning("⚠️ MCP client failed to start: %s", e)
             logger.info("🔄 Continuing with internal tools only...")
         
         # Create the bridge
@@ -66,19 +65,19 @@ async def test_mcp_bridge():
         # Test the conversion method (this was the failing part)
         logger.info("🔧 Testing tool conversion...")
         gemini_tools = await bridge.convert_mcp_tools_to_gemini_functions()
-        logger.info(f"✅ Successfully converted {len(gemini_tools)} tools to Gemini format")
+        logger.info("✅ Successfully converted %s tools to Gemini format", len(gemini_tools))
         
         # Test getting available functions
         available_functions = bridge.get_available_functions()
-        logger.info(f"📦 Available functions: {len(available_functions)}")
+        logger.info("📦 Available functions: %s", len(available_functions))
         
         for func in available_functions:
-            logger.info(f"  - {func['name']}: {func['description'][:50]}...")
+            logger.info("  - %s: %s...", func['name'], func['description'][:50])
         
         # Test tool execution with internal tool
         if available_functions:
             test_func = available_functions[0]
-            logger.info(f"🧪 Testing tool execution: {test_func['name']}")
+            logger.info("🧪 Testing tool execution: %s", test_func['name'])
             
             # Create a mock function call
             from google.genai import types
@@ -91,18 +90,18 @@ async def test_mcp_bridge():
                 )
                 
                 result = await bridge.execute_function_call(mock_call, "test_user")
-                logger.info(f"✅ Tool execution result: {result.success}")
+                logger.info("✅ Tool execution result: %s", result.success)
                 if result.success:
-                    logger.info(f"📄 Result: {str(result.result)[:100]}...")
+                    logger.info("📄 Result: %s...", str(result.result)[:100])
                 else:
-                    logger.warning(f"❌ Error: {result.error}")
+                    logger.warning("❌ Error: %s", result.error)
         
         # Stop MCP client
         await mcp_client.stop()
         logger.info("✅ Test completed successfully!")
         
     except Exception as e:
-        logger.error(f"❌ Test failed: {e}")
+        logger.error("❌ Test failed: %s", e)
         import traceback
         traceback.print_exc()
         return False

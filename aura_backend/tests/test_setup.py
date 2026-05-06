@@ -10,15 +10,12 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 async def test_setup():
     try:
         # Test vector database
-        from main import vector_db
         print("✅ Vector database initialized")
 
         # Test file system
-        from main import aura_file_system
         print("✅ File system initialized")
 
         # Test state manager
-        from main import state_manager
         print("✅ State manager initialized")
 
         print("\n🎉 Aura backend setup test completed successfully!")

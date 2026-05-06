@@ -37,7 +37,7 @@ class SerializedDatabaseOperations:
                 await asyncio.sleep(self._compaction_delay)
                 return result
             except Exception as e:
-                logger.error(f"Serialized operation failed: {e}")
+                logger.error("Serialized operation failed: %s", e)
                 raise
 
 # Global instance for the application
@@ -67,14 +67,14 @@ async def store_memories_sequentially(
             vector_db.store_conversation,
             user_memory
         )
-        logger.info(f"✅ Stored user memory for {user_id}")
+        logger.info("✅ Stored user memory for %s", user_id)
 
         # Store Aura memory after compaction completes
         await db_operations.execute_serialized(
             vector_db.store_conversation,
             aura_memory
         )
-        logger.info(f"✅ Stored Aura memory for {user_id}")
+        logger.info("✅ Stored Aura memory for %s", user_id)
 
         # Store emotional patterns if present
         if aura_emotional_state_data:
@@ -92,7 +92,7 @@ async def store_memories_sequentially(
             )
 
     except Exception as e:
-        logger.error(f"Failed to store memories: {e}")
+        logger.error("Failed to store memories: %s", e)
         # Continue processing even if storage fails
 
 # ============================================================================

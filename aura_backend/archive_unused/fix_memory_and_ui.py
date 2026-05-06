@@ -32,25 +32,25 @@ async def check_current_memory_state():
         )
 
         total_memories = len(all_convos['ids']) if all_convos and 'ids' in all_convos else 0
-        logger.info(f"📊 Total memories in database: {total_memories}")
+        logger.info("📊 Total memories in database: %s", total_memories)
 
         sessions = {} # Initialize sessions here
 
         if total_memories > 0 and all_convos and 'metadatas' in all_convos and all_convos['metadatas'] is not None:
             # Check a sample of recent memories for emotion data
             sample_size = min(10, total_memories)
-            logger.info(f"🔍 Checking {sample_size} recent memories for emotion data...")
+            logger.info("🔍 Checking %s recent memories for emotion data...", sample_size)
 
             emotions_found = 0
             for i in range(sample_size):
                 metadata = all_convos['metadatas'][i]
                 if 'emotion_name' in metadata:
                     emotions_found += 1
-                    logger.debug(f"   Memory {i}: Has emotion '{metadata['emotion_name']}' ({metadata.get('emotion_intensity', 'Unknown')})")
+                    logger.debug("   Memory %s: Has emotion '%s' (%s)", i, metadata['emotion_name'], metadata.get('emotion_intensity', 'Unknown'))
                 else:
-                    logger.debug(f"   Memory {i}: No emotion data")
+                    logger.debug("   Memory %s: No emotion data", i)
 
-            logger.info(f"📈 {emotions_found}/{sample_size} memories have emotion data")
+            logger.info("📈 %s/%s memories have emotion data", emotions_found, sample_size)
 
             # Check for session grouping
             for i, metadata in enumerate(all_convos['metadatas']):
@@ -59,7 +59,7 @@ async def check_current_memory_state():
                     sessions[session_id] = []
                 sessions[session_id].append(i)
 
-            logger.info(f"💬 Found {len(sessions)} unique chat sessions")
+            logger.info("💬 Found %s unique chat sessions", len(sessions))
 
         return {
             'total_memories': total_memories,
@@ -68,40 +68,40 @@ async def check_current_memory_state():
         }
 
     except Exception as e:
-        logger.error(f"❌ Error checking memory state: {e}")
+        logger.error("❌ Error checking memory state: %s", e)
         return {'total_memories': 0, 'has_data': False, 'error': str(e)}
 
 async def test_chat_history_retrieval(user_id: str = "ty"):
     """Test the chat history retrieval to ensure it's working"""
-    logger.info(f"🔍 Testing chat history retrieval for user: {user_id}")
+    logger.info("🔍 Testing chat history retrieval for user: %s", user_id)
 
     try:
         # Use the same method the API uses
         result = await conversation_persistence.safe_get_chat_history(user_id, limit=10)
 
         if result.get('sessions'):
-            logger.info(f"✅ Found {len(result['sessions'])} chat sessions")
+            logger.info("✅ Found %s chat sessions", len(result['sessions']))
 
             for i, session in enumerate(result['sessions'][:3]):  # Show first 3
-                logger.info(f"\n📅 Session {i+1}:")
-                logger.info(f"   ID: {session['session_id']}")
-                logger.info(f"   Messages: {session['message_count']}")
-                logger.info(f"   Start: {session['start_time']}")
-                logger.info(f"   Last: {session['last_time']}")
+                logger.info("\n📅 Session %s:", i+1)
+                logger.info("   ID: %s", session['session_id'])
+                logger.info("   Messages: %s", session['message_count'])
+                logger.info("   Start: %s", session['start_time'])
+                logger.info("   Last: %s", session['last_time'])
 
                 if session['messages']:
                     first_msg = session['messages'][0]
-                    logger.info(f"   First message: {first_msg['content'][:50]}...")
-                    logger.info(f"   Sender: {first_msg['sender']}")
+                    logger.info("   First message: %s...", first_msg['content'][:50])
+                    logger.info("   Sender: %s", first_msg['sender'])
                     if 'emotion' in first_msg:
-                        logger.info(f"   Emotion: {first_msg['emotion']}")
+                        logger.info("   Emotion: %s", first_msg['emotion'])
         else:
             logger.warning("⚠️ No sessions found in chat history")
 
         return result
 
     except Exception as e:
-        logger.error(f"❌ Error testing chat history: {e}")
+        logger.error("❌ Error testing chat history: %s", e)
         import traceback
         traceback.print_exc()
         return None
@@ -181,18 +181,18 @@ async def add_test_conversation_with_emotions(user_id: str = "ty"):
 
         if result['success']:
             logger.info("✅ Test conversation added successfully!")
-            logger.info(f"   Session ID: {session_id}")
-            logger.info(f"   Components stored: {result['stored_components']}")
-            logger.info(f"   User emotion: {user_emotion.name} ({user_emotion.intensity.value})")
-            logger.info(f"   Aura emotion: {aura_emotion.name} ({aura_emotion.intensity.value})")
-            logger.info(f"   Cognitive focus: {cognitive_state.focus.value}")
+            logger.info("   Session ID: %s", session_id)
+            logger.info("   Components stored: %s", result['stored_components'])
+            logger.info("   User emotion: %s (%s)", user_emotion.name, user_emotion.intensity.value)
+            logger.info("   Aura emotion: %s (%s)", aura_emotion.name, aura_emotion.intensity.value)
+            logger.info("   Cognitive focus: %s", cognitive_state.focus.value)
         else:
-            logger.error(f"❌ Failed to add test conversation: {result.get('errors', 'Unknown error')}")
+            logger.error("❌ Failed to add test conversation: %s", result.get('errors', 'Unknown error'))
 
         return result
 
     except Exception as e:
-        logger.error(f"❌ Error adding test conversation: {e}")
+        logger.error("❌ Error adding test conversation: %s", e)
         import traceback
         traceback.print_exc()
         return None
@@ -206,25 +206,25 @@ async def verify_persistence_service():
         metrics = await conversation_persistence.get_persistence_metrics()
 
         logger.info("📊 Persistence Service Metrics:")
-        logger.info(f"   Total operations: {metrics['total_operations']}")
-        logger.info(f"   Successful: {metrics['successful_operations']}")
-        logger.info(f"   Failed: {metrics['failed_operations']}")
-        logger.info(f"   Success rate: {metrics['success_rate']:.1%}")
-        logger.info(f"   Avg duration: {metrics['average_duration_ms']:.1f}ms")
+        logger.info("   Total operations: %s", metrics['total_operations'])
+        logger.info("   Successful: %s", metrics['successful_operations'])
+        logger.info("   Failed: %s", metrics['failed_operations'])
+        logger.info("   Success rate: %s", metrics['success_rate']:.1%)
+        logger.info("   Avg duration: %sms", metrics['average_duration_ms'])
 
         # Check health
         from conversation_persistence_service import PersistenceHealthCheck
         health_checker = PersistenceHealthCheck(conversation_persistence)
         health = await health_checker.check_health()
 
-        logger.info(f"\n💊 Health Status: {'✅ Healthy' if health['healthy'] else '❌ Unhealthy'}")
+        logger.info("\n💊 Health Status: %s", '✅ Healthy' if health['healthy'] else '❌ Unhealthy')
         for check, status in health['checks'].items():
-            logger.info(f"   {check}: {'✅' if status else '❌'}")
+            logger.info("   %s: %s", check, '✅' if status else '❌')
 
         return health['healthy']
 
     except Exception as e:
-        logger.error(f"❌ Error verifying persistence service: {e}")
+        logger.error("❌ Error verifying persistence service: %s", e)
         return False
 
 async def fix_memvid_tool_parameters():
@@ -270,7 +270,7 @@ def wrap_memvid_import_params(knowledge_name: str, content: str) -> dict:
             logger.warning("⚠️ Memvid tools file not found")
 
     except Exception as e:
-        logger.error(f"❌ Error fixing memvid parameters: {e}")
+        logger.error("❌ Error fixing memvid parameters: %s", e)
 
 async def main():
     """Main diagnostic and fix routine"""
@@ -301,11 +301,11 @@ async def main():
     # Summary
     logger.info("\n" + "=" * 60)
     logger.info("📊 SUMMARY:")
-    logger.info(f"   Memory State: {'✅ Has data' if state['has_data'] else '❌ Empty'}")
-    logger.info(f"   Persistence Service: {'✅ Healthy' if persistence_ok else '❌ Issues detected'}")
-    logger.info(f"   Chat History API: {'✅ Working' if history and history.get('sessions') else '❌ Not working'}")
-    logger.info(f"   Total Memories: {state['total_memories']}")
-    logger.info(f"   Chat Sessions: {state.get('session_count', 0)}")
+    logger.info("   Memory State: %s", '✅ Has data' if state['has_data'] else '❌ Empty')
+    logger.info("   Persistence Service: %s", '✅ Healthy' if persistence_ok else '❌ Issues detected')
+    logger.info("   Chat History API: %s", '✅ Working' if history and history.get('sessions') else '❌ Not working')
+    logger.info("   Total Memories: %s", state['total_memories'])
+    logger.info("   Chat Sessions: %s", state.get('session_count', 0))
 
     if not (state['has_data'] and persistence_ok and history):
         logger.warning("\n⚠️ Some issues remain. Please check the logs above for details.")

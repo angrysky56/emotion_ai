@@ -5,7 +5,6 @@ Test the FIXED Aura Memvid-Compatible Integration
 
 import asyncio
 import logging
-import json
 from pathlib import Path
 
 # Set up logging
@@ -54,7 +53,7 @@ async def test_fixed_integration():
                 print(f"   ⚠️ System stats had errors: {stats['error']}")
                 print(f"   ℹ️ Archive compatible: {stats.get('archive_compatible', False)}")
             else:
-                print(f"   ✅ System stats retrieved:")
+                print("   ✅ System stats retrieved:")
                 print(f"      - Active conversations: {stats['active_memory']['conversations']}")
                 print(f"      - Active emotional patterns: {stats['active_memory']['emotional_patterns']}")
                 print(f"      - Archives: {len(stats['archives'])}")
@@ -68,7 +67,7 @@ async def test_fixed_integration():
         print("\\n4️⃣ Testing unified search...")
         try:
             results = system.search_unified("test query", "test_user", max_results=5)
-            print(f"   ✅ Unified search successful:")
+            print("   ✅ Unified search successful:")
             print(f"      - Total results: {results['total_results']}")
             print(f"      - Active results: {len(results['active_results'])}")
             print(f"      - Archive results: {len(results['archive_results'])}")
@@ -94,7 +93,7 @@ async def test_fixed_integration():
             if "error" in import_result:
                 print(f"   ⚠️ Knowledge import had error: {import_result['error']}")
             else:
-                print(f"   ✅ Knowledge import successful:")
+                print("   ✅ Knowledge import successful:")
                 print(f"      - Archive: {import_result.get('archive_name', 'unknown')}")
                 print(f"      - Chunks: {import_result.get('chunks_imported', 0)}")
                 print(f"      - Size: {import_result.get('compressed_size_mb', 0):.2f} MB")
@@ -116,7 +115,7 @@ async def test_fixed_integration():
             if "error" in archival_result:
                 print(f"   ⚠️ Archival had error: {archival_result['error']}")
             else:
-                print(f"   ✅ Archival process successful:")
+                print("   ✅ Archival process successful:")
                 print(f"      - Result: {archival_result}")
         except Exception as e:
             print(f"   ❌ Archival process failed: {e}")

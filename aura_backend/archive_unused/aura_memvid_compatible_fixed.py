@@ -10,13 +10,11 @@ FIXES:
 - Error handling enhanced
 """
 
-import os
 import json
-import base64
 import logging
 import hashlib
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional
 from pathlib import Path
 import sqlite3
 import pickle
@@ -47,7 +45,7 @@ class AuraArchiveEncoder:
     def add_text(self, text: str, metadata: Optional[Dict] = None):
         """Add text chunk with metadata"""
         if len(self.chunks) >= MAX_TOTAL_CHUNKS:
-            logger.warning(f"Reached maximum chunk limit ({MAX_TOTAL_CHUNKS}), skipping additional chunks")
+            logger.warning("Reached maximum chunk limit (%s), skipping additional chunks", MAX_TOTAL_CHUNKS)
             return
 
         chunk_id = len(self.chunks)
@@ -77,7 +75,7 @@ class AuraArchiveEncoder:
                 batch_chunks = self.chunks[i:i+batch_size]
                 batch_embeddings = embedding_model.encode(batch_chunks)
                 embeddings.extend(batch_embeddings)
-                logger.info(f"Processed embedding batch {i//batch_size + 1}/{(len(self.chunks) + batch_size - 1)//batch_size}")
+                logger.info("Processed embedding batch %s/%s", i//batch_size + 1, (len(self.chunks) + batch_size - 1)//batch_size)
 
             embeddings = np.array(embeddings)
 
@@ -142,7 +140,7 @@ class AuraArchiveEncoder:
             }
 
         except Exception as e:
-            logger.error(f"Failed to build archive: {e}")
+            logger.error("Failed to build archive: %s", e)
             raise
 
 class AuraArchiveRetriever:
@@ -167,10 +165,10 @@ class AuraArchiveRetriever:
             # Create embedding model for queries
             self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-            logger.info(f"Loaded archive with {len(self.archive_data['chunks'])} chunks")
+            logger.info("Loaded archive with %s chunks", len(self.archive_data['chunks']))
 
         except Exception as e:
-            logger.error(f"Failed to load archive {archive_path}: {e}")
+            logger.error("Failed to load archive %s: %s", archive_path, e)
             raise
 
     def search(self, query: str, max_results: int = 5) -> List[str]:
@@ -193,7 +191,7 @@ class AuraArchiveRetriever:
             return results
 
         except Exception as e:
-            logger.error(f"Failed to search archive: {e}")
+            logger.error("Failed to search archive: %s", e)
             return []
 
     def search_with_metadata(self, query: str, max_results: int = 5) -> List[Dict]:
@@ -216,7 +214,7 @@ class AuraArchiveRetriever:
             return results
 
         except Exception as e:
-            logger.error(f"Failed to search archive with metadata: {e}")
+            logger.error("Failed to search archive with metadata: %s", e)
             return []
 
     def get_stats(self) -> Dict:
@@ -264,7 +262,7 @@ class AuraMemvidCompatible:
                 self.emotional_patterns = self.chroma_client.get_collection("aura_emotional_patterns")
                 logger.info("✅ Connected to existing Aura collections")
             except Exception as e:
-                logger.warning(f"Could not connect to existing collections: {e}")
+                logger.warning("Could not connect to existing collections: %s", e)
                 # Create new collections if they don't exist
                 self.conversations = self.chroma_client.get_or_create_collection("aura_conversations")
                 self.emotional_patterns = self.chroma_client.get_or_create_collection("aura_emotional_patterns")
@@ -277,7 +275,7 @@ class AuraMemvidCompatible:
             self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
         except Exception as e:
-            logger.error(f"Failed to initialize AuraMemvidCompatible: {e}")
+            logger.error("Failed to initialize AuraMemvidCompatible: %s", e)
             raise
 
     def _load_existing_archives(self):
@@ -290,9 +288,9 @@ class AuraMemvidCompatible:
                     self.archives[archive_name] = AuraArchiveRetriever(
                         str(archive_file), str(index_file)
                     )
-                    logger.info(f"Loaded archive: {archive_name}")
+                    logger.info("Loaded archive: %s", archive_name)
                 except Exception as e:
-                    logger.error(f"Failed to load archive {archive_name}: {e}")
+                    logger.error("Failed to load archive %s: %s", archive_name, e)
 
     def search_unified(self, query: str, user_id: str, max_results: int = 10) -> Dict:
         """
@@ -377,7 +375,7 @@ class AuraMemvidCompatible:
                         # Limit content size to prevent memory issues
                         max_content_size = 10 * 1024 * 1024  # 10 MB limit
                         if len(content) > max_content_size:
-                            logger.warning(f"Content size ({len(content)} chars) exceeds limit, truncating")
+                            logger.warning("Content size (%s chars) exceeds limit, truncating", len(content))
                             content = content[:max_content_size]
 
                         # Split into chunks with better size management
@@ -392,7 +390,7 @@ class AuraMemvidCompatible:
 
                 for file_path in source.rglob("*.txt"):
                     if files_processed >= max_files:
-                        logger.warning(f"Reached file limit ({max_files}), stopping processing")
+                        logger.warning("Reached file limit (%s), stopping processing", max_files)
                         break
 
                     try:
@@ -413,7 +411,7 @@ class AuraMemvidCompatible:
                         files_processed += 1
 
                     except Exception as e:
-                        logger.warning(f"Failed to process file {file_path}: {e}")
+                        logger.warning("Failed to process file %s: %s", file_path, e)
                         continue
 
             if not encoder.chunks:
@@ -441,7 +439,7 @@ class AuraMemvidCompatible:
             }
 
         except Exception as e:
-            logger.error(f"Error importing knowledge base: {e}")
+            logger.error("Error importing knowledge base: %s", e)
             return {"error": str(e), "archive_name": archive_name}
 
     def archive_old_conversations(self, user_id: Optional[str] = None) -> Dict:
@@ -474,7 +472,7 @@ class AuraMemvidCompatible:
                 all_ids = id_data.get("ids", [])
 
             except Exception as e:
-                logger.warning(f"Failed to get conversations in batch: {e}")
+                logger.warning("Failed to get conversations in batch: %s", e)
                 return {"archived_count": 0, "message": "Failed to access conversations", "error": str(e)}
 
             if not all_conversations:
@@ -532,9 +530,9 @@ class AuraMemvidCompatible:
                     self.conversations.delete(ids=batch_ids)
                     deleted_count += len(batch_ids)
                 except Exception as e:
-                    logger.error(f"Failed to delete batch {i//delete_batch_size + 1}: {e}")
+                    logger.error("Failed to delete batch %s: %s", i//delete_batch_size + 1, e)
 
-            logger.info(f"Archived {len(conversations_to_archive)} conversations to {archive_name}")
+            logger.info("Archived %s conversations to %s", len(conversations_to_archive), archive_name)
 
             return {
                 "archived_count": len(conversations_to_archive),
@@ -545,7 +543,7 @@ class AuraMemvidCompatible:
             }
 
         except Exception as e:
-            logger.error(f"Error archiving conversations: {e}")
+            logger.error("Error archiving conversations: %s", e)
             return {"error": str(e), "archived_count": 0}
 
     def get_system_stats(self) -> Dict:
@@ -572,14 +570,14 @@ class AuraMemvidCompatible:
                     stats["archives"][name] = archive_stats
                     total_archive_size += archive_stats.get("memory_usage_mb", 0)
                 except Exception as e:
-                    logger.error(f"Failed to get stats for archive {name}: {e}")
+                    logger.error("Failed to get stats for archive %s: %s", name, e)
                     stats["archives"][name] = {"error": str(e)}
 
             stats["total_archive_memory_mb"] = total_archive_size
             return stats
 
         except Exception as e:
-            logger.error(f"Failed to get system stats: {e}")
+            logger.error("Failed to get system stats: %s", e)
             return {"error": str(e), "archive_compatible": False}
 
 # Global instance for integration

@@ -1,10 +1,10 @@
 # Roadmap: Aura Modernization
 
 ## Milestone 1: Foundation & Providers
-- **Phase 1: Environment & Dependency Refresh**
-  - Update `pyproject.toml` and `package.json` to latest versions.
-  - Fix breaking changes in Pydantic/FastAPI.
-  - Set up `uv` virtual environment.
+- [x] **Phase 1: Environment & Dependency Refresh**
+  - [x] Update `pyproject.toml` and `package.json` to latest versions.
+  - [x] Fix breaking changes in Pydantic/FastAPI.
+  - [x] Set up `uv` virtual environment.
 - **Phase 2: Unified Model Provider**
   - Create `ModelProvider` interface.
   - Implement OpenRouter driver.

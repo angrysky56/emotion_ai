@@ -4,7 +4,6 @@ Simple test to verify ChromaDB is working after removing enhanced_vector_db.py
 """
 
 import sys
-import os
 from pathlib import Path
 
 # Add the backend directory to path
@@ -39,7 +38,7 @@ async def test_basic_operations():
         # Test storing
         logger.info("🧪 Testing conversation storage...")
         doc_id = await vector_db.store_conversation(test_memory)
-        logger.info(f"✅ Stored conversation with ID: {doc_id}")
+        logger.info("✅ Stored conversation with ID: %s", doc_id)
         
         # Test searching
         logger.info("🧪 Testing conversation search...")
@@ -48,16 +47,16 @@ async def test_basic_operations():
             user_id="test_user",
             n_results=1
         )
-        logger.info(f"✅ Search returned {len(results)} results")
+        logger.info("✅ Search returned %s results", len(results))
         
         if results:
-            logger.info(f"📄 Found: {results[0]['content'][:50]}...")
+            logger.info("📄 Found: %s...", results[0]['content'][:50])
         
         logger.info("🎉 All basic operations completed successfully!")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Test failed: {e}")
+        logger.error("❌ Test failed: %s", e)
         return False
 
 if __name__ == "__main__":

@@ -11,23 +11,24 @@ ensuring that the archival system's implementation details don't leak into
 the core application.
 """
 
-import logging
-from typing import Dict, List, Optional, Any
-from pathlib import Path
-from datetime import datetime, timedelta
 import asyncio
+import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class ArchivalPriority(Enum):
     """Defines the urgency of archival operations"""
-    IMMEDIATE = "immediate"      # Archive as soon as possible
-    SCHEDULED = "scheduled"      # Archive during off-peak hours
-    BACKGROUND = "background"    # Archive when system is idle
-    MANUAL = "manual"           # Only archive on explicit request
+
+    IMMEDIATE = "immediate"  # Archive as soon as possible
+    SCHEDULED = "scheduled"  # Archive during off-peak hours
+    BACKGROUND = "background"  # Archive when system is idle
+    MANUAL = "manual"  # Only archive on explicit request
 
 
 @dataclass
@@ -38,6 +39,7 @@ class ArchivalRequest:
     This abstraction allows the archival system to operate independently
     of the active memory system's implementation details.
     """
+
     user_id: Optional[str]
     criteria: Dict[str, Any]
     priority: ArchivalPriority
@@ -57,6 +59,7 @@ class ArchivalResult:
     This provides a consistent interface regardless of the underlying
     archival implementation (memvid, compressed files, cloud storage, etc.)
     """
+
     success: bool
     archive_id: str
     conversations_archived: int
@@ -84,7 +87,7 @@ class MemvidArchivalService:
         self,
         chroma_db_path: str = "./aura_chroma_db",
         archive_path: str = "./memvid_videos",
-        isolation_mode: bool = True
+        isolation_mode: bool = True,
     ):
         self.chroma_db_path = Path(chroma_db_path)
         self.archive_path = Path(archive_path)
@@ -138,7 +141,7 @@ class MemvidArchivalService:
                 logger.info("✅ Archival system initialized successfully")
 
             except Exception as e:
-                logger.error(f"Failed to initialize archival system: {e}")
+                logger.error("Failed to initialize archival system: %s", e)
                 raise
 
     async def _initialize_isolated_system(self):
@@ -153,7 +156,11 @@ class MemvidArchivalService:
             REAL_MEMVID_AVAILABLE = False  # Initialize to False
             AuraRealMemvid = None  # Initialize AuraRealMemvid to None
             try:
-                from aura_real_memvid import AuraRealMemvid as _AuraRealMemvid, REAL_MEMVID_AVAILABLE
+                from aura_real_memvid import (
+                    REAL_MEMVID_AVAILABLE,
+                )
+                from aura_real_memvid import AuraRealMemvid as _AuraRealMemvid
+
                 AuraRealMemvid = _AuraRealMemvid  # Assign to the outer scope
             except ImportError:
                 logger.warning("aura_real_memvid module not available")
@@ -170,7 +177,7 @@ class MemvidArchivalService:
                 aura_chroma_path=str(self.chroma_db_path),
                 memvid_video_path=str(self.archive_path),
                 active_memory_days=30,
-                existing_chroma_client=None  # Force new connection
+                existing_chroma_client=None,  # Force new connection
             )
 
         except ImportError:
@@ -196,10 +203,7 @@ class MemvidArchivalService:
             "Use isolation mode for production"
         )
 
-    async def request_archival(
-        self,
-        request: ArchivalRequest
-    ) -> str:
+    async def request_archival(self, request: ArchivalRequest) -> str:
         """
         Submits an archival request to the processing queue.
 
@@ -242,7 +246,7 @@ class MemvidArchivalService:
                 # Get next request (blocks until available)
                 priority, request_id, request = await self._archival_queue.get()
 
-                logger.info(f"Processing archival request: {request_id}")
+                logger.info("Processing archival request: %s", request_id)
 
                 # Process based on priority
                 if request.priority == ArchivalPriority.IMMEDIATE:
@@ -263,13 +267,10 @@ class MemvidArchivalService:
                 await self._store_archival_result(request_id, result)
 
             except Exception as e:
-                logger.error(f"Error processing archival request: {e}")
+                logger.error("Error processing archival request: %s", e)
                 await asyncio.sleep(5)  # Brief pause before continuing
 
-    async def _perform_archival(
-        self,
-        request: ArchivalRequest
-    ) -> ArchivalResult:
+    async def _perform_archival(self, request: ArchivalRequest) -> ArchivalResult:
         """
         Performs the actual archival operation.
 
@@ -277,43 +278,35 @@ class MemvidArchivalService:
         ensuring proper error handling and result formatting.
         """
         try:
-            # Get conversations to archive through isolated query
-            conversations = await self._fetch_conversations_for_archival(request)
-
-            if not conversations:
-                return ArchivalResult(
-                    success=True,
-                    archive_id="",
-                    conversations_archived=0,
-                    archive_size_mb=0,
-                    compression_ratio=0,
-                    errors=["No conversations found matching criteria"],
-                    metadata={"criteria": request.criteria}
-                )
+            # In Memvid v2, AuraRealMemvid handles the query and deletion internally
+            # to maintain isolation and database consistency.
+            if not self._archive_system:
+                raise RuntimeError("Archival system not initialized")
 
             # Perform archival through the isolated system
-            archive_result = await self._execute_archival(
-                conversations,
-                request.codec
+            archive_result = self._archive_system.archive_conversations_to_video(
+                user_id=request.user_id
             )
 
             # Convert to standard result format
+            success = "error" not in archive_result
             return ArchivalResult(
-                success=archive_result.get("success", False),
+                success=success,
                 archive_id=archive_result.get("archive_name", ""),
                 conversations_archived=archive_result.get("archived_count", 0),
-                archive_size_mb=archive_result.get("video_size_mb", 0),
+                archive_size_mb=archive_result.get(
+                    "size_mb", archive_result.get("video_size_mb", 0)
+                ),
                 compression_ratio=archive_result.get("compression_ratio", 0),
-                errors=archive_result.get("errors", []),
+                errors=[archive_result["error"]] if not success else [],
                 metadata={
-                    "codec": request.codec,
-                    "total_frames": archive_result.get("total_frames", 0),
-                    "duration_seconds": archive_result.get("duration_seconds", 0)
-                }
+                    "archive_file": archive_result.get("archive_file", ""),
+                    "archive_type": archive_result.get("archive_type", "memvid_v2"),
+                },
             )
 
         except Exception as e:
-            logger.error(f"Archival operation failed: {e}")
+            logger.error("Archival operation failed: %s", e)
             return ArchivalResult(
                 success=False,
                 archive_id="",
@@ -321,12 +314,11 @@ class MemvidArchivalService:
                 archive_size_mb=0,
                 compression_ratio=0,
                 errors=[str(e)],
-                metadata={"error_type": type(e).__name__}
+                metadata={"error_type": type(e).__name__},
             )
 
     async def _fetch_conversations_for_archival(
-        self,
-        request: ArchivalRequest
+        self, request: ArchivalRequest
     ) -> List[Dict[str, Any]]:
         """
         Fetches conversations that match archival criteria.
@@ -338,38 +330,24 @@ class MemvidArchivalService:
         # This is a simplified example
 
         if "age_days" in request.criteria:
-            cutoff_date = datetime.now() - timedelta(
-                days=request.criteria["age_days"]
-            )
+            cutoff_date = datetime.now() - timedelta(days=request.criteria["age_days"])
             # Query logic here - using cutoff_date for filtering
-            logger.debug(f"Archiving conversations older than: {cutoff_date}")
+            logger.debug("Archiving conversations older than: %s", cutoff_date)
 
         # Return formatted conversation data
         return []
 
     async def _execute_archival(
-        self,
-        conversations: List[Dict[str, Any]],
-        codec: str
+        self, conversations: List[Dict[str, Any]], codec: str
     ) -> Dict[str, Any]:
         """
         Executes the archival through the isolated archival system.
-
-        This ensures all archival operations happen in the isolated context,
-        preventing any interference with the main application.
+        Note: In v2, this is largely handled within AuraRealMemvid.
         """
-        # Convert conversations to format expected by archival system
-        # Then call the archival system's methods
+        if not self._archive_system:
+            return {"success": False, "errors": ["System not initialized"]}
 
-        # Placeholder for actual implementation
-        return {
-            "success": True,
-            "archive_name": f"archive_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            "archived_count": len(conversations),
-            "video_size_mb": 0,
-            "compression_ratio": 0,
-            "errors": []
-        }
+        return self._archive_system.archive_conversations_to_video()
 
     async def _wait_for_off_peak(self):
         """Waits until off-peak hours for scheduled archival."""
@@ -387,11 +365,7 @@ class MemvidArchivalService:
         # In production, this would check system metrics
         await asyncio.sleep(300)
 
-    async def _store_archival_result(
-        self,
-        request_id: str,
-        result: ArchivalResult
-    ):
+    async def _store_archival_result(self, request_id: str, result: ArchivalResult):
         """Stores archival result for later retrieval."""
         # In a production system, this would use a persistent store
         # For now, we just log it
@@ -401,10 +375,7 @@ class MemvidArchivalService:
             f"Archived: {result.conversations_archived}"
         )
 
-    async def get_archival_status(
-        self,
-        request_id: str
-    ) -> Optional[Dict[str, Any]]:
+    async def get_archival_status(self, request_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieves the status of an archival request.
 
@@ -415,10 +386,7 @@ class MemvidArchivalService:
         return None
 
     async def search_archives(
-        self,
-        query: str,
-        user_id: Optional[str] = None,
-        max_results: int = 10
+        self, query: str, user_id: Optional[str] = None, max_results: int = 10
     ) -> List[Dict[str, Any]]:
         """
         Searches through archived conversations.
@@ -429,11 +397,9 @@ class MemvidArchivalService:
         await self._ensure_initialized()
 
         try:
-            if self._archive_system and hasattr(self._archive_system, 'search_unified'):
+            if self._archive_system and hasattr(self._archive_system, "search_unified"):
                 results = self._archive_system.search_unified(
-                    query=query,
-                    user_id=user_id or "all",
-                    max_results=max_results
+                    query=query, user_id=user_id or "all", max_results=max_results
                 )
 
                 # If result is a coroutine, await it
@@ -446,8 +412,9 @@ class MemvidArchivalService:
                 return []
 
         except Exception as e:
-            logger.error(f"Archive search failed: {e}")
+            logger.error("Archive search failed: %s", e)
             return []
+
     async def list_archives(self) -> List[Dict[str, Any]]:
         """
         Lists all available archives.
@@ -458,7 +425,9 @@ class MemvidArchivalService:
         await self._ensure_initialized()
 
         try:
-            if self._archive_system and hasattr(self._archive_system, 'list_video_archives'):
+            if self._archive_system and hasattr(
+                self._archive_system, "list_video_archives"
+            ):
                 # Call the method
                 result = self._archive_system.list_video_archives()
 
@@ -484,7 +453,7 @@ class MemvidArchivalService:
                 return []
 
         except Exception as e:
-            logger.error(f"Failed to list archives: {e}")
+            logger.error("Failed to list archives: %s", e)
             return []
 
     async def shutdown(self):
@@ -502,14 +471,16 @@ class MemvidArchivalService:
                 await self._processing_task
             except asyncio.CancelledError:
                 pass
+
     async def search_unified(self, **kwargs):
         return {"video_archive_results": []}
 
-    async def list_video_archives(self): # Make method asynchronous for consistency
+    async def list_video_archives(self):  # Make method asynchronous for consistency
         return []
 
     async def close(self):
         pass
+
 
 class MockArchivalSystem:
     """
@@ -522,7 +493,7 @@ class MockArchivalSystem:
     async def search_unified(self, **kwargs):
         return {"video_archive_results": []}
 
-    async def list_video_archives(self): # Make method asynchronous
+    async def list_video_archives(self):  # Make method asynchronous
         return []
 
     async def close(self):
@@ -541,15 +512,14 @@ class ArchivalPolicy:
         self,
         age_threshold_days: int = 30,
         size_threshold_mb: int = 100,
-        enable_auto_archival: bool = True
+        enable_auto_archival: bool = True,
     ):
         self.age_threshold_days = age_threshold_days
         self.size_threshold_mb = size_threshold_mb
         self.enable_auto_archival = enable_auto_archival
 
     def should_archive_conversation(
-        self,
-        conversation_metadata: Dict[str, Any]
+        self, conversation_metadata: Dict[str, Any]
     ) -> bool:
         """
         Determines if a conversation should be archived.
@@ -583,5 +553,5 @@ class ArchivalPolicy:
         return {
             "age_days": self.age_threshold_days,
             "exclude_pinned": True,  # Don't archive pinned conversations
-            "exclude_starred": True  # Don't archive starred conversations
+            "exclude_starred": True,  # Don't archive starred conversations
         }

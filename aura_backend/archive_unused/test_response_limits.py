@@ -45,7 +45,7 @@ async def test_response_limits():
     # Test message that should trigger a longer response
     test_message = "Please give me a comprehensive system check. I want detailed memory statistics, ASEKE framework details, emotional state model information, and any other system information you can provide. Don't hold back - give me everything."
 
-    logger.info(f"🤔 Testing with comprehensive request: {test_message}")
+    logger.info("🤔 Testing with comprehensive request: %s", test_message)
 
     try:
         # Send message and get response
@@ -67,33 +67,33 @@ async def test_response_limits():
                         if hasattr(part, 'thought') and part.thought is True:
                             # Thinking content
                             total_thinking_chars += len(text_content)
-                            logger.info(f"   Part {i}: THINKING ({len(text_content)} chars)")
-                            logger.info(f"   Thinking preview: {text_content[:200]}...")
+                            logger.info("   Part %s: THINKING (%s chars)", i, len(text_content))
+                            logger.info("   Thinking preview: %s...", text_content[:200])
                         else:
                             # Answer content
                             total_answer_chars += len(text_content)
-                            logger.info(f"   Part {i}: ANSWER ({len(text_content)} chars)")
-                            logger.info(f"   Answer preview: {text_content[:200]}...")
+                            logger.info("   Part %s: ANSWER (%s chars)", i, len(text_content))
+                            logger.info("   Answer preview: %s...", text_content[:200])
 
                             # Check if answer ends abruptly
                             if text_content.endswith(":") or text_content.endswith("statistics:") or text_content.endswith("..."):
-                                logger.warning(f"   ⚠️ Answer appears to be cut off: '{text_content[-50:]}'")
+                                logger.warning("   ⚠️ Answer appears to be cut off: '%s'", text_content[-50:])
 
-                logger.info(f"📊 TOTALS:")
-                logger.info(f"   Total thinking content: {total_thinking_chars} chars")
-                logger.info(f"   Total answer content: {total_answer_chars} chars")
+                logger.info("📊 TOTALS:")
+                logger.info("   Total thinking content: %s chars", total_thinking_chars)
+                logger.info("   Total answer content: %s chars", total_answer_chars)
 
                 # Check usage metadata
                 if hasattr(result, 'usage_metadata') and result.usage_metadata:
                     metadata = result.usage_metadata
-                    logger.info(f"   Thoughts tokens: {getattr(metadata, 'thoughts_token_count', 'N/A')}")
-                    logger.info(f"   Output tokens: {getattr(metadata, 'candidates_token_count', 'N/A')}")
-                    logger.info(f"   Total tokens: {getattr(metadata, 'total_token_count', 'N/A')}")
+                    logger.info("   Thoughts tokens: %s", getattr(metadata, 'thoughts_token_count', 'N/A'))
+                    logger.info("   Output tokens: %s", getattr(metadata, 'candidates_token_count', 'N/A'))
+                    logger.info("   Total tokens: %s", getattr(metadata, 'total_token_count', 'N/A'))
                 else:
                     logger.info("   No usage metadata available")
 
     except Exception as e:
-        logger.error(f"❌ Test failed: {e}")
+        logger.error("❌ Test failed: %s", e)
         import traceback
         traceback.print_exc()
 

@@ -3,11 +3,9 @@ Real Aura + Memvid Integration
 Uses actual memvid with QR-code video compression!
 """
 
-import os
-import json
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional
 from pathlib import Path
 
 # Aura imports
@@ -49,7 +47,7 @@ class AuraRealMemvid:
             self.emotional_patterns = self.chroma_client.get_collection("aura_emotional_patterns")
             logger.info("✅ Connected to existing Aura collections")
         except Exception as e:
-            logger.warning(f"Could not connect to existing collections: {e}")
+            logger.warning("Could not connect to existing collections: %s", e)
             # Create new collections if they don't exist
             self.conversations = self.chroma_client.get_or_create_collection("aura_conversations")
             self.emotional_patterns = self.chroma_client.get_or_create_collection("aura_emotional_patterns")
@@ -58,7 +56,7 @@ class AuraRealMemvid:
         self.video_archives = {}
         self._load_existing_video_archives()
 
-        logger.info(f"🎥 Real Memvid integration initialized with {len(self.video_archives)} video archives")
+        logger.info("🎥 Real Memvid integration initialized with %s video archives", len(self.video_archives))
 
     def _load_existing_video_archives(self):
         """Load existing memvid video archives"""
@@ -70,9 +68,9 @@ class AuraRealMemvid:
                     self.video_archives[archive_name] = MemvidRetriever(
                         str(video_file), str(index_file)
                     )
-                    logger.info(f"🎬 Loaded video archive: {archive_name}")
+                    logger.info("🎬 Loaded video archive: %s", archive_name)
                 except Exception as e:
-                    logger.error(f"Failed to load video archive {archive_name}: {e}")
+                    logger.error("Failed to load video archive %s: %s", archive_name, e)
 
     def search_unified(self, query: str, user_id: str, max_results: int = 10) -> Dict:
         """
@@ -113,7 +111,7 @@ class AuraRealMemvid:
                     })
 
         except Exception as e:
-            logger.error(f"Error searching active memory: {e}")
+            logger.error("Error searching active memory: %s", e)
 
         # Search REAL memvid video archives!
         for archive_name, retriever in self.video_archives.items():
@@ -130,7 +128,7 @@ class AuraRealMemvid:
                         "video_file": archive_name + ".mp4"
                     })
             except Exception as e:
-                logger.error(f"Error searching video archive {archive_name}: {e}")
+                logger.error("Error searching video archive %s: %s", archive_name, e)
 
         results["total_results"] = len(results["active_results"]) + len(results["video_archive_results"])
         return results
@@ -205,7 +203,7 @@ CONVERSATION:
             video_path = self.memvid_video_path / f"{archive_name}.mp4"
             index_path = self.memvid_video_path / f"{archive_name}.json"
 
-            logger.info(f"🎬 Creating video archive with {codec} codec...")
+            logger.info("🎬 Creating video archive with %s codec...", codec)
 
             build_stats = encoder.build_video(
                 str(video_path),
@@ -223,7 +221,7 @@ CONVERSATION:
             if ids_to_delete:
                 self.conversations.delete(ids=ids_to_delete)
 
-            logger.info(f"🎥 Archived {len(conversations_to_archive)} conversations to video: {archive_name}.mp4")
+            logger.info("🎥 Archived %s conversations to video: %s.mp4", len(conversations_to_archive), archive_name)
 
             return {
                 "archived_count": len(conversations_to_archive),
@@ -238,7 +236,7 @@ CONVERSATION:
             }
 
         except Exception as e:
-            logger.error(f"Error creating video archive: {e}")
+            logger.error("Error creating video archive: %s", e)
             return {"error": str(e), "archived_count": 0}
 
     def import_knowledge_to_video(self, source_path: str, archive_name: str,
@@ -254,17 +252,17 @@ CONVERSATION:
 
             if source.is_file():
                 if source.suffix.lower() == ".pdf":
-                    logger.info(f"📄 Importing PDF to video: {source}")
+                    logger.info("📄 Importing PDF to video: %s", source)
                     encoder.add_pdf(str(source))
                 elif source.suffix.lower() in [".txt", ".md"]:
-                    logger.info(f"📝 Importing text to video: {source}")
+                    logger.info("📝 Importing text to video: %s", source)
                     with open(source, 'r', encoding='utf-8') as f:
                         encoder.add_text(f.read())
                 else:
-                    raise ValueError(f"Unsupported file type: {source.suffix}")
+                    raise ValueError(f"Unsupported file type: {source.suffix}") from e
 
             elif source.is_dir():
-                logger.info(f"📁 Importing directory to video: {source}")
+                logger.info("📁 Importing directory to video: %s", source)
                 for file_path in source.rglob("*.txt"):
                     with open(file_path, 'r', encoding='utf-8') as f:
                         encoder.add_text(f.read())
@@ -278,7 +276,7 @@ CONVERSATION:
             video_path = self.memvid_video_path / f"{archive_name}.mp4"
             index_path = self.memvid_video_path / f"{archive_name}.json"
 
-            logger.info(f"🎬 Building video archive with {codec} compression...")
+            logger.info("🎬 Building video archive with %s compression...", codec)
 
             build_stats = encoder.build_video(
                 str(video_path),
@@ -292,7 +290,7 @@ CONVERSATION:
                 str(video_path), str(index_path)
             )
 
-            logger.info(f"🎥 Created video knowledge base: {archive_name}.mp4")
+            logger.info("🎥 Created video knowledge base: %s.mp4", archive_name)
 
             return {
                 "archive_name": archive_name,
@@ -309,7 +307,7 @@ CONVERSATION:
             }
 
         except Exception as e:
-            logger.error(f"Error creating video knowledge base: {e}")
+            logger.error("Error creating video knowledge base: %s", e)
             return {"error": str(e)}
 
     def get_system_stats(self) -> Dict:
@@ -336,7 +334,7 @@ CONVERSATION:
                     stats["total_video_size_mb"] += size_mb
 
             except Exception as e:
-                logger.error(f"Error getting stats for {name}: {e}")
+                logger.error("Error getting stats for %s: %s", name, e)
 
         return stats
 
@@ -345,7 +343,7 @@ CONVERSATION:
         Create a MemvidChat instance for interactive conversation with a video archive
         """
         if archive_name not in self.video_archives:
-            raise ValueError(f"Video archive '{archive_name}' not found")
+            raise ValueError(f"Video archive '{archive_name}' not found") from e
 
         retriever = self.video_archives[archive_name]
         video_file = retriever.video_file
@@ -375,7 +373,7 @@ CONVERSATION:
                 archives.append(archive_info)
 
             except Exception as e:
-                logger.error(f"Error getting info for archive {name}: {e}")
+                logger.error("Error getting info for archive %s: %s", name, e)
 
         return archives
 

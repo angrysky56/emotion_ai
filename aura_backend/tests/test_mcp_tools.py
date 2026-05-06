@@ -26,7 +26,7 @@ async def test_mcp_tools():
     # Get available tools
     tools = mcp_client.get_available_tools()
     
-    logger.info(f"\n📦 Found {len(tools)} total MCP tools:")
+    logger.info("\n📦 Found %s total MCP tools:", len(tools))
     
     # Group by server
     tools_by_server = {}
@@ -38,18 +38,18 @@ async def test_mcp_tools():
     
     # Display tools by server
     for server, server_tools in tools_by_server.items():
-        logger.info(f"\n🔧 {server} ({len(server_tools)} tools):")
+        logger.info("\n🔧 %s (%s tools):", server, len(server_tools))
         for tool in server_tools[:5]:  # Show first 5 tools per server
-            logger.info(f"  - {tool['name']}: {tool['description'][:60]}...")
+            logger.info("  - %s: %s...", tool['name'], tool['description'][:60])
         if len(server_tools) > 5:
-            logger.info(f"  ... and {len(server_tools) - 5} more tools")
+            logger.info("  ... and %s more tools", len(server_tools) - 5)
     
     # Check specifically for aura-companion tools
     aura_tools = [t for t in tools if 'aura' in t['name'].lower() or t.get('server') == 'aura-companion']
     if aura_tools:
-        logger.info(f"\n✅ Aura-specific tools found:")
+        logger.info("\n✅ Aura-specific tools found:")
         for tool in aura_tools:
-            logger.info(f"  - {tool['name']} (server: {tool.get('server', 'unknown')})")
+            logger.info("  - %s (server: %s)", tool['name'], tool.get('server', 'unknown'))
     else:
         logger.warning("\n⚠️ No Aura-specific tools found!")
 

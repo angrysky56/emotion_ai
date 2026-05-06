@@ -24,7 +24,7 @@ async def test_brave_search_directly():
     
     async with aiohttp.ClientSession() as session:
         try:
-            logger.info(f"🔧 Testing direct MCP tool execution: {test_data['tool_name']}")
+            logger.info("🔧 Testing direct MCP tool execution: %s", test_data['tool_name'])
             
             async with session.post(
                 "http://localhost:8000/mcp/execute-tool",
@@ -33,16 +33,16 @@ async def test_brave_search_directly():
                 status = response.status
                 result = await response.text()
                 
-                logger.info(f"📊 Response status: {status}")
+                logger.info("📊 Response status: %s", status)
                 
                 if status == 200:
                     result_json = json.loads(result)
-                    logger.info(f"✅ Tool execution response: {json.dumps(result_json, indent=2)}")
+                    logger.info("✅ Tool execution response: %s", json.dumps(result_json, indent=2))
                 else:
-                    logger.error(f"❌ Tool execution failed: {result}")
+                    logger.error("❌ Tool execution failed: %s", result)
                     
         except Exception as e:
-            logger.error(f"❌ Direct tool test failed: {e}")
+            logger.error("❌ Direct tool test failed: %s", e)
             import traceback
             traceback.print_exc()
 
@@ -83,14 +83,14 @@ async def test_conversation_debug():
                     
                     for phrase in error_phrases:
                         if phrase.lower() in response_text.lower():
-                            logger.warning(f"⚠️ Detected error indicator: '{phrase}'")
+                            logger.warning("⚠️ Detected error indicator: '%s'", phrase)
                             
                 else:
                     error_text = await response.text()
-                    logger.error(f"❌ Request failed: {error_text}")
+                    logger.error("❌ Request failed: %s", error_text)
                     
         except Exception as e:
-            logger.error(f"❌ Conversation test failed: {e}")
+            logger.error("❌ Conversation test failed: %s", e)
             import traceback
             traceback.print_exc()
 
@@ -102,18 +102,18 @@ async def test_mcp_bridge_status():
             async with session.get("http://localhost:8000/mcp/bridge-status") as response:
                 if response.status == 200:
                     result = await response.json()
-                    logger.info(f"🌉 MCP Bridge Status: {result.get('status')}")
-                    logger.info(f"📊 Available functions: {result.get('available_functions', 0)}")
+                    logger.info("🌉 MCP Bridge Status: %s", result.get('status'))
+                    logger.info("📊 Available functions: %s", result.get('available_functions', 0))
                     
                     if 'sample_functions' in result:
                         for func in result['sample_functions']:
                             if 'brave' in func.get('name', '').lower():
-                                logger.info(f"🔍 Found Brave function: {func['name']}")
-                                logger.info(f"   Description: {func.get('description', 'N/A')}")
-                                logger.info(f"   Parameters: {json.dumps(func.get('parameters', {}), indent=2)}")
+                                logger.info("🔍 Found Brave function: %s", func['name'])
+                                logger.info("   Description: %s", func.get('description', 'N/A'))
+                                logger.info("   Parameters: %s), indent=2)}", json.dumps(func.get('parameters', {)
                                 
         except Exception as e:
-            logger.error(f"❌ Bridge status check failed: {e}")
+            logger.error("❌ Bridge status check failed: %s", e)
 
 async def main():
     """Run targeted tests"""

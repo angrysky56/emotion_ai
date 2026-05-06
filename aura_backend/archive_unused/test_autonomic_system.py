@@ -30,8 +30,8 @@ class AutonomicSystemTester:
     async def run_all_tests(self):
         """Run comprehensive test suite"""
         logger.info("🧪 Starting Aura Autonomic System Test Suite")
-        logger.info(f"📍 Testing against: {self.base_url}")
-        logger.info(f"👤 Test user ID: {self.test_user_id}")
+        logger.info("📍 Testing against: %s", self.base_url)
+        logger.info("👤 Test user ID: %s", self.test_user_id)
         
         tests = [
             ("System Health Check", self.test_system_health),
@@ -46,9 +46,9 @@ class AutonomicSystemTester:
         ]
         
         for test_name, test_func in tests:
-            logger.info(f"\n{'='*50}")
-            logger.info(f"🔬 Running Test: {test_name}")
-            logger.info(f"{'='*50}")
+            logger.info("\n%s", '='*50)
+            logger.info("🔬 Running Test: %s", test_name)
+            logger.info("%s", '='*50)
             
             try:
                 result = await test_func()
@@ -58,7 +58,7 @@ class AutonomicSystemTester:
                     "details": result,
                     "timestamp": datetime.now().isoformat()
                 })
-                logger.info(f"✅ {test_name}: {'PASSED' if result['success'] else 'FAILED'}")
+                logger.info("✅ %s: %s", test_name, 'PASSED' if result['success'] else 'FAILED')
                 
             except Exception as e:
                 self.test_results.append({
@@ -67,7 +67,7 @@ class AutonomicSystemTester:
                     "error": str(e),
                     "timestamp": datetime.now().isoformat()
                 })
-                logger.error(f"❌ {test_name}: ERROR - {e}")
+                logger.error("❌ %s: ERROR - %s", test_name, e)
         
         # Generate test report
         await self.generate_test_report()
@@ -98,13 +98,13 @@ class AutonomicSystemTester:
                 status_data = response.json()
                 is_operational = status_data.get("status") in ["operational", "disabled"]
                 
-                logger.info(f"📊 Autonomic Status: {status_data.get('status')}")
+                logger.info("📊 Autonomic Status: %s", status_data.get('status'))
                 if "system_status" in status_data:
                     sys_status = status_data["system_status"]
-                    logger.info(f"🏃 Running: {sys_status.get('running', False)}")
-                    logger.info(f"📋 Queued Tasks: {sys_status.get('queued_tasks', 0)}")
-                    logger.info(f"⚡ Active Tasks: {sys_status.get('active_tasks', 0)}")
-                    logger.info(f"✅ Completed Tasks: {sys_status.get('completed_tasks', 0)}")
+                    logger.info("🏃 Running: %s", sys_status.get('running', False))
+                    logger.info("📋 Queued Tasks: %s", sys_status.get('queued_tasks', 0))
+                    logger.info("⚡ Active Tasks: %s", sys_status.get('active_tasks', 0))
+                    logger.info("✅ Completed Tasks: %s", sys_status.get('completed_tasks', 0))
                 
                 return {
                     "success": is_operational,
@@ -138,7 +138,7 @@ class AutonomicSystemTester:
             
             if response.status_code == 200:
                 submit_data = response.json()
-                logger.info(f"📤 Task submitted: {submit_data}")
+                logger.info("📤 Task submitted: %s", submit_data)
                 
                 if submit_data.get("status") == "submitted":
                     # Wait a moment for processing
@@ -152,7 +152,7 @@ class AutonomicSystemTester:
                     
                     if result_response.status_code == 200:
                         result_data = result_response.json()
-                        logger.info(f"📥 Task result: {result_data.get('status')}")
+                        logger.info("📥 Task result: %s", result_data.get('status'))
                         
                         return {
                             "success": True,
@@ -185,7 +185,7 @@ class AutonomicSystemTester:
         
         async with httpx.AsyncClient() as client:
             for i, message in enumerate(test_conversations):
-                logger.info(f"💬 Testing conversation {i+1}: '{message[:50]}...'")
+                logger.info("💬 Testing conversation %s: '%s...'", i+1, message[:50])
                 
                 conversation_payload = {
                     "user_id": self.test_user_id,
@@ -207,9 +207,9 @@ class AutonomicSystemTester:
                         "emotional_state": conv_data.get("emotional_state", {}),
                         "cognitive_state": conv_data.get("cognitive_state", {})
                     })
-                    logger.info(f"✅ Conversation {i+1} successful")
+                    logger.info("✅ Conversation %s successful", i+1)
                 else:
-                    logger.warning(f"⚠️ Conversation {i+1} failed with status {response.status_code}")
+                    logger.warning("⚠️ Conversation %s failed with status %s", i+1, response.status_code)
                 
                 # Brief pause between conversations
                 await asyncio.sleep(1)
@@ -226,7 +226,7 @@ class AutonomicSystemTester:
         if tasks_response.status_code == 200:
             tasks_data = tasks_response.json()
             autonomic_tasks_generated = tasks_data.get("total_completed", 0) + tasks_data.get("total_active", 0)
-            logger.info(f"🤖 Autonomic tasks generated: {autonomic_tasks_generated}")
+            logger.info("🤖 Autonomic tasks generated: %s", autonomic_tasks_generated)
         
         return {
             "success": successful_conversations > 0,
@@ -272,7 +272,7 @@ class AutonomicSystemTester:
                 }
             
             task_id = submit_data.get("task_id")
-            logger.info(f"🔍 Testing result retrieval for task: {task_id}")
+            logger.info("🔍 Testing result retrieval for task: %s", task_id)
             
             # Test immediate result retrieval (should be pending/processing)
             immediate_response = await client.get(
@@ -319,7 +319,7 @@ class AutonomicSystemTester:
             
             if response.status_code == 200:
                 tasks_data = response.json()
-                logger.info(f"📋 User tasks retrieved: {tasks_data.get('total_completed', 0)} completed, {tasks_data.get('total_active', 0)} active")
+                logger.info("📋 User tasks retrieved: %s completed, %s active", tasks_data.get('total_completed', 0), tasks_data.get('total_active', 0))
                 
                 return {
                     "success": True,
@@ -347,7 +347,7 @@ class AutonomicSystemTester:
             status_data = status_response.json()
             initial_status = status_data.get("status")
             
-            logger.info(f"📊 Initial system status: {initial_status}")
+            logger.info("📊 Initial system status: %s", initial_status)
             
             # Don't actually stop/start the system during testing to avoid disruption
             # Just verify the endpoints respond correctly
@@ -410,10 +410,10 @@ class AutonomicSystemTester:
         successful_submissions = sum(1 for r in results if r["success"])
         avg_response_time = sum(r["response_time"] for r in results) / len(results)
         
-        logger.info(f"⚡ Load test results:")
-        logger.info(f"   Successful submissions: {successful_submissions}/{concurrent_tasks}")
-        logger.info(f"   Total time: {total_time:.2f}s")
-        logger.info(f"   Average response time: {avg_response_time:.2f}s")
+        logger.info("⚡ Load test results:")
+        logger.info("   Successful submissions: %s/%s", successful_submissions, concurrent_tasks)
+        logger.info("   Total time: %ss", total_time:.2f)
+        logger.info("   Average response time: %ss", avg_response_time:.2f)
         
         return {
             "success": successful_submissions >= concurrent_tasks * 0.8,  # 80% success rate
@@ -445,10 +445,10 @@ class AutonomicSystemTester:
             initial_total_requests = rate_limiting.get("total_requests", 0)
             rpm_limit = rate_limiting.get("rpm_limit", 25)
             
-            logger.info(f"📊 Initial rate limit status:")
-            logger.info(f"   RPM limit: {rpm_limit}")
-            logger.info(f"   Current RPM usage: {initial_rpm_current}")
-            logger.info(f"   Total requests: {initial_total_requests}")
+            logger.info("📊 Initial rate limit status:")
+            logger.info("   RPM limit: %s", rpm_limit)
+            logger.info("   Current RPM usage: %s", initial_rpm_current)
+            logger.info("   Total requests: %s", initial_total_requests)
             
             # Submit several tasks to test rate limiting
             rate_test_tasks = 8  # Moderate number to test rate limiting behavior
@@ -493,13 +493,13 @@ class AutonomicSystemTester:
                 requests_made = final_total_requests - initial_total_requests
                 rpm_increase = final_rpm_current - initial_rpm_current
                 
-                logger.info(f"📈 Rate limiting test results:")
-                logger.info(f"   Tasks submitted: {rate_test_tasks}")
-                logger.info(f"   Successful submissions: {successful_rate_submissions}")
-                logger.info(f"   Requests made: {requests_made}")
-                logger.info(f"   RPM increase: {rpm_increase}")
-                logger.info(f"   Total rejected: {total_rejected}")
-                logger.info(f"   Submission time: {submission_time:.2f}s")
+                logger.info("📈 Rate limiting test results:")
+                logger.info("   Tasks submitted: %s", rate_test_tasks)
+                logger.info("   Successful submissions: %s", successful_rate_submissions)
+                logger.info("   Requests made: %s", requests_made)
+                logger.info("   RPM increase: %s", rpm_increase)
+                logger.info("   Total rejected: %s", total_rejected)
+                logger.info("   Submission time: %ss", submission_time:.2f)
                 
                 # Success criteria:
                 # 1. Most tasks should be submitted successfully
@@ -529,26 +529,26 @@ class AutonomicSystemTester:
     
     async def generate_test_report(self):
         """Generate comprehensive test report"""
-        logger.info(f"\n{'='*60}")
+        logger.info("\n%s", '='*60)
         logger.info("📋 AURA AUTONOMIC SYSTEM TEST REPORT")
-        logger.info(f"{'='*60}")
+        logger.info("%s", '='*60)
         
         total_tests = len(self.test_results)
         passed_tests = sum(1 for r in self.test_results if r["status"] == "PASSED")
         failed_tests = sum(1 for r in self.test_results if r["status"] == "FAILED")
         error_tests = sum(1 for r in self.test_results if r["status"] == "ERROR")
         
-        logger.info(f"📊 Test Summary:")
-        logger.info(f"   Total Tests: {total_tests}")
-        logger.info(f"   ✅ Passed: {passed_tests}")
-        logger.info(f"   ❌ Failed: {failed_tests}")
-        logger.info(f"   💥 Errors: {error_tests}")
-        logger.info(f"   Success Rate: {(passed_tests/total_tests)*100:.1f}%")
+        logger.info("📊 Test Summary:")
+        logger.info("   Total Tests: %s", total_tests)
+        logger.info("   ✅ Passed: %s", passed_tests)
+        logger.info("   ❌ Failed: %s", failed_tests)
+        logger.info("   💥 Errors: %s", error_tests)
+        logger.info("   Success Rate: %s%%", (passed_tests/total_tests)*100)
         
-        logger.info(f"\n📝 Detailed Results:")
+        logger.info("\n📝 Detailed Results:")
         for result in self.test_results:
             status_emoji = "✅" if result["status"] == "PASSED" else "❌" if result["status"] == "FAILED" else "💥"
-            logger.info(f"   {status_emoji} {result['test_name']}: {result['status']}")
+            logger.info("   %s %s: %s", status_emoji, result['test_name'], result['status'])
         
         # Save report to file
         report_data = {
@@ -568,8 +568,8 @@ class AutonomicSystemTester:
         with open(report_filename, 'w') as f:
             json.dump(report_data, f, indent=2)
         
-        logger.info(f"\n💾 Test report saved to: {report_filename}")
-        logger.info(f"🔗 Test User ID: {self.test_user_id}")
+        logger.info("\n💾 Test report saved to: %s", report_filename)
+        logger.info("🔗 Test User ID: %s", self.test_user_id)
         
         return report_data
 

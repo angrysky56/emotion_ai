@@ -4,13 +4,16 @@ Aura + Memvid Integration Setup Script
 Installs dependencies and sets up the hybrid memory system
 """
 
-import sys
-import subprocess
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
-def run_command(cmd: list, check: bool = True, capture_output: bool = False) -> Optional[str]:
+
+def run_command(
+    cmd: list, check: bool = True, capture_output: bool = False
+) -> Optional[str]:
     """Run a command and optionally capture output"""
     print(f"Running: {' '.join(cmd)}")
 
@@ -20,6 +23,7 @@ def run_command(cmd: list, check: bool = True, capture_output: bool = False) -> 
     else:
         subprocess.run(cmd, check=check)
         return None
+
 
 def check_dependencies():
     """Check if required dependencies are available"""
@@ -31,13 +35,16 @@ def check_dependencies():
         return False
 
     # Check if in virtual environment
-    if not (hasattr(sys, 'real_prefix') or
-            (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)):
+    if not (
+        hasattr(sys, "real_prefix")
+        or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
+    ):
         print("⚠️  Warning: Not in virtual environment")
         print("   Recommended: python -m venv venv && source venv/bin/activate")
 
     # Check for required system packages
     import importlib.util
+
     if importlib.util.find_spec("cv2") is not None:
         print("✅ OpenCV available")
     else:
@@ -49,6 +56,7 @@ def check_dependencies():
         print("❌ ChromaDB not available - will install")
 
     return True
+
 
 def install_memvid():
     """Install Memvid package"""
@@ -66,7 +74,10 @@ def install_memvid():
         run_command([sys.executable, "-m", "pip", "install", "memvid"])
 
     # Install additional dependencies
-    run_command([sys.executable, "-m", "pip", "install", "PyPDF2", "ebooklib", "beautifulsoup4"])
+    run_command(
+        [sys.executable, "-m", "pip", "install", "pypdf", "ebooklib", "beautifulsoup4"]
+    )
+
 
 def install_aura_dependencies():
     """Install Aura-specific dependencies"""
@@ -81,10 +92,11 @@ def install_aura_dependencies():
         "numpy",
         "scikit-learn",
         "python-dotenv",
-        "pydantic"
+        "pydantic",
     ]
 
     run_command([sys.executable, "-m", "pip", "install"] + dependencies)
+
 
 def setup_project_structure(base_path: str):
     """Set up the project directory structure"""
@@ -97,13 +109,14 @@ def setup_project_structure(base_path: str):
         "memvid_data/archives",
         "memvid_data/imports",
         "config",
-        "logs"
+        "logs",
     ]
 
     for directory in directories:
         dir_path = base / directory
         dir_path.mkdir(parents=True, exist_ok=True)
         print(f"✅ Created: {dir_path}")
+
 
 def create_config_files(base_path: str):
     """Create configuration files"""
@@ -118,24 +131,24 @@ def create_config_files(base_path: str):
             "emotional_memory_retention": 90,
             "auto_archival": True,
             "archival_interval_days": 7,
-            "max_active_memories": 10000
+            "max_active_memories": 10000,
         },
         "memvid": {
             "default_codec": "h265",
             "chunk_size": 512,
             "overlap": 50,
-            "compression_quality": "high"
+            "compression_quality": "high",
         },
         "aura": {
             "model": "gemini-2.5-flash-preview-05-20",
             "max_output_tokens": 8192,
             "enable_emotional_analysis": True,
-            "enable_cognitive_tracking": True
-        }
+            "enable_cognitive_tracking": True,
+        },
     }
 
     config_path = base / "config" / "aura_memvid_config.json"
-    with open(config_path, 'w') as f:
+    with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
     print(f"✅ Created config: {config_path}")
 
@@ -163,9 +176,10 @@ ENABLE_MEMVID_INTEGRATION=true
 """
 
     env_path = base / ".env.template"
-    with open(env_path, 'w') as f:
+    with open(env_path, "w") as f:
         f.write(env_template)
     print(f"✅ Created env template: {env_path}")
+
 
 def copy_integration_files(base_path: str):
     """Copy integration files to the project"""
@@ -184,6 +198,7 @@ def copy_integration_files(base_path: str):
     if not mcp_tools_file.exists():
         print(f"⚠️  Copy the MCP tools code to: {mcp_tools_file}")
         print("   (The code from the second artifact)")
+
 
 def create_example_scripts(base_path: str):
     """Create example usage scripts"""
@@ -241,7 +256,7 @@ if __name__ == "__main__":
 '''
 
     example_path = base / "example_basic.py"
-    with open(example_path, 'w') as f:
+    with open(example_path, "w") as f:
         f.write(basic_example)
     print(f"✅ Created: {example_path}")
 
@@ -278,13 +293,14 @@ if __name__ == "__main__":
 '''
 
     mcp_path = base / "start_mcp_server.py"
-    with open(mcp_path, 'w') as f:
+    with open(mcp_path, "w") as f:
         f.write(mcp_example)
     print(f"✅ Created: {mcp_path}")
 
+
 def create_integration_guide(base_path: str):
     """Create integration guide"""
-    guide = '''# Aura + Memvid Integration Guide
+    guide = """# Aura + Memvid Integration Guide
 
 ## Overview
 This integration combines Aura's emotional intelligence with Memvid's revolutionary video-based memory storage.
@@ -398,12 +414,13 @@ To integrate with your existing Aura system:
 4. Set up automated monitoring and maintenance
 
 For more information, see the source code and examples in this directory.
-'''
+"""
 
     guide_path = Path(base_path) / "INTEGRATION_GUIDE.md"
-    with open(guide_path, 'w') as f:
+    with open(guide_path, "w") as f:
         f.write(guide)
     print(f"✅ Created: {guide_path}")
+
 
 def main():
     """Main setup function"""
@@ -445,6 +462,7 @@ def main():
     except Exception as e:
         print(f"❌ Setup failed: {e}")
         return
+
 
 if __name__ == "__main__":
     main()

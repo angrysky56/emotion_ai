@@ -8,10 +8,8 @@ the 443 working emotional pattern documents.
 """
 
 import chromadb
-from pathlib import Path
 import logging
 import sys
-import json
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
@@ -28,16 +26,16 @@ def surgical_repair_conversations_collection():
         
         # List all collections to see current state
         collections = client.list_collections()
-        logger.info(f"📦 Found {len(collections)} collections:")
+        logger.info("📦 Found %s collections:", len(collections))
         
         working_collections = []
         for col in collections:
             try:
                 count = col.count()
-                logger.info(f"   ✅ {col.name}: {count} documents (working)")
+                logger.info("   ✅ %s: %s documents (working)", col.name, count)
                 working_collections.append(col.name)
             except Exception as e:
-                logger.error(f"   ❌ {col.name}: ERROR - {e}")
+                logger.error("   ❌ %s: ERROR - %s", col.name, e)
                 
         # Check if conversations collection is the problem
         if "aura_conversations" not in [col.name for col in collections]:
@@ -48,7 +46,7 @@ def surgical_repair_conversations_collection():
                 client.delete_collection("aura_conversations")
                 logger.info("✅ Deleted corrupted conversations collection")
             except Exception as e:
-                logger.error(f"❌ Failed to delete conversations collection: {e}")
+                logger.error("❌ Failed to delete conversations collection: %s", e)
                 logger.info("📝 Will create new collection anyway...")
         
         # Create fresh conversations collection
@@ -60,7 +58,7 @@ def surgical_repair_conversations_collection():
         
         # Verify the new collection works
         test_count = conversations.count()
-        logger.info(f"✅ New conversations collection created with {test_count} documents")
+        logger.info("✅ New conversations collection created with %s documents", test_count)
         
         # Test basic operations
         logger.info("🧪 Testing basic operations on new collection...")
@@ -94,7 +92,7 @@ def surgical_repair_conversations_collection():
         
         for col_name in working_collections:
             if col_name != "aura_conversations":
-                logger.info(f"   ✅ {col_name}: Preserved")
+                logger.info("   ✅ %s: Preserved", col_name)
                 
         logger.info("\n🎉 Surgical repair completed successfully!")
         logger.info("💡 Search functionality should now work in the UI")
@@ -102,7 +100,7 @@ def surgical_repair_conversations_collection():
         return True
         
     except Exception as e:
-        logger.error(f"❌ Surgical repair failed: {e}")
+        logger.error("❌ Surgical repair failed: %s", e)
         return False
 
 def verify_repair():
@@ -123,11 +121,11 @@ def verify_repair():
                 try:
                     count = col.count()
                     # Try a basic query
-                    results = col.query(query_texts=["test"], n_results=1)
+                    col.query(query_texts=["test"], n_results=1)
                     conversations_working = True
-                    logger.info(f"✅ Conversations collection: {count} documents, queries working")
+                    logger.info("✅ Conversations collection: %s documents, queries working", count)
                 except Exception as e:
-                    logger.error(f"❌ Conversations collection still broken: {e}")
+                    logger.error("❌ Conversations collection still broken: %s", e)
                     
         if conversations_found and conversations_working:
             logger.info("🎯 Repair verification: SUCCESS")
@@ -137,7 +135,7 @@ def verify_repair():
             return False
             
     except Exception as e:
-        logger.error(f"❌ Verification error: {e}")
+        logger.error("❌ Verification error: %s", e)
         return False
 
 if __name__ == "__main__":

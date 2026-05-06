@@ -32,16 +32,16 @@ class EmergencyDBRecovery:
             backup_path = self.backup_root / f"emergency_backup_{timestamp}"
 
             if self.db_path.exists():
-                logger.info(f"🚨 Creating emergency backup: {backup_path}")
+                logger.info("🚨 Creating emergency backup: %s", backup_path)
                 shutil.copytree(self.db_path, backup_path)
-                logger.info(f"✅ Emergency backup created: {backup_path}")
+                logger.info("✅ Emergency backup created: %s", backup_path)
                 return backup_path
             else:
                 logger.warning("⚠️ No database directory found to backup")
                 return None
 
         except Exception as e:
-            logger.error(f"❌ Failed to create emergency backup: {e}")
+            logger.error("❌ Failed to create emergency backup: %s", e)
             return None
 
     def nuclear_reset_database(self) -> bool:
@@ -54,9 +54,9 @@ class EmergencyDBRecovery:
                 for lock_file in self.db_path.glob("*.lock"):
                     try:
                         lock_file.unlink()
-                        logger.info(f"🔓 Removed lock file: {lock_file}")
+                        logger.info("🔓 Removed lock file: %s", lock_file)
                     except Exception as e:
-                        logger.warning(f"⚠️ Could not remove lock file {lock_file}: {e}")
+                        logger.warning("⚠️ Could not remove lock file %s: %s", lock_file, e)
 
                 # Force remove even if files are locked
                 if os.name == 'nt':  # Windows
@@ -75,7 +75,7 @@ class EmergencyDBRecovery:
             return True
 
         except Exception as e:
-            logger.error(f"❌ Nuclear reset failed: {e}")
+            logger.error("❌ Nuclear reset failed: %s", e)
             return False
 
     async def emergency_recovery(self) -> Dict[str, Any]:
@@ -109,7 +109,7 @@ class EmergencyDBRecovery:
 
         except Exception as e:
             recovery_log["steps"].append(f"Recovery failed with error: {e}")
-            logger.error(f"❌ Emergency recovery failed: {e}")
+            logger.error("❌ Emergency recovery failed: %s", e)
 
         recovery_log["completed_at"] = datetime.now().isoformat()
 
@@ -118,9 +118,9 @@ class EmergencyDBRecovery:
             log_file = self.backup_root / f"recovery_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             with open(log_file, 'w') as f:
                 json.dump(recovery_log, f, indent=2)
-            logger.info(f"📝 Recovery log saved: {log_file}")
+            logger.info("📝 Recovery log saved: %s", log_file)
         except Exception as e:
-            logger.error(f"❌ Failed to save recovery log: {e}")
+            logger.error("❌ Failed to save recovery log: %s", e)
 
         return recovery_log
 

@@ -6,7 +6,6 @@ Tests parameter handling and response formatting
 
 import asyncio
 import logging
-import json
 from mcp_system import initialize_mcp_system, get_mcp_bridge, shutdown_mcp_system
 from mcp_to_gemini_bridge import format_function_call_result_for_model, ToolExecutionResult
 from google.genai import types

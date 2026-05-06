@@ -5,7 +5,6 @@ Test script to validate MCP tool response formatting fix
 
 import asyncio
 import aiohttp
-import json
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -31,7 +30,7 @@ async def test_conversation_with_tool_call():
     async with aiohttp.ClientSession() as session:
         for test_data in test_requests:
             try:
-                logger.info(f"\n🧪 Testing: {test_data['message']}")
+                logger.info("\n🧪 Testing: %s", test_data['message'])
                 
                 async with session.post(
                     "http://localhost:8000/conversation",
@@ -58,18 +57,18 @@ async def test_conversation_with_tool_call():
                         
                         # Log the cleaned response
                         logger.info("✅ Response structure is valid")
-                        logger.info(f"📝 Response preview: {response_text[:200]}...")
+                        logger.info("📝 Response preview: %s...", response_text[:200])
                         
                         # Check emotional state
                         emotional_state = result["emotional_state"]
-                        logger.info(f"🎭 Emotional state: {emotional_state['name']} ({emotional_state['intensity']})")
+                        logger.info("🎭 Emotional state: %s (%s)", emotional_state['name'], emotional_state['intensity'])
                         
                     else:
                         error_text = await response.text()
-                        logger.error(f"❌ Request failed with status {response.status}: {error_text}")
+                        logger.error("❌ Request failed with status %s: %s", response.status, error_text)
                         
             except Exception as e:
-                logger.error(f"❌ Test failed: {e}")
+                logger.error("❌ Test failed: %s", e)
 
 async def test_mcp_status():
     """Test MCP system status endpoint"""
@@ -82,17 +81,17 @@ async def test_mcp_status():
                 if response.status == 200:
                     result = await response.json()
                     
-                    logger.info(f"✅ MCP Status: {result.get('status', 'unknown')}")
-                    logger.info(f"📊 Total tools: {result.get('total_tools', 0)}")
+                    logger.info("✅ MCP Status: %s", result.get('status', 'unknown'))
+                    logger.info("📊 Total tools: %s", result.get('total_tools', 0))
                     
                     if "tools_by_server" in result:
                         for server, tools in result["tools_by_server"].items():
-                            logger.info(f"  - {server}: {len(tools)} tools")
+                            logger.info("  - %s: %s tools", server, len(tools))
                 else:
-                    logger.error(f"❌ Status check failed with status {response.status}")
+                    logger.error("❌ Status check failed with status %s", response.status)
                     
         except Exception as e:
-            logger.error(f"❌ MCP status test failed: {e}")
+            logger.error("❌ MCP status test failed: %s", e)
 
 async def main():
     """Run all tests"""

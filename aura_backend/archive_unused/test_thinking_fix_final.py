@@ -37,7 +37,7 @@ async def test_thinking_extraction():
     # Test with a complex question that should trigger thinking
     test_message = "Solve this step by step: If a train leaves Chicago at 2 PM traveling at 60 mph towards New York (800 miles away), and another train leaves New York at 3 PM traveling at 80 mph towards Chicago, at what time will they meet?"
 
-    logger.info(f"🤔 Testing with message: {test_message}")
+    logger.info("🤔 Testing with message: %s", test_message)
 
     try:
         # Create a chat session with thinking enabled
@@ -62,10 +62,10 @@ async def test_thinking_extraction():
 
         # Display results
         logger.info("🔍 THINKING EXTRACTION RESULTS:")
-        logger.info(f"   ✅ Has thinking: {result.has_thinking}")
-        logger.info(f"   🧠 Thinking content length: {len(result.thoughts)} chars")
-        logger.info(f"   💬 Answer content length: {len(result.answer)} chars")
-        logger.info(f"   📊 Processing time: {result.processing_time_ms:.1f}ms")
+        logger.info("   ✅ Has thinking: %s", result.has_thinking)
+        logger.info("   🧠 Thinking content length: %s chars", len(result.thoughts))
+        logger.info("   💬 Answer content length: %s chars", len(result.answer))
+        logger.info("   📊 Processing time: %sms", result.processing_time_ms)
 
         if result.has_thinking and result.thoughts:
             logger.info("🧠 THINKING CONTENT:")
@@ -79,10 +79,10 @@ async def test_thinking_extraction():
         print("=" * 60)
 
         if result.error:
-            logger.error(f"❌ Error during processing: {result.error}")
+            logger.error("❌ Error during processing: %s", result.error)
 
     except Exception as e:
-        logger.error(f"❌ Test failed: {e}")
+        logger.error("❌ Test failed: %s", e)
         import traceback
         traceback.print_exc()
 

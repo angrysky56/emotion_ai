@@ -234,7 +234,7 @@ async def demo_intelligent_memory_system():
         print("   Some features may not be available without real memvid")
 
     except Exception as e:
-        logger.error(f"Demo failed: {e}")
+        logger.error("Demo failed: %s", e)
         print(f"❌ Demo encountered an error: {e}")
 
 async def demo_specific_use_cases():

@@ -9,12 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^0.8.0",
-    "marked": "^15.0.8"
+    "@google/genai": "^1.51.0",
+    "marked": "^18.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "typescript": "~5.7.2",
-    "vite": "^6.2.0"
+    "vite": "^8.0.0"
   }
 }

@@ -1,17 +1,18 @@
 # Project State: Aura Modernization
 
-## Current Phase: Initialization
-- **Active Phase**: Phase 0 (Planning)
-- **Status**: Initialization Complete
-- **Next Action**: `/gsd-plan-phase 1`
+## Current Phase: Unified Model Provider
+- **Active Phase**: Phase 2
+- **Status**: Planning
+- **Next Action**: Implement ModelProvider abstraction and Gemini provider.
 
 ## Key Decisions
 - **LLM Strategy**: OpenRouter is the primary provider; Ollama is local fallback.
 - **Modernization Mode**: Auto-mode (Agent driven) with high care for complexity.
 - **Tech Target**: Latest stable versions for all core dependencies.
+- **Dependency Migration**: Successfully transitioned to `memvid-sdk` and NumPy 2.2.x.
 
 ## Milestone Progress
-- [ ] Milestone 1: Foundation & Providers (0%)
+- [ ] Milestone 1: Foundation & Providers (25%)
 - [ ] Milestone 2: Backend Refactoring (0%)
 - [ ] Milestone 3: Frontend & UI Polish (0%)
 - [ ] Milestone 4: Final Polish (0%)

@@ -3,19 +3,17 @@ Aura + Memvid Hybrid Memory System
 Combines Aura's emotional intelligence with Memvid's revolutionary video-based memory
 """
 
-import os
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 # Aura imports
 import chromadb
-from chromadb.config import Settings
 
 # Memvid imports
-from memvid import MemvidEncoder, MemvidRetriever, MemvidChat
+from memvid import MemvidEncoder, MemvidRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +80,9 @@ class AuraMemvidHybrid:
                     self.memvid_archives[archive_name] = MemvidRetriever(
                         str(video_file), str(index_file)
                     )
-                    logger.info(f"Loaded memvid archive: {archive_name}")
+                    logger.info("Loaded memvid archive: %s", archive_name)
                 except Exception as e:
-                    logger.error(f"Failed to load archive {archive_name}: {e}")
+                    logger.error("Failed to load archive %s: %s", archive_name, e)
 
     def store_conversation(self,
                           user_id: str,
@@ -136,7 +134,7 @@ class AuraMemvidHybrid:
             "created": timestamp
         }
 
-        logger.info(f"Stored conversation memory: {memory_id}")
+        logger.info("Stored conversation memory: %s", memory_id)
         return memory_id
 
     def _store_emotional_memory(self, user_id: str, emotional_state: str,
@@ -241,7 +239,7 @@ class AuraMemvidHybrid:
                         "archive": archive_name
                     })
             except Exception as e:
-                logger.error(f"Error searching archive {archive_name}: {e}")
+                logger.error("Error searching archive %s: %s", archive_name, e)
 
         # Sort by score and return top results
         all_results.sort(key=lambda x: x["score"], reverse=True)
@@ -297,7 +295,7 @@ class AuraMemvidHybrid:
                         })
                         ids_to_delete.append(memory_id)
                 except Exception as e:
-                    logger.error(f"Error retrieving memory {memory_id}: {e}")
+                    logger.error("Error retrieving memory %s: %s", memory_id, e)
 
         if not memories_to_archive:
             logger.info("No memories to archive")
@@ -342,7 +340,7 @@ class AuraMemvidHybrid:
         for memory_id in ids_to_delete:
             del self.usage_tracker[memory_id]
 
-        logger.info(f"Archived {len(memories_to_archive)} memories to {archive_name}")
+        logger.info("Archived %s memories to %s", len(memories_to_archive), archive_name)
 
         return {
             "archived_count": len(memories_to_archive),
@@ -368,7 +366,7 @@ class AuraMemvidHybrid:
                 with open(source_path, 'r', encoding='utf-8') as f:
                     encoder.add_text(f.read())
             else:
-                raise ValueError(f"Unsupported file type: {source_path.suffix}")
+                raise ValueError(f"Unsupported file type: {source_path.suffix}") from e
 
         elif source_path.is_dir():
             # Process directory of documents
@@ -381,10 +379,10 @@ class AuraMemvidHybrid:
                             with open(file_path, 'r', encoding='utf-8') as f:
                                 encoder.add_text(f.read())
                     except Exception as e:
-                        logger.warning(f"Failed to process {file_path}: {e}")
+                        logger.warning("Failed to process %s: %s", file_path, e)
 
         else:
-            raise ValueError(f"Knowledge source not found: {knowledge_source}")
+            raise ValueError(f"Knowledge source not found: {knowledge_source}") from e
 
         # Build archive
         video_path = self.memvid_data_dir / f"{archive_name}.mp4"
@@ -402,7 +400,7 @@ class AuraMemvidHybrid:
             str(video_path), str(index_path)
         )
 
-        logger.info(f"Imported knowledge base: {archive_name}")
+        logger.info("Imported knowledge base: %s", archive_name)
 
         return {
             "archive_name": archive_name,
@@ -480,7 +478,7 @@ class AuraMemvidHybrid:
         # Note: ChromaDB doesn't support date range queries directly
         # This would need to be implemented with metadata filtering
         # For now, we'll log the intent
-        logger.info(f"Emotional memory cleanup scheduled for memories older than {cutoff_date}")
+        logger.info("Emotional memory cleanup scheduled for memories older than %s", cutoff_date)
 
     def export_user_data(self, user_id: str, export_format: str = "json") -> Dict:
         """Export all user data across both active and archived memories"""
@@ -566,4 +564,4 @@ class AuraMemvidIntegration:
             logger.info("Running scheduled memory archival")
             result = self.memory_system.archive_old_memories()
             self.last_archival = datetime.now()
-            logger.info(f"Archival complete: {result}")
+            logger.info("Archival complete: %s", result)

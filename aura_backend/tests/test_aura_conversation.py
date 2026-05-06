@@ -6,7 +6,6 @@ Test script to verify Aura's conversation and MCP tools are working
 import asyncio
 import aiohttp
 import json
-import sys
 from datetime import datetime
 
 async def test_conversation():
@@ -40,7 +39,7 @@ async def test_conversation():
                 async with session.post(url, json=test_data, headers=headers) as response:
                     if response.status == 200:
                         result = await response.json()
-                        print(f"\n✅ Success!")
+                        print("\n✅ Success!")
                         print(f"\nAura's Response: {result['response']}")
                         print(f"\nEmotional State: {result['emotional_state']}")
                         print(f"Cognitive State: {result['cognitive_state']}")
@@ -88,7 +87,7 @@ async def test_mcp_tools():
                 async with session.post(url, json=test_data, headers=headers) as response:
                     if response.status == 200:
                         result = await response.json()
-                        print(f"\n✅ Tool executed successfully!")
+                        print("\n✅ Tool executed successfully!")
                         print(json.dumps(result, indent=2))
                     else:
                         print(f"❌ Error: {response.status}")

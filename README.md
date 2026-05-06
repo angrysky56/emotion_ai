@@ -126,10 +126,10 @@
 
 - Vector database indexing for fast searches
 - Async processing for concurrent requests
-- Cost and Memory-efficient local all-minilm vector embedding generation
+- **Cost-Free Local Embeddings**: Support for `Ollama` and `fastembed` (BGE/Gemma) to avoid API costs
 - Autonomous sub-model background Focus gating and task processing for state updates and tool use
 - Tool learning adapter
-- [MemVid](https://github.com/Olow304/memvid) infinite QR code video long term memory!
+- [MemVid](https://github.com/Olow304/memvid) Infinite memory with modern `.mv2` single-file archival!
 
 ### Monitoring
 - Health check endpoint
@@ -151,18 +151,24 @@
 
 ### Installation
 
-1. **Clone or Fork and Navigate**:
+1. **Clone and Navigate**:
    ```bash
-   cd /emotion_ai/aura_backend
+   cd emotion_ai
    ```
 
- Uses uv- pyproject.toml and creates a .venv with python 3.12 --seed in the backend
-2. **Run Setup Script**:
+2. **Setup with uv**:
+   The project uses `uv` for unified dependency management. The virtual environment is created at the project root.
    ```bash
-   ./setup.sh
+   # From the project root
+   uv venv --python 3.12
+   uv sync
    ```
 
 3. **Configure Environment**:
+   Copy the example environment file in the backend to `.env`:
+   ```bash
+   cp aura_backend/.env.example aura_backend/.env
+   ```
 
 # Copy the env example in the backend to .env
  I will try to streamline all of this into an OS agnostic app soon.
@@ -180,59 +186,27 @@ echo "GOOGLE_API_KEY=$GOOGLE_API_KEY" > .env
 # Aura Backend Configuration
 # ==========================
 
-# Google API Configuration
-GOOGLE_API_KEY=your-google-api-key-here
+# Gemini API Configuration
+GEMINI_API_KEY=your-gemini-api-key-here
+
+# Memvid Archival Configuration
+# To use local embeddings (Ollama)
+MEMVID_EMBEDDING_PROVIDER=ollama
+MEMVID_EMBEDDING_MODEL=embeddinggemma:latest
 
 # Database Configuration
 CHROMA_PERSIST_DIRECTORY=./aura_chroma_db
 AURA_DATA_DIRECTORY=./aura_data
 
-# Server Configuration
-HOST=0.0.0.0
-PORT=8000
-DEBUG=false
-
-# Logging Configuration
-LOG_LEVEL=INFO
-
-# MCP Server Configuration
-MCP_SERVER_NAME=aura-companion
-MCP_SERVER_VERSION=1.0.0
-
-# Security Configuration
-CORS_ORIGINS=["http://localhost:5173", "http://localhost:3000"]
+# AI Selection
+AURA_DEFAULT_PROVIDER=openrouter
+AURA_MODEL=gemini-2.5-flash
 
 # Features Configuration
 ENABLE_EMOTIONAL_ANALYSIS=true
 ENABLE_COGNITIVE_TRACKING=true
 ENABLE_VECTOR_SEARCH=true
 ENABLE_FILE_EXPORTS=true
-
-# AI Response Configuration
-# gemini-2.5-flash-preview-05-20
-AURA_MODEL=gemini-2.5-flash-preview-05-20
-AURA_MAX_OUTPUT_TOKENS=1000000
-
-# Autonomic System Configuration
-# gemini-2.0-flash-lite
-AURA_AUTONOMIC_MODEL=gemini-2.0-flash-lite
-AURA_AUTONOMIC_MAX_OUTPUT_TOKENS=100000
-AUTONOMIC_ENABLED=true
-AUTONOMIC_TASK_THRESHOLD=medium  # low, medium, high
-
-# Rate Limiting Configuration
-AUTONOMIC_MAX_CONCURRENT_TASKS=12  # Optimal concurrency for 30 rpm limit
-AUTONOMIC_RATE_LIMIT_RPM=25        # Requests per minute (safety margin below 30)
-AUTONOMIC_RATE_LIMIT_RPD=1200      # Requests per day (safety margin below 1400)
-AUTONOMIC_TIMEOUT_SECONDS=60       # Increased for higher concurrency
-
-# Main Model Rate Limiting (user-configurable based on plan)
-MAIN_MODEL_RATE_LIMIT_RPM=10       # Conservative default, increase based on user plan
-MAIN_MODEL_RATE_LIMIT_RPD=500     # Daily limit for main model
-
-# Queue Management
-AUTONOMIC_QUEUE_MAX_SIZE=100       # Maximum queued tasks
-AUTONOMIC_QUEUE_PRIORITY_ENABLED=true  # Enable priority-based processing
 
 ```
 
@@ -246,7 +220,7 @@ AUTONOMIC_QUEUE_PRIORITY_ENABLED=true  # Enable priority-based processing
 
 This script will:
 - ✅ Check all prerequisites (Node.js, npm, uv)
-- ✅ Set up backend environment (.venv with Python 3.12)
+- ✅ Set up project environment (.venv with Python 3.12 at root)
 - ✅ Install frontend dependencies if needed
 - ✅ Start backend in one terminal (with hot reload)
 - ✅ Start frontend in another terminal (with hot reload)

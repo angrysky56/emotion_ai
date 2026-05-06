@@ -9,9 +9,7 @@ with the non-streaming approach.
 
 import asyncio
 import logging
-import sys
 import os
-from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -77,12 +75,12 @@ async def test_thinking_fix():
         print(f"⏱️ Processing time: {result.processing_time_ms:.1f}ms")
         
         if result.has_thinking and result.thoughts:
-            print(f"\n💭 THINKING CONTENT:")
+            print("\n💭 THINKING CONTENT:")
             print(f"{result.thoughts[:300]}{'...' if len(result.thoughts) > 300 else ''}")
         else:
-            print(f"\n💭 No thinking content captured")
+            print("\n💭 No thinking content captured")
         
-        print(f"\n💬 FINAL ANSWER:")
+        print("\n💬 FINAL ANSWER:")
         print(f"{result.answer}")
         
         # Test for thinking leakage in the answer
@@ -94,7 +92,7 @@ async def test_thinking_fix():
         answer_lower = result.answer.lower()
         thinking_leaked = any(indicator in answer_lower for indicator in thinking_indicators)
         
-        print(f"\n🔍 LEAK CHECK:")
+        print("\n🔍 LEAK CHECK:")
         print(f"Thinking leaked into answer: {thinking_leaked}")
         
         if thinking_leaked:
@@ -103,7 +101,7 @@ async def test_thinking_fix():
         else:
             print("✅ Clean separation between thinking and answer")
         
-        print(f"\n📈 SYSTEM STATUS:")
+        print("\n📈 SYSTEM STATUS:")
         print(f"Error: {result.error if result.error else 'None'}")
         
         return True

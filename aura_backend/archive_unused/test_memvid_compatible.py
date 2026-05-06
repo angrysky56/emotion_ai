@@ -5,7 +5,6 @@ Test Aura Memvid-Compatible Integration
 
 import asyncio
 import logging
-import json
 from pathlib import Path
 
 # Set up logging
@@ -48,7 +47,7 @@ async def test_compatible_integration():
         print("\\n3️⃣ Testing system stats...")
         try:
             stats = system.get_system_stats()
-            print(f"   ✅ System stats retrieved:")
+            print("   ✅ System stats retrieved:")
             print(f"      - Active conversations: {stats['active_memory']['conversations']}")
             print(f"      - Active emotional patterns: {stats['active_memory']['emotional_patterns']}")
             print(f"      - Archives: {len(stats['archives'])}")
@@ -61,7 +60,7 @@ async def test_compatible_integration():
         print("\\n4️⃣ Testing unified search...")
         try:
             results = system.search_unified("test query", "test_user")
-            print(f"   ✅ Unified search successful:")
+            print("   ✅ Unified search successful:")
             print(f"      - Total results: {results['total_results']}")
             print(f"      - Active results: {len(results['active_results'])}")
             print(f"      - Archive results: {len(results['archive_results'])}")
@@ -73,7 +72,7 @@ async def test_compatible_integration():
         print("\\n5️⃣ Testing archival process...")
         try:
             archival_result = system.archive_old_conversations("test_user")
-            print(f"   ✅ Archival process successful:")
+            print("   ✅ Archival process successful:")
             print(f"      - Result: {archival_result}")
         except Exception as e:
             print(f"   ❌ Archival process failed: {e}")
@@ -93,7 +92,7 @@ async def test_compatible_integration():
                 str(test_file),
                 "test_knowledge"
             )
-            print(f"   ✅ Knowledge import successful:")
+            print("   ✅ Knowledge import successful:")
             print(f"      - Archive: {import_result.get('archive_name', 'unknown')}")
             print(f"      - Chunks: {import_result.get('chunks_imported', 0)}")
             print(f"      - Size: {import_result.get('compressed_size_mb', 0):.2f} MB")
@@ -112,7 +111,7 @@ async def test_compatible_integration():
         print("\\n7️⃣ Testing search in imported archive...")
         try:
             search_results = system.search_unified("AI systems", "test_user")
-            print(f"   ✅ Archive search successful:")
+            print("   ✅ Archive search successful:")
             print(f"      - Total results: {search_results['total_results']}")
             if search_results['archive_results']:
                 print(f"      - Found content in archive: {search_results['archive_results'][0]['text'][:50]}...")

@@ -65,7 +65,7 @@ async def test_thinking_functionality():
         ]
         
         for i, message in enumerate(test_messages, 1):
-            logger.info(f"\n🧪 Test {i}: {message}")
+            logger.info("\n🧪 Test %s: %s", i, message)
             
             try:
                 # Process message with thinking
@@ -78,30 +78,30 @@ async def test_thinking_functionality():
                 )
                 
                 # Display results
-                logger.info(f"✅ Test {i} completed successfully")
-                logger.info(f"   🧠 Has thinking: {result.has_thinking}")
-                logger.info(f"   📊 Thinking chunks: {result.thinking_chunks}")
-                logger.info(f"   💬 Answer chunks: {result.answer_chunks}")
-                logger.info(f"   ⏱️ Processing time: {result.processing_time_ms:.1f}ms")
+                logger.info("✅ Test %s completed successfully", i)
+                logger.info("   🧠 Has thinking: %s", result.has_thinking)
+                logger.info("   📊 Thinking chunks: %s", result.thinking_chunks)
+                logger.info("   💬 Answer chunks: %s", result.answer_chunks)
+                logger.info("   ⏱️ Processing time: %sms", result.processing_time_ms)
                 
                 if result.has_thinking:
-                    logger.info(f"   💭 Thinking summary: {result.thinking_summary}")
-                    logger.info(f"   🧠 Full thoughts (first 200 chars): {result.thoughts[:200]}...")
+                    logger.info("   💭 Thinking summary: %s", result.thinking_summary)
+                    logger.info("   🧠 Full thoughts (first 200 chars): %s...", result.thoughts[:200])
                 
-                logger.info(f"   💬 Answer: {result.answer}")
+                logger.info("   💬 Answer: %s", result.answer)
                 
                 # Brief pause between tests
                 await asyncio.sleep(1)
                 
             except Exception as e:
-                logger.error(f"❌ Test {i} failed: {e}")
+                logger.error("❌ Test %s failed: %s", i, e)
                 return False
         
         logger.info("\n🎉 All thinking tests completed successfully!")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Thinking test setup failed: {e}")
+        logger.error("❌ Thinking test setup failed: %s", e)
         return False
 
 async def test_thinking_status_endpoint():
@@ -115,16 +115,16 @@ async def test_thinking_status_endpoint():
                 if response.status == 200:
                     data = await response.json()
                     logger.info("✅ Thinking status endpoint working:")
-                    logger.info(f"   Status: {data.get('status')}")
-                    logger.info(f"   Thinking enabled: {data.get('thinking_configuration', {}).get('thinking_enabled')}")
-                    logger.info(f"   Budget: {data.get('thinking_configuration', {}).get('thinking_budget')}")
+                    logger.info("   Status: %s", data.get('status'))
+                    logger.info("   Thinking enabled: %s", data.get('thinking_configuration', {}).get('thinking_enabled')
+                    logger.info("   Budget: %s", data.get('thinking_configuration', {}).get('thinking_enabled')
                     return True
                 else:
-                    logger.error(f"❌ Status endpoint returned {response.status}")
+                    logger.error("❌ Status endpoint returned %s", response.status)
                     return False
                     
     except Exception as e:
-        logger.warning(f"⚠️ Could not test status endpoint (server may not be running): {e}")
+        logger.warning("⚠️ Could not test status endpoint (server may not be running): %s", e)
         return False
 
 if __name__ == "__main__":
@@ -141,8 +141,8 @@ if __name__ == "__main__":
         
         # Summary
         logger.info("\n📊 Test Summary:")
-        logger.info(f"   Thinking Processor: {'✅ PASS' if thinking_success else '❌ FAIL'}")
-        logger.info(f"   Status Endpoint: {'✅ PASS' if endpoint_success else '⚠️ SKIP'}")
+        logger.info("   Thinking Processor: %s", '✅ PASS' if thinking_success else '❌ FAIL')
+        logger.info("   Status Endpoint: %s", '✅ PASS' if endpoint_success else '⚠️ SKIP')
         
         if thinking_success:
             logger.info("\n🎉 Thinking functionality is working correctly!")

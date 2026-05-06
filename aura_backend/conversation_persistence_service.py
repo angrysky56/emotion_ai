@@ -11,22 +11,21 @@ conversation storage rather than scattered database operations.
 """
 
 import asyncio
+import json
 import logging
-from typing import Dict, Optional, List, Any, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import json
-from pathlib import Path
+
+# Import types needed - these will be passed in as dependencies
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+
 import aiofiles
 
 # Import database protection service
-from database_protection import get_protection_service
-
-# Import types needed - these will be passed in as dependencies
-from typing import TYPE_CHECKING
+from aura_backend.database_protection import get_protection_service
 
 if TYPE_CHECKING:
-    from main import ConversationMemory, EmotionalStateData, CognitiveState, AuraVectorDB, AuraFileSystem
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -39,18 +38,25 @@ class ConversationExchange:
     This data structure captures all artifacts of a single conversation turn,
     providing a cohesive view of the interaction rather than scattered components.
     """
+
     user_memory: Any  # Will be ConversationMemory when imported
-    ai_memory: Any    # Will be ConversationMemory when imported
-    user_emotional_state: Optional[Any] = None  # Will be EmotionalStateData when imported
-    ai_emotional_state: Optional[Any] = None    # Will be EmotionalStateData when imported
-    ai_cognitive_state: Optional[Any] = None    # Will be CognitiveState when imported
+    ai_memory: Any  # Will be ConversationMemory when imported
+    user_emotional_state: Optional[Any] = (
+        None  # Will be EmotionalStateData when imported
+    )
+    ai_emotional_state: Optional[Any] = None  # Will be EmotionalStateData when imported
+    ai_cognitive_state: Optional[Any] = None  # Will be CognitiveState when imported
     session_id: str = ""
     timestamp: Optional[datetime] = None
 
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.now()
-        if not self.session_id and hasattr(self.user_memory, 'session_id') and self.user_memory.session_id:
+        if (
+            not self.session_id
+            and hasattr(self.user_memory, "session_id")
+            and self.user_memory.session_id
+        ):
             self.session_id = self.user_memory.session_id
 
 
@@ -73,14 +79,14 @@ class ConversationPersistenceService:
 
     def __init__(
         self,
-        vector_db: Any,      # Will be AuraVectorDB when imported
-        file_system: Any,    # Will be AuraFileSystem when imported
+        vector_db: Any,  # Will be AuraVectorDB when imported
+        file_system: Any,  # Will be AuraFileSystem when imported
         compaction_delay: float = 0.5,  # Increased default delay
         max_retries: int = 3,
         backup_enabled: bool = True,
         chromadb_recovery_enabled: bool = True,
         emergency_recovery_enabled: bool = True,  # New parameter
-        use_database_protection: bool = True  # Integrate with database protection service
+        use_database_protection: bool = True,  # Integrate with database protection service
     ):
         self.vector_db = vector_db
         self.file_system = file_system
@@ -91,7 +97,9 @@ class ConversationPersistenceService:
         self.emergency_recovery_enabled = emergency_recovery_enabled
         self.use_database_protection = use_database_protection
         self._consecutive_failures = 0
-        self._emergency_recovery_threshold = 5  # Trigger emergency recovery after 5 consecutive failures
+        self._emergency_recovery_threshold = (
+            5  # Trigger emergency recovery after 5 consecutive failures
+        )
 
         # Initialize database protection service if enabled
         if self.use_database_protection:
@@ -99,7 +107,9 @@ class ConversationPersistenceService:
                 self._protection_service = get_protection_service()
                 logger.info("🛡️ Database protection service integrated")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to initialize database protection service: {e}")
+                logger.warning(
+                    f"⚠️ Failed to initialize database protection service: {e}"
+                )
                 self._protection_service = None
                 self.use_database_protection = False
         else:
@@ -122,7 +132,7 @@ class ConversationPersistenceService:
             "retries_performed": 0,
             "backups_created": 0,
             "cleanups_performed": 0,
-            "archives_created": 0
+            "archives_created": 0,
         }
 
         # Failed operation queue for retry
@@ -133,7 +143,7 @@ class ConversationPersistenceService:
             "exchange_stored": [],
             "storage_failed": [],
             "cleanup_completed": [],
-            "archive_created": []
+            "archive_created": [],
         }
 
     def _is_chromadb_compaction_error(self, error: Exception) -> bool:
@@ -152,7 +162,7 @@ class ConversationPersistenceService:
             "sqlite_busy",
             "sqlite_locked",
             "wal file",
-            "shim file"
+            "shim file",
         ]
         return any(indicator in error_str for indicator in compaction_indicators)
 
@@ -174,13 +184,17 @@ class ConversationPersistenceService:
         self._consecutive_failures += 1
         self._last_chromadb_error = datetime.now()
 
-        logger.error(f"🚨 ChromaDB error during {operation}: {error}")
-        logger.error(f"📊 Consecutive failures: {self._consecutive_failures}")
+        logger.error("🚨 ChromaDB error during %s: %s", operation, error)
+        logger.error("📊 Consecutive failures: %s", self._consecutive_failures)
 
         # Check if we should trigger emergency recovery
-        if (self.emergency_recovery_enabled and
-            self._consecutive_failures >= self._emergency_recovery_threshold):
-            logger.critical(f"🚨 CRITICAL: {self._consecutive_failures} consecutive failures - triggering emergency recovery")
+        if (
+            self.emergency_recovery_enabled
+            and self._consecutive_failures >= self._emergency_recovery_threshold
+        ):
+            logger.critical(
+                f"🚨 CRITICAL: {self._consecutive_failures} consecutive failures - triggering emergency recovery"
+            )
             return await self._trigger_emergency_recovery()
 
         if not self.chromadb_recovery_enabled:
@@ -194,13 +208,13 @@ class ConversationPersistenceService:
             await asyncio.sleep(2.0)
 
             # Try to force checkpoint if possible
-            if hasattr(self.vector_db, 'client'):
+            if hasattr(self.vector_db, "client"):
                 try:
                     # Try to get a heartbeat from ChromaDB
                     self.vector_db.client.heartbeat()
                     logger.info("💓 ChromaDB heartbeat successful")
                 except Exception as heartbeat_error:
-                    logger.warning(f"⚠️ ChromaDB heartbeat failed: {heartbeat_error}")
+                    logger.warning("⚠️ ChromaDB heartbeat failed: %s", heartbeat_error)
 
             # Clear any pending operations by waiting
             await asyncio.sleep(self.compaction_delay * 3)
@@ -209,7 +223,7 @@ class ConversationPersistenceService:
             return True
 
         except Exception as recovery_error:
-            logger.error(f"❌ ChromaDB recovery failed: {recovery_error}")
+            logger.error("❌ ChromaDB recovery failed: %s", recovery_error)
             return False
 
     async def _trigger_emergency_recovery(self) -> bool:
@@ -221,7 +235,9 @@ class ConversationPersistenceService:
         """
         try:
             logger.critical("🚨 INITIATING EMERGENCY DATABASE RECOVERY")
-            logger.critical("⚠️ Using database protection service for coordinated recovery!")
+            logger.critical(
+                "⚠️ Using database protection service for coordinated recovery!"
+            )
 
             # Use the database protection service for emergency backup
             protection_service = get_protection_service()
@@ -237,11 +253,13 @@ class ConversationPersistenceService:
 
                 try:
                     # Close current database connection if possible
-                    if hasattr(self.vector_db, 'client'):
+                    if hasattr(self.vector_db, "client"):
                         self.vector_db.client = None
 
                     # Signal that application needs restart for clean state
-                    logger.critical("🔄 Application needs restart to reinitialize database cleanly")
+                    logger.critical(
+                        "🔄 Application needs restart to reinitialize database cleanly"
+                    )
 
                     # Reset failure counters
                     self._consecutive_failures = 0
@@ -261,9 +279,7 @@ class ConversationPersistenceService:
             return False
 
     async def persist_conversation_exchange(
-        self,
-        exchange: ConversationExchange,
-        update_profile: bool = True
+        self, exchange: ConversationExchange, update_profile: bool = True
     ) -> Dict[str, Any]:
         """
         Atomically persists a complete conversational exchange with enhanced error handling.
@@ -284,15 +300,15 @@ class ConversationPersistenceService:
                 "conversation_exchange_persistence",
                 self._persist_conversation_exchange_internal,
                 exchange,
-                update_profile
+                update_profile,
             )
         else:
-            return await self._persist_conversation_exchange_internal(exchange, update_profile)
+            return await self._persist_conversation_exchange_internal(
+                exchange, update_profile
+            )
 
     async def _persist_conversation_exchange_internal(
-        self,
-        exchange: ConversationExchange,
-        update_profile: bool = True
+        self, exchange: ConversationExchange, update_profile: bool = True
     ) -> Dict[str, Any]:
         """
         Internal persistence method that does the actual work.
@@ -304,7 +320,7 @@ class ConversationPersistenceService:
                 "stored_components": [],
                 "errors": [],
                 "duration_ms": 0,
-                "retry_count": 0
+                "retry_count": 0,
             }
 
             for attempt in range(self.max_retries):
@@ -314,7 +330,9 @@ class ConversationPersistenceService:
                     # Increase delay for retry attempts
                     if attempt > 0:
                         delay = self.compaction_delay * (attempt + 1) * 2
-                        logger.info(f"🔄 Retry attempt {attempt + 1} after {delay:.1f}s delay")
+                        logger.info(
+                            f"🔄 Retry attempt {attempt + 1} after {delay:.1f}s delay"
+                        )
                         await asyncio.sleep(delay)
 
                     # Phase 1: Store conversation memories
@@ -335,13 +353,15 @@ class ConversationPersistenceService:
 
                     # Reset error count on success
                     if self._chromadb_error_count > 0:
-                        logger.info(f"✅ ChromaDB persistence recovered after {self._chromadb_error_count} errors")
+                        logger.info(
+                            f"✅ ChromaDB persistence recovered after {self._chromadb_error_count} errors"
+                        )
                         self._chromadb_error_count = 0
 
                     break  # Success - exit retry loop
 
                 except Exception as e:
-                    logger.error(f"❌ Persistence attempt {attempt + 1} failed: {e}")
+                    logger.error("❌ Persistence attempt %s failed: %s", attempt + 1, e)
                     results["errors"].append(f"attempt_{attempt + 1}: {e}")
 
                     # Handle ChromaDB-specific errors
@@ -351,7 +371,9 @@ class ConversationPersistenceService:
                         )
 
                         if recovery_attempted and attempt < self.max_retries - 1:
-                            logger.info("🔄 Retrying persistence after ChromaDB recovery")
+                            logger.info(
+                                "🔄 Retrying persistence after ChromaDB recovery"
+                            )
                             continue
 
                     # If this is the last attempt, mark as failed
@@ -362,13 +384,15 @@ class ConversationPersistenceService:
 
                         # Queue for retry if this was a ChromaDB error
                         if self._is_chromadb_compaction_error(e):
-                            self._failed_operations.append({
-                                "type": "conversation_exchange",
-                                "exchange": exchange,
-                                "update_profile": update_profile,
-                                "failed_at": datetime.now().isoformat(),
-                                "error": str(e)
-                            })
+                            self._failed_operations.append(
+                                {
+                                    "type": "conversation_exchange",
+                                    "exchange": exchange,
+                                    "update_profile": update_profile,
+                                    "failed_at": datetime.now().isoformat(),
+                                    "error": str(e),
+                                }
+                            )
 
             # Calculate duration
             duration = (datetime.now() - start_time).total_seconds() * 1000
@@ -414,7 +438,7 @@ class ConversationPersistenceService:
             # Use timeout wrapper for critical persistence
             result = await asyncio.wait_for(
                 self._persist_conversation_exchange_optimized(exchange, update_profile),
-                timeout=timeout
+                timeout=timeout,
             )
 
             # Add timing information
@@ -426,7 +450,9 @@ class ConversationPersistenceService:
 
         except asyncio.TimeoutError:
             duration = (datetime.now() - start_time).total_seconds() * 1000
-            logger.error(f"⏱️ Immediate persistence timeout after {timeout}s for {exchange.user_memory.user_id}")
+            logger.error(
+                f"⏱️ Immediate persistence timeout after {timeout}s for {exchange.user_memory.user_id}"
+            )
 
             return {
                 "success": False,
@@ -434,12 +460,14 @@ class ConversationPersistenceService:
                 "errors": [f"Persistence timeout after {timeout}s"],
                 "duration_ms": duration,
                 "retry_count": 0,
-                "method": "immediate_timeout"
+                "method": "immediate_timeout",
             }
 
         except Exception as e:
             duration = (datetime.now() - start_time).total_seconds() * 1000
-            logger.error(f"❌ Immediate persistence failed for {exchange.user_memory.user_id}: {e}")
+            logger.error(
+                f"❌ Immediate persistence failed for {exchange.user_memory.user_id}: {e}"
+            )
 
             return {
                 "success": False,
@@ -447,13 +475,11 @@ class ConversationPersistenceService:
                 "errors": [str(e)],
                 "duration_ms": duration,
                 "retry_count": 0,
-                "method": "immediate_exception"
+                "method": "immediate_exception",
             }
 
     async def _persist_conversation_exchange_optimized(
-        self,
-        exchange: ConversationExchange,
-        update_profile: bool = True
+        self, exchange: ConversationExchange, update_profile: bool = True
     ) -> Dict[str, Any]:
         """
         Optimized persistence method for immediate execution.
@@ -465,7 +491,7 @@ class ConversationPersistenceService:
                 "success": True,
                 "stored_components": [],
                 "errors": [],
-                "retry_count": 0
+                "retry_count": 0,
             }
 
             # Reduced retry count for immediate persistence (prioritize speed)
@@ -477,8 +503,12 @@ class ConversationPersistenceService:
 
                     # Reduced delay for immediate persistence
                     if attempt > 0:
-                        delay = self.compaction_delay * 0.5  # Faster retry for immediate mode
-                        logger.debug(f"🔄 Immediate retry {attempt + 1} after {delay:.1f}s")
+                        delay = (
+                            self.compaction_delay * 0.5
+                        )  # Faster retry for immediate mode
+                        logger.debug(
+                            f"🔄 Immediate retry {attempt + 1} after {delay:.1f}s"
+                        )
                         await asyncio.sleep(delay)
 
                     # Optimized storage sequence
@@ -488,7 +518,9 @@ class ConversationPersistenceService:
                     try:
                         await self._store_emotional_patterns(exchange, results)
                     except Exception as emotion_error:
-                        logger.warning(f"⚠️ Emotional pattern storage failed (non-critical): {emotion_error}")
+                        logger.warning(
+                            f"⚠️ Emotional pattern storage failed (non-critical): {emotion_error}"
+                        )
                         results["errors"].append(f"emotional_patterns: {emotion_error}")
 
                     # Update user profile (non-blocking for immediate mode)
@@ -496,18 +528,24 @@ class ConversationPersistenceService:
                         try:
                             await self._update_user_profile(exchange, results)
                         except Exception as profile_error:
-                            logger.warning(f"⚠️ Profile update failed (non-critical): {profile_error}")
+                            logger.warning(
+                                f"⚠️ Profile update failed (non-critical): {profile_error}"
+                            )
                             results["errors"].append(f"profile_update: {profile_error}")
 
                     # Update metrics on success
                     self._metrics["total_exchanges_stored"] += 1
                     self._consecutive_failures = 0
 
-                    logger.debug(f"✅ Immediate persistence successful for {exchange.user_memory.user_id}")
+                    logger.debug(
+                        f"✅ Immediate persistence successful for {exchange.user_memory.user_id}"
+                    )
                     break  # Success - exit retry loop
 
                 except Exception as e:
-                    logger.error(f"❌ Immediate persistence attempt {attempt + 1} failed: {e}")
+                    logger.error(
+                        f"❌ Immediate persistence attempt {attempt + 1} failed: {e}"
+                    )
                     results["errors"].append(f"attempt_{attempt + 1}: {e}")
 
                     # For immediate persistence, don't spend time on recovery
@@ -518,9 +556,7 @@ class ConversationPersistenceService:
             return results
 
     async def _store_conversation_pair_optimized(
-        self,
-        exchange: ConversationExchange,
-        results: Dict[str, Any]
+        self, exchange: ConversationExchange, results: Dict[str, Any]
     ) -> None:
         """
         Optimized conversation pair storage for immediate persistence.
@@ -540,14 +576,12 @@ class ConversationPersistenceService:
             results["stored_components"].append(f"ai_message:{ai_doc_id}")
 
         except Exception as e:
-            logger.error(f"Failed to store optimized conversation pair: {e}")
+            logger.error("Failed to store optimized conversation pair: %s", e)
             results["errors"].append(f"conversation_storage: {e}")
             raise
 
     async def _store_conversation_pair(
-        self,
-        exchange: ConversationExchange,
-        results: Dict[str, Any]
+        self, exchange: ConversationExchange, results: Dict[str, Any]
     ) -> None:
         """
         Stores the user-AI conversation pair with proper sequencing.
@@ -568,14 +602,12 @@ class ConversationPersistenceService:
             results["stored_components"].append(f"ai_message:{ai_doc_id}")
 
         except Exception as e:
-            logger.error(f"Failed to store conversation pair: {e}")
+            logger.error("Failed to store conversation pair: %s", e)
             results["errors"].append(f"conversation_storage: {e}")
             raise
 
     async def _store_emotional_patterns(
-        self,
-        exchange: ConversationExchange,
-        results: Dict[str, Any]
+        self, exchange: ConversationExchange, results: Dict[str, Any]
     ) -> None:
         """
         Stores emotional patterns for both user and AI.
@@ -587,26 +619,23 @@ class ConversationPersistenceService:
             if exchange.ai_emotional_state:
                 await self.vector_db.store_emotional_pattern(
                     exchange.ai_emotional_state,
-                    "aura"  # AI emotions tracked under 'aura' entity
+                    "aura",  # AI emotions tracked under 'aura' entity
                 )
                 results["stored_components"].append("ai_emotional_pattern")
 
             if exchange.user_emotional_state:
                 await self.vector_db.store_emotional_pattern(
-                    exchange.user_emotional_state,
-                    exchange.user_memory.user_id
+                    exchange.user_emotional_state, exchange.user_memory.user_id
                 )
                 results["stored_components"].append("user_emotional_pattern")
 
         except Exception as e:
-            logger.error(f"Failed to store emotional patterns: {e}")
+            logger.error("Failed to store emotional patterns: %s", e)
             results["errors"].append(f"emotional_storage: {e}")
             # Non-critical error - don't propagate
 
     async def _update_user_profile(
-        self,
-        exchange: ConversationExchange,
-        results: Dict[str, Any]
+        self, exchange: ConversationExchange, results: Dict[str, Any]
     ) -> None:
         """
         Updates user profile with latest interaction data.
@@ -618,7 +647,7 @@ class ConversationPersistenceService:
             user_id = exchange.user_memory.user_id
             profile = await self.file_system.load_user_profile(user_id) or {
                 "name": user_id,
-                "created_at": datetime.now().isoformat()
+                "created_at": datetime.now().isoformat(),
             }
 
             # Update interaction metadata
@@ -630,14 +659,18 @@ class ConversationPersistenceService:
                 profile["last_emotional_state"] = {
                     "name": exchange.user_emotional_state.name,
                     "intensity": exchange.user_emotional_state.intensity.value,
-                    "timestamp": exchange.user_emotional_state.timestamp.isoformat() if exchange.user_emotional_state.timestamp else None
+                    "timestamp": (
+                        exchange.user_emotional_state.timestamp.isoformat()
+                        if exchange.user_emotional_state.timestamp
+                        else None
+                    ),
                 }
 
             await self.file_system.save_user_profile(user_id, profile)
             results["stored_components"].append("user_profile_update")
 
         except Exception as e:
-            logger.error(f"Failed to update user profile: {e}")
+            logger.error("Failed to update user profile: %s", e)
             results["errors"].append(f"profile_update: {e}")
             # Non-critical error - don't propagate
 
@@ -654,14 +687,14 @@ class ConversationPersistenceService:
         else:
             # Rolling average calculation
             self._metrics["average_store_time"] = (
-                (current_avg * (total_stores - 1) + duration_ms) / total_stores
-            )
+                current_avg * (total_stores - 1) + duration_ms
+            ) / total_stores
 
     async def cleanup_old_conversations(
         self,
         user_id: str,
         days_to_keep: int = 30000,
-        archive_before_cleanup: bool = True
+        archive_before_cleanup: bool = True,
     ) -> Dict[str, Any]:
         """
         Clean up old conversations with optional archival.
@@ -681,16 +714,18 @@ class ConversationPersistenceService:
                 self._cleanup_old_conversations_internal,
                 user_id,
                 days_to_keep,
-                archive_before_cleanup
+                archive_before_cleanup,
             )
         else:
-            return await self._cleanup_old_conversations_internal(user_id, days_to_keep, archive_before_cleanup)
+            return await self._cleanup_old_conversations_internal(
+                user_id, days_to_keep, archive_before_cleanup
+            )
 
     async def _cleanup_old_conversations_internal(
         self,
         user_id: str,
         days_to_keep: int = 30000,
-        archive_before_cleanup: bool = True
+        archive_before_cleanup: bool = True,
     ) -> Dict[str, Any]:
         """
         Internal cleanup method that does the actual work.
@@ -705,7 +740,7 @@ class ConversationPersistenceService:
                 "conversations_archived": 0,
                 "conversations_deleted": 0,
                 "errors": [],
-                "duration_ms": 0
+                "duration_ms": 0,
             }
 
             try:
@@ -714,58 +749,60 @@ class ConversationPersistenceService:
                     where={
                         "$and": [
                             {"user_id": {"$eq": user_id}},
-                            {"timestamp": {"$lt": cutoff_date.isoformat()}}
+                            {"timestamp": {"$lt": cutoff_date.isoformat()}},
                         ]
                     },
-                    include=["documents", "metadatas", "embeddings"]
+                    include=["documents", "metadatas", "embeddings"],
                 )
 
-                if not old_conversations or not old_conversations.get('ids'):
+                if not old_conversations or not old_conversations.get("ids"):
                     results["conversations_found"] = 0
                     return results
 
-                results["conversations_found"] = len(old_conversations['ids'])
+                results["conversations_found"] = len(old_conversations["ids"])
 
                 # Archive conversations if requested
                 if archive_before_cleanup and results["conversations_found"] > 0:
                     archive_result = await self._archive_conversations_to_backup(
                         user_id, old_conversations
                     )
-                    results["conversations_archived"] = archive_result.get("archived_count", 0)
+                    results["conversations_archived"] = archive_result.get(
+                        "archived_count", 0
+                    )
                     if archive_result.get("errors"):
                         results["errors"].extend(archive_result["errors"])
 
                 # Delete old conversations
-                self.vector_db.conversations.delete(ids=old_conversations['ids'])
-                results["conversations_deleted"] = len(old_conversations['ids'])
+                self.vector_db.conversations.delete(ids=old_conversations["ids"])
+                results["conversations_deleted"] = len(old_conversations["ids"])
 
                 # Update metrics
                 self._metrics["cleanups_performed"] += 1
 
                 # Trigger event callbacks
-                await self._trigger_event_callbacks("cleanup_completed", {
-                    "user_id": user_id,
-                    "cleanup_results": results
-                })
+                await self._trigger_event_callbacks(
+                    "cleanup_completed",
+                    {"user_id": user_id, "cleanup_results": results},
+                )
 
                 logger.info(
                     f"🧹 Cleaned up {results['conversations_deleted']} old conversations for {user_id}"
                 )
 
             except Exception as e:
-                logger.error(f"❌ Failed to cleanup conversations: {e}")
+                logger.error("❌ Failed to cleanup conversations: %s", e)
                 results["success"] = False
                 results["errors"].append(str(e))
 
             finally:
-                results["duration_ms"] = (datetime.now() - start_time).total_seconds() * 1000
+                results["duration_ms"] = (
+                    datetime.now() - start_time
+                ).total_seconds() * 1000
 
             return results
 
     async def _archive_conversations_to_backup(
-        self,
-        user_id: str,
-        conversations_data: Dict[str, Any]
+        self, user_id: str, conversations_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Archive conversations to backup files before deletion.
@@ -792,38 +829,47 @@ class ConversationPersistenceService:
             backup_data = {
                 "user_id": user_id,
                 "backup_timestamp": datetime.now().isoformat(),
-                "conversation_count": len(conversations_data.get('ids', [])),
-                "conversations": []
+                "conversation_count": len(conversations_data.get("ids", [])),
+                "conversations": [],
             }
 
             # Process each conversation
-            for i, doc_id in enumerate(conversations_data.get('ids', [])):
+            for i, doc_id in enumerate(conversations_data.get("ids", [])):
                 conversation = {
                     "id": doc_id,
-                    "content": conversations_data['documents'][i] if conversations_data.get('documents') else "",
-                    "metadata": conversations_data['metadatas'][i] if conversations_data.get('metadatas') else {},
-                    "embedding": conversations_data['embeddings'][i] if conversations_data.get('embeddings') else None
+                    "content": (
+                        conversations_data["documents"][i]
+                        if conversations_data.get("documents")
+                        else ""
+                    ),
+                    "metadata": (
+                        conversations_data["metadatas"][i]
+                        if conversations_data.get("metadatas")
+                        else {}
+                    ),
+                    "embedding": (
+                        conversations_data["embeddings"][i]
+                        if conversations_data.get("embeddings")
+                        else None
+                    ),
                 }
                 backup_data["conversations"].append(conversation)
 
             # Save backup file using aiofiles directly
-            async with aiofiles.open(backup_path, 'w') as f:
+            async with aiofiles.open(backup_path, "w") as f:
                 await f.write(json.dumps(backup_data, indent=2, default=str))
 
             self._metrics["backups_created"] += 1
 
             return {
-                "archived_count": len(conversations_data.get('ids', [])),
+                "archived_count": len(conversations_data.get("ids", [])),
                 "backup_file": str(backup_path),
-                "errors": []
+                "errors": [],
             }
 
         except Exception as e:
-            logger.error(f"❌ Failed to archive conversations: {e}")
-            return {
-                "archived_count": 0,
-                "errors": [str(e)]
-            }
+            logger.error("❌ Failed to archive conversations: %s", e)
+            return {"archived_count": 0, "errors": [str(e)]}
 
     async def search_with_context_enrichment(
         self,
@@ -831,7 +877,7 @@ class ConversationPersistenceService:
         user_id: str,
         n_results: int = 5000,
         include_emotional_context: bool = True,
-        include_temporal_context: bool = True
+        include_temporal_context: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Enhanced search with contextual enrichment.
@@ -850,9 +896,7 @@ class ConversationPersistenceService:
             try:
                 # Get basic search results
                 base_results = await self.vector_db.search_conversations(
-                    query=query,
-                    user_id=user_id,
-                    n_results=n_results
+                    query=query, user_id=user_id, n_results=n_results
                 )
 
                 enriched_results = []
@@ -862,8 +906,10 @@ class ConversationPersistenceService:
 
                     # Add emotional context if requested
                     if include_emotional_context:
-                        emotional_context = await self._get_emotional_context_for_message(
-                            result, user_id
+                        emotional_context = (
+                            await self._get_emotional_context_for_message(
+                                result, user_id
+                            )
                         )
                         enriched_result["emotional_context"] = emotional_context
 
@@ -879,13 +925,11 @@ class ConversationPersistenceService:
                 return enriched_results
 
             except Exception as e:
-                logger.error(f"❌ Enhanced search failed: {e}")
+                logger.error("❌ Enhanced search failed: %s", e)
                 return []
 
     async def _get_emotional_context_for_message(
-        self,
-        message_result: Dict[str, Any],
-        user_id: str
+        self, message_result: Dict[str, Any], user_id: str
     ) -> Dict[str, Any]:
         """
         Get emotional context around a specific message.
@@ -903,43 +947,55 @@ class ConversationPersistenceService:
                 return {"context_available": False}
 
             # Get emotional patterns around this time
-            message_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            message_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
             context_window = timedelta(hours=2)  # 2-hour window around message
 
             emotional_patterns = self.vector_db.emotional_patterns.get(
                 where={
                     "$and": [
                         {"user_id": {"$eq": user_id}},
-                        {"timestamp": {"$gte": (message_time - context_window).isoformat()}},
-                        {"timestamp": {"$lte": (message_time + context_window).isoformat()}}
+                        {
+                            "timestamp": {
+                                "$gte": (message_time - context_window).isoformat()
+                            }
+                        },
+                        {
+                            "timestamp": {
+                                "$lte": (message_time + context_window).isoformat()
+                            }
+                        },
                     ]
                 },
-                include=["metadatas"]
+                include=["metadatas"],
             )
 
-            if not emotional_patterns or not emotional_patterns.get('metadatas'):
+            if not emotional_patterns or not emotional_patterns.get("metadatas"):
                 return {"context_available": False}
 
             # Analyze emotional patterns
-            emotions = [meta.get('emotion_name', 'Unknown') for meta in emotional_patterns['metadatas']]
-            intensities = [meta.get('intensity', 'Medium') for meta in emotional_patterns['metadatas']]
+            emotions = [
+                meta.get("emotion_name", "Unknown")
+                for meta in emotional_patterns["metadatas"]
+            ]
+            intensities = [
+                meta.get("intensity", "Medium")
+                for meta in emotional_patterns["metadatas"]
+            ]
 
             return {
                 "context_available": True,
                 "dominant_emotions": list(set(emotions)),
                 "intensity_range": list(set(intensities)),
                 "pattern_count": len(emotions),
-                "timeframe_hours": 2
+                "timeframe_hours": 2,
             }
 
         except Exception as e:
-            logger.error(f"❌ Failed to get emotional context: {e}")
+            logger.error("❌ Failed to get emotional context: %s", e)
             return {"context_available": False, "error": str(e)}
 
     async def _get_temporal_context_for_message(
-        self,
-        message_result: Dict[str, Any],
-        user_id: str
+        self, message_result: Dict[str, Any], user_id: str
     ) -> Dict[str, Any]:
         """
         Get temporal context around a specific message by performing multiple queries.
@@ -969,24 +1025,25 @@ class ConversationPersistenceService:
                     query="",  # Empty query to get by time only
                     user_id=user_id,
                     n_results=2,
-                    where_filter={"timestamp": {op: timestamp}}
+                    where_filter={"timestamp": {op: timestamp}},
                 )
 
             before_messages, after_messages = await asyncio.gather(
-                before_after_results["before"],
-                before_after_results["after"]
+                before_after_results["before"], before_after_results["after"]
             )
 
             return {
                 "context_available": True,
                 "messages_before": len(before_messages),
                 "messages_after": len(after_messages),
-                "conversation_continuity": len(before_messages) > 0 and len(after_messages) > 0,
-                "isolated_message": len(before_messages) == 0 and len(after_messages) == 0
+                "conversation_continuity": len(before_messages) > 0
+                and len(after_messages) > 0,
+                "isolated_message": len(before_messages) == 0
+                and len(after_messages) == 0,
             }
 
         except Exception as e:
-            logger.error(f"❌ Failed to get temporal context: {e}")
+            logger.error("❌ Failed to get temporal context: %s", e)
             return {"context_available": False, "error": str(e)}
 
     async def get_conversation_statistics(self, user_id: str) -> Dict[str, Any]:
@@ -1002,30 +1059,35 @@ class ConversationPersistenceService:
         try:
             # Get all conversations for user
             all_conversations = self.vector_db.conversations.get(
-                where={"user_id": {"$eq": user_id}},
-                include=["metadatas"]
+                where={"user_id": {"$eq": user_id}}, include=["metadatas"]
             )
 
-            if not all_conversations or not all_conversations.get('metadatas'):
+            if not all_conversations or not all_conversations.get("metadatas"):
                 return {
                     "user_id": user_id,
                     "total_conversations": 0,
-                    "message": "No conversations found"
+                    "message": "No conversations found",
                 }
 
-            metadata_list = all_conversations['metadatas']
+            metadata_list = all_conversations["metadatas"]
 
             # Calculate statistics
             total_conversations = len(metadata_list)
-            senders = [meta.get('sender', 'unknown') for meta in metadata_list]
-            sessions = list(set(meta.get('session_id', 'unknown') for meta in metadata_list))
-            emotions = [meta.get('emotion_name') for meta in metadata_list if meta.get('emotion_name')]
+            senders = [meta.get("sender", "unknown") for meta in metadata_list]
+            sessions = list(
+                set(meta.get("session_id", "unknown") for meta in metadata_list)
+            )
+            emotions = [
+                meta.get("emotion_name")
+                for meta in metadata_list
+                if meta.get("emotion_name")
+            ]
 
             # Time analysis
             timestamps = [
-                datetime.fromisoformat(meta.get('timestamp', '').replace('Z', '+00:00'))
+                datetime.fromisoformat(meta.get("timestamp", "").replace("Z", "+00:00"))
                 for meta in metadata_list
-                if meta.get('timestamp')
+                if meta.get("timestamp")
             ]
 
             stats = {
@@ -1033,38 +1095,45 @@ class ConversationPersistenceService:
                 "total_conversations": total_conversations,
                 "unique_sessions": len(sessions),
                 "message_breakdown": {
-                    "user_messages": senders.count('user'),
-                    "aura_messages": senders.count('aura'),
-                    "other_messages": total_conversations - senders.count('user') - senders.count('aura')
+                    "user_messages": senders.count("user"),
+                    "aura_messages": senders.count("aura"),
+                    "other_messages": total_conversations
+                    - senders.count("user")
+                    - senders.count("aura"),
                 },
                 "emotional_summary": {
                     "emotions_recorded": len(emotions),
                     "unique_emotions": len(set(emotions)) if emotions else 0,
-                    "most_common_emotions": self._get_top_emotions(emotions, 3) if emotions else []
+                    "most_common_emotions": (
+                        self._get_top_emotions(emotions, 3) if emotions else []
+                    ),
                 },
-                "temporal_analysis": self._analyze_conversation_timing(timestamps) if timestamps else {}
+                "temporal_analysis": (
+                    self._analyze_conversation_timing(timestamps) if timestamps else {}
+                ),
             }
 
             return stats
 
         except Exception as e:
-            logger.error(f"❌ Failed to get conversation statistics: {e}")
-            return {
-                "user_id": user_id,
-                "error": str(e),
-                "total_conversations": 0
-            }
+            logger.error("❌ Failed to get conversation statistics: %s", e)
+            return {"user_id": user_id, "error": str(e), "total_conversations": 0}
 
-    def _get_top_emotions(self, emotions: List[str], top_n: int) -> List[Dict[str, Any]]:
+    def _get_top_emotions(
+        self, emotions: List[str], top_n: int
+    ) -> List[Dict[str, Any]]:
         """Get top N most frequent emotions with counts."""
         from collections import Counter
+
         emotion_counts = Counter(emotions)
         return [
             {"emotion": emotion, "count": count}
             for emotion, count in emotion_counts.most_common(top_n)
         ]
 
-    def _analyze_conversation_timing(self, timestamps: List[datetime]) -> Dict[str, Any]:
+    def _analyze_conversation_timing(
+        self, timestamps: List[datetime]
+    ) -> Dict[str, Any]:
         """Analyze conversation timing patterns."""
         if not timestamps:
             return {}
@@ -1076,20 +1145,20 @@ class ConversationPersistenceService:
             "last_conversation": sorted_times[-1].isoformat(),
             "conversation_span_days": (sorted_times[-1] - sorted_times[0]).days,
             "most_active_hour": self._find_most_active_hour(timestamps),
-            "average_daily_conversations": len(timestamps) / max((sorted_times[-1] - sorted_times[0]).days, 1)
+            "average_daily_conversations": len(timestamps)
+            / max((sorted_times[-1] - sorted_times[0]).days, 1),
         }
 
     def _find_most_active_hour(self, timestamps: List[datetime]) -> int:
         """Find the hour of day with most conversation activity."""
         from collections import Counter
+
         hours = [ts.hour for ts in timestamps]
         hour_counts = Counter(hours)
         return hour_counts.most_common(1)[0][0] if hour_counts else 0
 
     async def register_event_callback(
-        self,
-        event_type: str,
-        callback: Callable[[Dict[str, Any]], None]
+        self, event_type: str, callback: Callable[[Dict[str, Any]], None]
     ) -> None:
         """
         Register callback for persistence events.
@@ -1102,9 +1171,11 @@ class ConversationPersistenceService:
             self._event_callbacks[event_type] = []
 
         self._event_callbacks[event_type].append(callback)
-        logger.info(f"📡 Registered callback for event: {event_type}")
+        logger.info("📡 Registered callback for event: %s", event_type)
 
-    async def _trigger_event_callbacks(self, event_type: str, event_data: Dict[str, Any]) -> None:
+    async def _trigger_event_callbacks(
+        self, event_type: str, event_data: Dict[str, Any]
+    ) -> None:
         """Trigger all callbacks for a specific event type."""
         if event_type in self._event_callbacks:
             for callback in self._event_callbacks[event_type]:
@@ -1114,7 +1185,7 @@ class ConversationPersistenceService:
                     else:
                         callback(event_data)
                 except Exception as e:
-                    logger.error(f"❌ Event callback failed for {event_type}: {e}")
+                    logger.error("❌ Event callback failed for %s: %s", event_type, e)
 
     async def get_persistence_metrics(self) -> Dict[str, Any]:
         """
@@ -1127,15 +1198,21 @@ class ConversationPersistenceService:
             **self._metrics,
             "semaphore_available": self._write_semaphore._value,
             "failed_operations_queued": len(self._failed_operations),
-            "event_callbacks_registered": sum(len(callbacks) for callbacks in self._event_callbacks.values()),
+            "event_callbacks_registered": sum(
+                len(callbacks) for callbacks in self._event_callbacks.values()
+            ),
             "chromadb_error_count": self._chromadb_error_count,
             "consecutive_failures": self._consecutive_failures,
             "emergency_recovery_threshold": self._emergency_recovery_threshold,
             "emergency_recovery_enabled": self.emergency_recovery_enabled,
-            "last_chromadb_error": self._last_chromadb_error.isoformat() if self._last_chromadb_error else None,
+            "last_chromadb_error": (
+                self._last_chromadb_error.isoformat()
+                if self._last_chromadb_error
+                else None
+            ),
             "chromadb_recovery_enabled": self.chromadb_recovery_enabled,
             "database_protection_enabled": self.use_database_protection,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         # Add protection service health if available
@@ -1144,7 +1221,10 @@ class ConversationPersistenceService:
                 protection_health = self._protection_service.get_health_status()
                 metrics["protection_service"] = protection_health
             except Exception as e:
-                metrics["protection_service"] = {"error": str(e), "status": "unavailable"}
+                metrics["protection_service"] = {
+                    "error": str(e),
+                    "status": "unavailable",
+                }
         else:
             metrics["protection_service"] = {"status": "disabled"}
 
@@ -1155,7 +1235,7 @@ class ConversationPersistenceService:
         query: str,
         user_id: str,
         n_results: int = 5000,
-        where_filter: Optional[Dict] = None
+        where_filter: Optional[Dict] = None,
     ) -> List[Dict]:
         """
         Thread-safe search through conversation history with ChromaDB error handling.
@@ -1167,13 +1247,15 @@ class ConversationPersistenceService:
             for attempt in range(self.max_retries):
                 try:
                     # Allow brief settling time if there were recent writes
-                    await asyncio.sleep(0.1 * (attempt + 1))  # Increasing delay per attempt
+                    await asyncio.sleep(
+                        0.1 * (attempt + 1)
+                    )  # Increasing delay per attempt
 
                     results = await self.vector_db.search_conversations(
                         query=query,
                         user_id=user_id,
                         n_results=n_results,
-                        where_filter=where_filter
+                        where_filter=where_filter,
                     )
 
                     # Reset consecutive failures on successful operation
@@ -1181,30 +1263,38 @@ class ConversationPersistenceService:
 
                     # Reset error count on success
                     if self._chromadb_error_count > 0:
-                        logger.info(f"✅ ChromaDB search recovered after {self._chromadb_error_count} errors")
+                        logger.info(
+                            f"✅ ChromaDB search recovered after {self._chromadb_error_count} errors"
+                        )
                         self._chromadb_error_count = 0
 
                     return results
 
                 except Exception as e:
-                    logger.error(f"❌ Safe search attempt {attempt + 1} failed: {e}")
+                    logger.error("❌ Safe search attempt %s failed: %s", attempt + 1, e)
 
                     # Handle ChromaDB-specific errors
                     if self._is_chromadb_compaction_error(e):
-                        recovery_attempted = await self._handle_chromadb_error(e, f"search (attempt {attempt + 1})")
+                        recovery_attempted = await self._handle_chromadb_error(
+                            e, f"search (attempt {attempt + 1})"
+                        )
 
                         if recovery_attempted and attempt < self.max_retries - 1:
-                            logger.info(f"🔄 Retrying search after ChromaDB recovery (attempt {attempt + 2})")
+                            logger.info(
+                                f"🔄 Retrying search after ChromaDB recovery (attempt {attempt + 2})"
+                            )
                             continue
 
                     # If this is the last attempt or not a ChromaDB error, give up
                     if attempt == self.max_retries - 1:
-                        logger.error(f"❌ All search attempts failed. Last error: {e}")
+                        logger.error("❌ All search attempts failed. Last error: %s", e)
                         return []
 
             return []
 
-    async def safe_get_chat_history(self, user_id: str, limit: int = 5000) -> Dict[str, Any]:
+    async def safe_get_chat_history(
+        self, user_id: str, limit: int = 5000
+    ) -> Dict[str, Any]:
         """
         Thread-safe retrieval of chat history with enhanced error handling.
 
@@ -1221,14 +1311,24 @@ class ConversationPersistenceService:
                     results = self.vector_db.conversations.get(
                         where={"user_id": {"$eq": user_id}},
                         limit=limit,
-                        include=["documents", "metadatas"]
+                        include=["documents", "metadatas"],
                     )
                 except Exception as db_error:
-                    logger.error(f"❌ Database query failed for chat history: {db_error}")
-                    return {"sessions": [], "total": 0, "error": "Database query failed"}
+                    logger.error(
+                        f"❌ Database query failed for chat history: {db_error}"
+                    )
+                    return {
+                        "sessions": [],
+                        "total": 0,
+                        "error": "Database query failed",
+                    }
 
-                if not results or not results.get('documents') or not isinstance(results['documents'], list):
-                    logger.info(f"📭 No chat history found for user {user_id}")
+                if (
+                    not results
+                    or not results.get("documents")
+                    or not isinstance(results["documents"], list)
+                ):
+                    logger.info("📭 No chat history found for user %s", user_id)
                     return {"sessions": [], "total": 0}
 
                 # Group by session with enhanced processing and deduplication
@@ -1237,23 +1337,34 @@ class ConversationPersistenceService:
                 skipped_duplicates = 0
                 seen_message_ids = set()  # Track unique messages to prevent duplicates
 
-                for i, doc in enumerate(results['documents']):
+                for i, doc in enumerate(results["documents"]):
                     try:
-                        metadata = results['metadatas'][i] if results.get('metadatas') and results['metadatas'] is not None else {}
-                        doc_id = results['ids'][i] if results.get('ids') and i < len(results['ids']) else f"unknown_{i}"
-                        session_id = metadata.get('session_id', 'unknown')
+                        metadata = (
+                            results["metadatas"][i]
+                            if results.get("metadatas")
+                            and results["metadatas"] is not None
+                            else {}
+                        )
+                        doc_id = (
+                            results["ids"][i]
+                            if results.get("ids") and i < len(results["ids"])
+                            else f"unknown_{i}"
+                        )
+                        session_id = metadata.get("session_id", "unknown")
 
                         # Skip duplicate messages (can happen with database conflicts)
                         if doc_id in seen_message_ids:
-                            logger.debug(f"⚠️ Skipping duplicate message {doc_id}")
+                            logger.debug("⚠️ Skipping duplicate message %s", doc_id)
                             skipped_duplicates += 1
                             continue
 
                         seen_message_ids.add(doc_id)
 
                         # Validate essential fields
-                        if not doc or not metadata.get('timestamp'):
-                            logger.warning(f"⚠️ Skipping invalid message at index {i}: missing content or timestamp")
+                        if not doc or not metadata.get("timestamp"):
+                            logger.warning(
+                                f"⚠️ Skipping invalid message at index {i}: missing content or timestamp"
+                            )
                             continue
 
                         # Create session entry if new
@@ -1261,14 +1372,16 @@ class ConversationPersistenceService:
                             sessions[session_id] = {
                                 "session_id": session_id,
                                 "messages": [],
-                                "start_time": metadata.get('timestamp', ''),
-                                "last_time": metadata.get('timestamp', ''),
-                                "message_ids": set()  # Track message IDs per session
+                                "start_time": metadata.get("timestamp", ""),
+                                "last_time": metadata.get("timestamp", ""),
+                                "message_ids": set(),  # Track message IDs per session
                             }
 
                         # Skip if this message is already in this session (additional deduplication)
                         if doc_id in sessions[session_id]["message_ids"]:
-                            logger.debug(f"⚠️ Skipping duplicate message {doc_id} in session {session_id}")
+                            logger.debug(
+                                f"⚠️ Skipping duplicate message {doc_id} in session {session_id}"
+                            )
                             continue
 
                         sessions[session_id]["message_ids"].add(doc_id)
@@ -1277,26 +1390,34 @@ class ConversationPersistenceService:
                         message = {
                             "id": doc_id,
                             "content": str(doc),
-                            "sender": metadata.get('sender', 'unknown'),
-                            "timestamp": metadata.get('timestamp', ''),
-                            "emotion": metadata.get('emotion_name', 'Normal'),
-                            "session_id": session_id
+                            "sender": metadata.get("sender", "unknown"),
+                            "timestamp": metadata.get("timestamp", ""),
+                            "emotion": metadata.get("emotion_name", "Normal"),
+                            "session_id": session_id,
                         }
 
                         sessions[session_id]["messages"].append(message)
                         processed_messages += 1
 
                         # Update session times with proper timestamp comparison
-                        timestamp = metadata.get('timestamp', '')
+                        timestamp = metadata.get("timestamp", "")
                         if timestamp:
                             # Use string comparison for ISO timestamps (works correctly)
-                            if not sessions[session_id]["start_time"] or timestamp < sessions[session_id]["start_time"]:
+                            if (
+                                not sessions[session_id]["start_time"]
+                                or timestamp < sessions[session_id]["start_time"]
+                            ):
                                 sessions[session_id]["start_time"] = timestamp
-                            if not sessions[session_id]["last_time"] or timestamp > sessions[session_id]["last_time"]:
+                            if (
+                                not sessions[session_id]["last_time"]
+                                or timestamp > sessions[session_id]["last_time"]
+                            ):
                                 sessions[session_id]["last_time"] = timestamp
 
                     except Exception as message_error:
-                        logger.error(f"❌ Error processing message {i}: {message_error}")
+                        logger.error(
+                            f"❌ Error processing message {i}: {message_error}"
+                        )
                         continue
 
                 # Clean up temporary tracking data before returning
@@ -1314,26 +1435,30 @@ class ConversationPersistenceService:
                 for session in session_list:
                     session["messages"].sort(key=lambda m: m.get("timestamp", ""))
 
-                logger.info(f"✅ Retrieved {len(session_list)} sessions with {processed_messages} total messages for {user_id} (skipped {skipped_duplicates} duplicates)")
+                logger.info(
+                    f"✅ Retrieved {len(session_list)} sessions with {processed_messages} total messages for {user_id} (skipped {skipped_duplicates} duplicates)"
+                )
                 return {
                     "sessions": session_list,
                     "total": len(session_list),
                     "processed_messages": processed_messages,
-                    "skipped_duplicates": skipped_duplicates
+                    "skipped_duplicates": skipped_duplicates,
                 }
 
             except Exception as e:
-                logger.error(f"❌ Safe chat history retrieval failed: {e}")
+                logger.error("❌ Safe chat history retrieval failed: %s", e)
                 return {"sessions": [], "total": 0, "error": str(e)}
 
-    async def get_fresh_chat_history(self, user_id: str, limit: int = 5000) -> Dict[str, Any]:
+    async def get_fresh_chat_history(
+        self, user_id: str, limit: int = 5000
+    ) -> Dict[str, Any]:
         """
         Get fresh chat history with aggressive deduplication for fixing stale UI data.
 
         This method addresses the specific issue of repeated/stale chat history entries
         by implementing strict deduplication and fresh database queries.
         """
-        logger.info(f"🔄 Getting fresh chat history for {user_id} (limit: {limit})")
+        logger.info("🔄 Getting fresh chat history for %s (limit: %s)", user_id, limit)
 
         async with self._write_semaphore:
             try:
@@ -1342,40 +1467,51 @@ class ConversationPersistenceService:
 
                 # Query last 30 days to get comprehensive session data
                 from datetime import datetime, timedelta
+
                 cutoff_date = (datetime.now() - timedelta(days=30)).isoformat()
 
                 results = self.vector_db.conversations.get(
                     where={
                         "$and": [
                             {"user_id": {"$eq": user_id}},
-                            {"timestamp": {"$gte": cutoff_date}}
+                            {"timestamp": {"$gte": cutoff_date}},
                         ]
                     },
-                    include=["documents", "metadatas", "ids"]
+                    include=["documents", "metadatas", "ids"],
                 )
 
-                if not results or not results.get('ids'):
+                if not results or not results.get("ids"):
                     return {"sessions": [], "total": 0, "fresh": True}
 
                 # Strict deduplication and session mapping
                 session_map = {}
                 message_fingerprints = set()
 
-                for i, doc_id in enumerate(results['ids']):
+                for i, _doc_id in enumerate(results["ids"]):
                     try:
-                        doc = results['documents'][i] if i < len(results['documents']) else ""
-                        metadata = results['metadatas'][i] if i < len(results['metadatas']) else {}
+                        doc = (
+                            results["documents"][i]
+                            if i < len(results["documents"])
+                            else ""
+                        )
+                        metadata = (
+                            results["metadatas"][i]
+                            if i < len(results["metadatas"])
+                            else {}
+                        )
 
-                        session_id = metadata.get('session_id', 'unknown')
-                        sender = metadata.get('sender', 'unknown')
-                        timestamp = metadata.get('timestamp', '')
+                        session_id = metadata.get("session_id", "unknown")
+                        sender = metadata.get("sender", "unknown")
+                        timestamp = metadata.get("timestamp", "")
 
                         # Skip invalid entries
-                        if not doc or not timestamp or sender not in ['user', 'aura']:
+                        if not doc or not timestamp or sender not in ["user", "aura"]:
                             continue
 
                         # Global deduplication fingerprint
-                        message_fingerprint = f"{session_id}:{sender}:{doc[:50]}:{timestamp}"
+                        message_fingerprint = (
+                            f"{session_id}:{sender}:{doc[:50]}:{timestamp}"
+                        )
                         if message_fingerprint in message_fingerprints:
                             continue
                         message_fingerprints.add(message_fingerprint)
@@ -1386,61 +1522,75 @@ class ConversationPersistenceService:
                                 "session_id": session_id,
                                 "messages": [],
                                 "last_timestamp": timestamp,
-                                "message_count": 0
+                                "message_count": 0,
                             }
 
                         # Add message
-                        session_map[session_id]["messages"].append({
-                            "content": doc.strip(),
-                            "sender": sender,
-                            "timestamp": timestamp
-                        })
+                        session_map[session_id]["messages"].append(
+                            {
+                                "content": doc.strip(),
+                                "sender": sender,
+                                "timestamp": timestamp,
+                            }
+                        )
                         session_map[session_id]["message_count"] += 1
 
                         if timestamp > session_map[session_id]["last_timestamp"]:
                             session_map[session_id]["last_timestamp"] = timestamp
 
                     except Exception as item_error:
-                        logger.error(f"❌ Error processing item {i}: {item_error}")
+                        logger.error("❌ Error processing item %s: %s", i, item_error)
                         continue
 
                 # Convert and sort sessions
                 fresh_sessions = []
                 for session_data in session_map.values():
                     if session_data["message_count"] >= 1:
-                        session_data["messages"].sort(key=lambda m: m.get("timestamp", ""))
+                        session_data["messages"].sort(
+                            key=lambda m: m.get("timestamp", "")
+                        )
 
                         # Get last message preview
                         last_message = ""
                         for msg in reversed(session_data["messages"]):
                             if msg.get("content"):
                                 content = msg["content"]
-                                last_message = content[:10000] + "..." if len(content) > 10000 else content
+                                last_message = (
+                                    content[:10000] + "..."
+                                    if len(content) > 10000
+                                    else content
+                                )
                                 break
 
-                        fresh_sessions.append({
-                            "session_id": session_data["session_id"],
-                            "timestamp": session_data["last_timestamp"],
-                            "message_count": session_data["message_count"],
-                            "last_message": last_message
-                        })
+                        fresh_sessions.append(
+                            {
+                                "session_id": session_data["session_id"],
+                                "timestamp": session_data["last_timestamp"],
+                                "message_count": session_data["message_count"],
+                                "last_message": last_message,
+                            }
+                        )
 
                 fresh_sessions.sort(key=lambda s: s.get("timestamp", ""), reverse=True)
                 if len(fresh_sessions) > limit:
                     fresh_sessions = fresh_sessions[:limit]
 
-                logger.info(f"✅ Fresh chat history: {len(fresh_sessions)} distinct sessions for {user_id}")
+                logger.info(
+                    f"✅ Fresh chat history: {len(fresh_sessions)} distinct sessions for {user_id}"
+                )
                 return {
                     "sessions": fresh_sessions,
                     "total": len(fresh_sessions),
-                    "fresh": True
+                    "fresh": True,
                 }
 
             except Exception as e:
-                logger.error(f"❌ Fresh chat history failed: {e}")
+                logger.error("❌ Fresh chat history failed: %s", e)
                 return {"sessions": [], "total": 0, "error": str(e)}
 
-    async def safe_get_session_messages(self, user_id: str, session_id: str) -> List[Dict[str, Any]]:
+    async def safe_get_session_messages(
+        self, user_id: str, session_id: str
+    ) -> List[Dict[str, Any]]:
         """
         Thread-safe retrieval of messages for a specific session with enhanced error handling.
 
@@ -1467,20 +1617,27 @@ class ConversationPersistenceService:
                             where={
                                 "$and": [
                                     {"user_id": {"$eq": user_id}},
-                                    {"session_id": {"$eq": session_id}}
+                                    {"session_id": {"$eq": session_id}},
                                 ]
                             },
-                            include=["documents", "metadatas"]
+                            include=["documents", "metadatas"],
                         )
                     except Exception as db_error:
-                        logger.error(f"❌ Database query failed for session messages: {db_error}")
+                        logger.error(
+                            f"❌ Database query failed for session messages: {db_error}"
+                        )
 
                         # Handle ChromaDB-specific errors
                         if self._is_chromadb_compaction_error(db_error):
-                            recovery_attempted = await self._handle_chromadb_error(db_error, f"get_session_messages (attempt {attempt + 1})")
+                            recovery_attempted = await self._handle_chromadb_error(
+                                db_error,
+                                f"get_session_messages (attempt {attempt + 1})",
+                            )
 
                             if recovery_attempted and attempt < self.max_retries - 1:
-                                logger.info(f"🔄 Retrying session message retrieval after ChromaDB recovery (attempt {attempt + 2})")
+                                logger.info(
+                                    f"🔄 Retrying session message retrieval after ChromaDB recovery (attempt {attempt + 2})"
+                                )
                                 continue
 
                         # If this is the last attempt or not a ChromaDB error, raise
@@ -1488,14 +1645,16 @@ class ConversationPersistenceService:
                             raise db_error
                         continue
 
-                    if not results or not results.get('ids'):
-                        logger.info(f"📭 No messages found for session {session_id} for user {user_id}")
+                    if not results or not results.get("ids"):
+                        logger.info(
+                            f"📭 No messages found for session {session_id} for user {user_id}"
+                        )
                         return []
 
                     messages = []
-                    ids_list = results['ids']
-                    documents_list = results.get('documents', [])
-                    metadatas_list = results.get('metadatas', [])
+                    ids_list = results["ids"]
+                    documents_list = results.get("documents", [])
+                    metadatas_list = results.get("metadatas", [])
 
                     for i in range(len(ids_list)):
                         try:
@@ -1503,62 +1662,82 @@ class ConversationPersistenceService:
                             meta = metadatas_list[i] if i < len(metadatas_list) else {}
 
                             if not doc:
-                                logger.warning(f"⚠️ Skipping message with missing document at index {i}")
+                                logger.warning(
+                                    f"⚠️ Skipping message with missing document at index {i}"
+                                )
                                 continue
 
                             message_item = {
                                 "id": ids_list[i],
                                 "message": doc,  # Corresponds to ConversationMemory.message
-                                **meta  # Spreads all metadata like sender, timestamp, etc.
+                                **meta,  # Spreads all metadata like sender, timestamp, etc.
                             }
 
                             # Attempt to parse complex fields if they are stored as JSON strings
                             for key in ["emotional_state", "cognitive_state"]:
-                                if key in message_item and isinstance(message_item[key], str):
+                                if key in message_item and isinstance(
+                                    message_item[key], str
+                                ):
                                     try:
-                                        message_item[key] = json.loads(message_item[key])
+                                        message_item[key] = json.loads(
+                                            message_item[key]
+                                        )
                                     except json.JSONDecodeError:
-                                        logger.warning(f"Failed to parse JSON for {key} in message {message_item['id']}")
+                                        logger.warning(
+                                            f"Failed to parse JSON for {key} in message {message_item['id']}"
+                                        )
 
                             messages.append(message_item)
 
                         except Exception as message_error:
-                            logger.error(f"❌ Error processing message {i} in session {session_id}: {message_error}")
+                            logger.error(
+                                f"❌ Error processing message {i} in session {session_id}: {message_error}"
+                            )
                             continue
 
                     # Sort messages by timestamp to ensure proper order
-                    messages.sort(key=lambda x: x.get('timestamp', ''))
+                    messages.sort(key=lambda x: x.get("timestamp", ""))
 
                     # Reset error count on success
                     if self._chromadb_error_count > 0:
-                        logger.info(f"✅ ChromaDB session message retrieval recovered after {self._chromadb_error_count} errors")
+                        logger.info(
+                            f"✅ ChromaDB session message retrieval recovered after {self._chromadb_error_count} errors"
+                        )
                         self._chromadb_error_count = 0
 
-                    logger.info(f"✅ Retrieved {len(messages)} messages for session {session_id} for user {user_id}")
+                    logger.info(
+                        f"✅ Retrieved {len(messages)} messages for session {session_id} for user {user_id}"
+                    )
                     return messages
 
                 except Exception as e:
-                    logger.error(f"❌ Safe session message retrieval attempt {attempt + 1} failed: {e}")
+                    logger.error(
+                        f"❌ Safe session message retrieval attempt {attempt + 1} failed: {e}"
+                    )
 
                     # Handle ChromaDB-specific errors
                     if self._is_chromadb_compaction_error(e):
-                        recovery_attempted = await self._handle_chromadb_error(e, f"get_session_messages (attempt {attempt + 1})")
+                        recovery_attempted = await self._handle_chromadb_error(
+                            e, f"get_session_messages (attempt {attempt + 1})"
+                        )
 
                         if recovery_attempted and attempt < self.max_retries - 1:
-                            logger.info(f"🔄 Retrying session message retrieval after ChromaDB recovery (attempt {attempt + 2})")
+                            logger.info(
+                                f"🔄 Retrying session message retrieval after ChromaDB recovery (attempt {attempt + 2})"
+                            )
                             continue
 
                     # If this is the last attempt or not a ChromaDB error, give up
                     if attempt == self.max_retries - 1:
-                        logger.error(f"❌ All session message retrieval attempts failed. Last error: {e}")
+                        logger.error(
+                            f"❌ All session message retrieval attempts failed. Last error: {e}"
+                        )
                         return []
 
             return []
 
     async def batch_persist_exchanges(
-        self,
-        exchanges: List[ConversationExchange],
-        batch_delay: float = 0.5
+        self, exchanges: List[ConversationExchange], batch_delay: float = 0.5
     ) -> Dict[str, Any]:
         """
         Persists multiple conversation exchanges with proper spacing.
@@ -1578,7 +1757,7 @@ class ConversationPersistenceService:
             "successful": 0,
             "failed": 0,
             "errors": [],
-            "duration_ms": 0
+            "duration_ms": 0,
         }
 
         start_time = datetime.now()
@@ -1598,7 +1777,7 @@ class ConversationPersistenceService:
                     await asyncio.sleep(batch_delay)
 
             except Exception as e:
-                logger.error(f"Failed to persist exchange {i+1}/{len(exchanges)}: {e}")
+                logger.error("Failed to persist exchange %s/%s: %s", i+1, len(exchanges), e)
                 results["failed"] += 1
                 results["errors"].append(f"exchange_{i}: {e}")
 
@@ -1612,7 +1791,9 @@ class ConversationPersistenceService:
 
         return results
 
-    async def _perform_protected_operation(self, operation_name: str, operation_func: Callable, *args, **kwargs):
+    async def _perform_protected_operation(
+        self, operation_name: str, operation_func: Callable, *args, **kwargs
+    ):
         """
         Perform a database operation with protection service coordination.
 
@@ -1632,8 +1813,9 @@ class ConversationPersistenceService:
                 return await operation_func(*args, **kwargs)
 
         except Exception as e:
-            logger.error(f"❌ Protected operation '{operation_name}' failed: {e}")
+            logger.error("❌ Protected operation '%s' failed: %s", operation_name, e)
             raise
+
 
 class PersistenceHealthCheck:
     """
@@ -1653,7 +1835,7 @@ class PersistenceHealthCheck:
             "max_error_rate": 0.05,  # 5% error rate
             "min_success_rate": 0.95,
             "max_failed_operations_queued": 10,
-            "max_hours_since_last_cleanup": 2400000
+            "max_hours_since_last_cleanup": 2400000,
         }
 
     async def check_health(self) -> Dict[str, Any]:
@@ -1670,16 +1852,21 @@ class PersistenceHealthCheck:
             "issues": [],
             "recommendations": [],
             "metrics": metrics,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         # Check average store time
-        if metrics["average_store_time"] > self.health_thresholds["max_average_store_time_ms"]:
+        if (
+            metrics["average_store_time"]
+            > self.health_thresholds["max_average_store_time_ms"]
+        ):
             health_status["healthy"] = False
             health_status["issues"].append(
                 f"Slow storage operations: {metrics['average_store_time']:.1f}ms average"
             )
-            health_status["recommendations"].append("Consider increasing compaction_delay or investigating ChromaDB performance")
+            health_status["recommendations"].append(
+                "Consider increasing compaction_delay or investigating ChromaDB performance"
+            )
 
         # Check error rate
         total_attempts = metrics["total_exchanges_stored"] + metrics["failed_stores"]
@@ -1687,27 +1874,35 @@ class PersistenceHealthCheck:
             error_rate = metrics["failed_stores"] / total_attempts
             if error_rate > self.health_thresholds["max_error_rate"]:
                 health_status["healthy"] = False
-                health_status["issues"].append(
-                    f"High error rate: {error_rate:.1%}"
+                health_status["issues"].append(f"High error rate: {error_rate:.1%}")
+                health_status["recommendations"].append(
+                    "Review error logs and consider system maintenance"
                 )
-                health_status["recommendations"].append("Review error logs and consider system maintenance")
 
         # Check failed operations queue
-        if metrics["failed_operations_queued"] > self.health_thresholds["max_failed_operations_queued"]:
+        if (
+            metrics["failed_operations_queued"]
+            > self.health_thresholds["max_failed_operations_queued"]
+        ):
             health_status["healthy"] = False
             health_status["issues"].append(
                 f"Too many failed operations queued: {metrics['failed_operations_queued']}"
             )
-            health_status["recommendations"].append("Run retry_failed_operations() to clear queue")
+            health_status["recommendations"].append(
+                "Run retry_failed_operations() to clear queue"
+            )
 
         # Check for recent errors
         if metrics["last_error"]:
-            health_status["issues"].append(
-                f"Recent error: {metrics['last_error']}"
-            )
+            health_status["issues"].append(f"Recent error: {metrics['last_error']}")
 
         # Add performance recommendations
-        if metrics["total_exchanges_stored"] > 1000 and metrics["cleanups_performed"] == 0:
-            health_status["recommendations"].append("Consider running cleanup_old_conversations() for better performance")
+        if (
+            metrics["total_exchanges_stored"] > 1000
+            and metrics["cleanups_performed"] == 0
+        ):
+            health_status["recommendations"].append(
+                "Consider running cleanup_old_conversations() for better performance"
+            )
 
         return health_status

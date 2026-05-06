@@ -8,12 +8,15 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+
 def run_uv_command(args: list, cwd: Optional[str] = None) -> bool:
     """Run uv command in the project directory"""
     try:
         cmd = ["uv"] + args
         print(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, cwd=cwd, check=True, capture_output=True, text=True
+        )
         if result.stdout:
             print(result.stdout)
         return True
@@ -25,6 +28,7 @@ def run_uv_command(args: list, cwd: Optional[str] = None) -> bool:
     except FileNotFoundError:
         print("❌ UV not found. Please install UV first: https://docs.astral.sh/uv/")
         return False
+
 
 def check_current_setup():
     """Check current Aura setup"""
@@ -50,6 +54,7 @@ def check_current_setup():
 
     return True
 
+
 def install_memvid_dependencies():
     """Install memvid and related dependencies"""
     print("📦 Installing memvid dependencies...")
@@ -62,15 +67,17 @@ def install_memvid_dependencies():
         "opencv-python",
         "qrcode",
         "faiss-cpu",
-        "PyPDF2",
+        "pypdf",
         "ebooklib",
-        "beautifulsoup4"
+        "beautifulsoup4",
     ]
 
     # Install from local memvid repo if available
     if memvid_repo.exists():
         print(f"Installing memvid from local repo: {memvid_repo}")
-        if not run_uv_command(["add", "--editable", str(memvid_repo)], cwd=str(aura_path)):
+        if not run_uv_command(
+            ["add", "--editable", str(memvid_repo)], cwd=str(aura_path)
+        ):
             print("⚠️  Failed to install from local repo, trying PyPI...")
             run_uv_command(["add", "memvid"], cwd=str(aura_path))
     else:
@@ -83,6 +90,7 @@ def install_memvid_dependencies():
         run_uv_command(["add", dep], cwd=str(aura_path))
 
     return True
+
 
 def create_hybrid_memory_system():
     """Create the hybrid memory system file"""
@@ -164,9 +172,9 @@ class AuraMemvidIntegration:
                     self.memvid_archives[archive_name] = MemvidRetriever(
                         str(video_file), str(index_file)
                     )
-                    logger.info(f"Loaded memvid archive: {archive_name}")
+                    logger.info("Loaded memvid archive: %s", archive_name)
                 except Exception as e:
-                    logger.error(f"Failed to load archive {archive_name}: {e}")
+                    logger.error("Failed to load archive %s: %s", archive_name, e)
 
     def search_unified(self, query: str, user_id: str, max_results: int = 10) -> Dict:
         """
@@ -202,7 +210,7 @@ class AuraMemvidIntegration:
                     })
 
         except Exception as e:
-            logger.error(f"Error searching active memory: {e}")
+            logger.error("Error searching active memory: %s", e)
 
         # Search memvid archives
         if MEMVID_AVAILABLE:
@@ -218,7 +226,7 @@ class AuraMemvidIntegration:
                             "frame": result["frame"]
                         })
                 except Exception as e:
-                    logger.error(f"Error searching archive {archive_name}: {e}")
+                    logger.error("Error searching archive %s: %s", archive_name, e)
 
         results["total_results"] = len(results["active_results"]) + len(results["archive_results"])
         return results
@@ -293,7 +301,7 @@ class AuraMemvidIntegration:
             if ids_to_delete:
                 self.conversations.delete(ids=ids_to_delete)
 
-            logger.info(f"Archived {len(conversations_to_archive)} conversations to {archive_name}")
+            logger.info("Archived %s conversations to %s", len(conversations_to_archive), archive_name)
 
             return {
                 "archived_count": len(conversations_to_archive),
@@ -303,7 +311,7 @@ class AuraMemvidIntegration:
             }
 
         except Exception as e:
-            logger.error(f"Error archiving conversations: {e}")
+            logger.error("Error archiving conversations: %s", e)
             return {"error": str(e), "archived_count": 0}
 
     def import_knowledge_base(self, source_path: str, archive_name: str) -> Dict:
@@ -352,7 +360,7 @@ class AuraMemvidIntegration:
             }
 
         except Exception as e:
-            logger.error(f"Error importing knowledge base: {e}")
+            logger.error("Error importing knowledge base: %s", e)
             return {"error": str(e)}
 
     def get_system_stats(self) -> Dict:
@@ -389,11 +397,12 @@ def initialize_aura_memvid():
 '''
 
     hybrid_file = aura_path / "aura_memvid_integration.py"
-    with open(hybrid_file, 'w') as f:
+    with open(hybrid_file, "w") as f:
         f.write(hybrid_code)
 
     print(f"✅ Created: {hybrid_file}")
     return True
+
 
 def create_enhanced_mcp_tools():
     """Create enhanced MCP tools that include memvid"""
@@ -463,7 +472,7 @@ def add_memvid_tools_to_mcp(mcp_server: FastMCP):
             )
 
         except Exception as e:
-            logger.error(f"Error in hybrid memory search: {e}")
+            logger.error("Error in hybrid memory search: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -495,7 +504,7 @@ def add_memvid_tools_to_mcp(mcp_server: FastMCP):
             )
 
         except Exception as e:
-            logger.error(f"Error archiving memories: {e}")
+            logger.error("Error archiving memories: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -530,7 +539,7 @@ def add_memvid_tools_to_mcp(mcp_server: FastMCP):
             )
 
         except Exception as e:
-            logger.error(f"Error importing knowledge archive: {e}")
+            logger.error("Error importing knowledge archive: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -562,7 +571,7 @@ def add_memvid_tools_to_mcp(mcp_server: FastMCP):
             )
 
         except Exception as e:
-            logger.error(f"Error getting system stats: {e}")
+            logger.error("Error getting system stats: %s", e)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -575,11 +584,12 @@ def add_memvid_tools_to_mcp(mcp_server: FastMCP):
 '''
 
     tools_file = aura_path / "aura_memvid_mcp_tools.py"
-    with open(tools_file, 'w') as f:
+    with open(tools_file, "w") as f:
         f.write(enhanced_tools_code)
 
     print(f"✅ Created: {tools_file}")
     return True
+
 
 def create_integration_example():
     """Create example integration script"""
@@ -638,17 +648,18 @@ if __name__ == "__main__":
 '''
 
     example_file = aura_path / "test_memvid_integration.py"
-    with open(example_file, 'w') as f:
+    with open(example_file, "w") as f:
         f.write(example_code)
 
     print(f"✅ Created: {example_file}")
     return True
 
+
 def create_integration_guide():
     """Create integration guide"""
     aura_path = Path("/home/ty/Repositories/ai_workspace/emotion_ai/aura_backend")
 
-    guide_content = '''# Aura + Memvid Integration Guide
+    guide_content = """# Aura + Memvid Integration Guide
 
 ## Overview
 This integration adds revolutionary video-based memory archival to your existing Aura system.
@@ -757,13 +768,14 @@ Use `get_memory_system_stats()` to monitor:
 5. Explore advanced memvid features (different codecs, etc.)
 
 The integration is designed to be completely backward-compatible while adding revolutionary new capabilities!
-'''
+"""
 
     guide_file = aura_path / "MEMVID_INTEGRATION.md"
-    with open(guide_file, 'w') as f:
+    with open(guide_file, "w") as f:
         f.write(guide_content)
 
     print(f"✅ Created: {guide_file}")
+
 
 def main():
     """Main integration function"""
@@ -802,6 +814,7 @@ def main():
     print("\n🎉 Your Aura system now has revolutionary video-based memory!")
 
     return True
+
 
 if __name__ == "__main__":
     main()
