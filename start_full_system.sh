@@ -129,7 +129,7 @@ EOF
 # Function to start frontend
 start_frontend() {
 	echo -e "${GREEN}🎨 Starting Frontend Server...${NC}"
-	cd "$FRONTEND_DIR"
+	cd "$FRONTEND_DIR" || exit
 
 	# Install dependencies if needed
 	if [ ! -d "node_modules" ]; then
@@ -189,19 +189,19 @@ RETRIES=0
 BACKEND_STARTED=false
 
 while [ $RETRIES -lt $MAX_RETRIES ]; do
-    if port_in_use 8000; then
-        echo -e "${GREEN}✅ Backend is running on http://localhost:8000${NC}"
-        echo -e "${BLUE}   API Documentation: http://localhost:8000/docs${NC}"
-        BACKEND_STARTED=true
-        break
-    fi
-    echo -n "."
-    sleep 2
-    ((RETRIES++))
+	if port_in_use 8000; then
+		echo -e "${GREEN}✅ Backend is running on http://localhost:8000${NC}"
+		echo -e "${BLUE}   API Documentation: http://localhost:8000/docs${NC}"
+		BACKEND_STARTED=true
+		break
+	fi
+	echo -n "."
+	sleep 2
+	((RETRIES++))
 done
 
 if [ "$BACKEND_STARTED" = false ]; then
-    echo -e "\n${RED}❌ Backend failed to start on port 8000${NC}"
+	echo -e "\n${RED}❌ Backend failed to start on port 8000${NC}"
 fi
 
 if port_in_use 5173; then

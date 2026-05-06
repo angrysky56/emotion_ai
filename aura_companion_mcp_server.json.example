@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "aura-companion": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/path/to/your/emotion_ai/aura_backend",
+        "run",
+        "aura_server.py"
+      ]
+    }
+  }
+}

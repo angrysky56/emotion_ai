@@ -15,35 +15,35 @@ NC='\033[0m' # No Color
 
 # Function to check if a port is in use
 port_in_use() {
-    lsof -ti:$1 >/dev/null 2>&1
+	lsof -ti:"$1" >/dev/null 2>&1
 }
 
 # Function to kill processes on specific ports
 kill_port() {
-    local port=$1
-    local service=$2
+	local port=$1
+	local service=$2
 
-    if port_in_use $port; then
-        echo -e "${YELLOW}Stopping $service on port $port...${NC}"
-        fuser -k $port/tcp 2>/dev/null || true
-        sleep 2
+	if port_in_use "$port"; then
+		echo -e "${YELLOW}Stopping $service on port $port...${NC}"
+		fuser -k "$port"/tcp 2>/dev/null || true
+		sleep 2
 
-        if port_in_use $port; then
-            echo -e "${RED}Force killing $service processes...${NC}"
-            pkill -f "uvicorn.*$port" 2>/dev/null || true
-            pkill -f "vite.*$port" 2>/dev/null || true
-            pkill -f "node.*$port" 2>/dev/null || true
-            sleep 2
-        fi
+		if port_in_use "$port"; then
+			echo -e "${RED}Force killing $service processes...${NC}"
+			pkill -f "uvicorn.*$port" 2>/dev/null || true
+			pkill -f "vite.*$port" 2>/dev/null || true
+			pkill -f "node.*$port" 2>/dev/null || true
+			sleep 2
+		fi
 
-        if ! port_in_use $port; then
-            echo -e "${GREEN}✅ $service stopped successfully${NC}"
-        else
-            echo -e "${RED}❌ Failed to stop $service${NC}"
-        fi
-    else
-        echo -e "${BLUE}$service is not running on port $port${NC}"
-    fi
+		if ! port_in_use "$port"; then
+			echo -e "${GREEN}✅ $service stopped successfully${NC}"
+		else
+			echo -e "${RED}❌ Failed to stop $service${NC}"
+		fi
+	else
+		echo -e "${BLUE}$service is not running on port $port${NC}"
+	fi
 }
 
 # Stop services

@@ -32,6 +32,7 @@ venv/
 # Environment variables
 .env
 .env.local
+mcp_client_config.json
 
 # Backend specific ignores
 aura_backend/aura_chroma_db/

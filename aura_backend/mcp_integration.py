@@ -338,9 +338,23 @@ class MCPClientManager:
 
         try:
             # Load MCP server configurations
-            config_path = Path(__file__).parent / "mcp_client_config.json"
-            if not config_path.exists():
-                logger.warning("⚠️ MCP config file not found, using defaults")
+            # 1. Try project root first (to make it easier for users)
+            root_config = Path(__file__).parent.parent / "mcp_client_config.json"
+            # 2. Try current package directory as fallback
+            local_config = Path(__file__).parent / "mcp_client_config.json"
+
+            if root_config.exists():
+                config_path = root_config
+                logger.info("📄 Using MCP config from project root: %s", config_path)
+            elif local_config.exists():
+                config_path = local_config
+                logger.info(
+                    "📄 Using MCP config from package directory: %s", config_path
+                )
+            else:
+                logger.warning(
+                    "⚠️ MCP config file not found in root or package directory"
+                )
                 return False
 
             with open(config_path, "r") as f:
@@ -819,12 +833,20 @@ async def initialize_mcp_client(aura_internal_tools=None) -> bool:
         # Use the robust AuraMCPClient implementation instead
         from aura_backend.mcp_client import AuraMCPClient, AuraMCPIntegration
 
-        # Create a client instance with the correct config path
-        try:
-            client_config_path = str(Path(__file__).parent / "mcp_client_config.json")
-        except NameError:
-            client_config_path = str(Path.cwd() / "mcp_client_config.json")
-        aura_mcp_client = AuraMCPClient(config_path=client_config_path)
+        # Create MCP client with config
+        # 1. Try project root first
+        root_config = Path(__file__).parent.parent / "mcp_client_config.json"
+        # 2. Try package directory
+        local_config = Path(__file__).parent / "mcp_client_config.json"
+
+        if root_config.exists():
+            config_path = root_config
+            logger.info("📄 Using MCP config from project root: %s", config_path)
+        else:
+            config_path = local_config
+            logger.info("📄 Using MCP config from package directory: %s", config_path)
+
+        aura_mcp_client = AuraMCPClient(config_path=str(config_path))
 
         await aura_mcp_client.start()
         integration = AuraMCPIntegration(aura_mcp_client)

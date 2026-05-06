@@ -40,7 +40,18 @@ async def initialize_mcp_system(
 
     try:
         # Create MCP client with config
-        config_path = Path(__file__).parent / "mcp_client_config.json"
+        # 1. Try project root first
+        root_config = Path(__file__).parent.parent / "mcp_client_config.json"
+        # 2. Try package directory
+        local_config = Path(__file__).parent / "mcp_client_config.json"
+
+        if root_config.exists():
+            config_path = root_config
+            logger.info("📄 Using MCP config from project root: %s", config_path)
+        else:
+            config_path = local_config
+            logger.info("📄 Using MCP config from package directory: %s", config_path)
+
         _mcp_client = AuraMCPClient(config_path=str(config_path))
 
         # Start the MCP client
@@ -55,7 +66,7 @@ async def initialize_mcp_system(
         logger.info(
             f"✅ MCP client connected to {capabilities['connected_servers']}/{capabilities['total_servers']} servers"
         )
-        logger.info("📦 Found %s tools total", capabilities['available_tools'])
+        logger.info("📦 Found %s tools total", capabilities["available_tools"])
 
         # Create MCP-Gemini bridge
         _mcp_bridge = MCPGeminiBridge(_mcp_client, aura_internal_tools)

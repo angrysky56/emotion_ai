@@ -102,12 +102,20 @@ class AuraMCPClient:
     def _load_config(self) -> Dict[str, Any]:
         """Load MCP client configuration"""
         try:
+            # 1. Try specified path
             if self.config_path.exists():
                 with open(self.config_path, "r") as f:
                     return json.load(f)
-            else:
-                logger.warning("Config file not found: %s", self.config_path)
-                return {"mcpServers": {}, "client_settings": {}}
+
+            # 2. Try parent directory if not found (root check)
+            root_path = self.config_path.parent.parent / self.config_path.name
+            if root_path.exists():
+                logger.info("📄 Found config in parent directory: %s", root_path)
+                with open(root_path, "r") as f:
+                    return json.load(f)
+
+            logger.warning("Config file not found: %s", self.config_path)
+            return {"mcpServers": {}, "client_settings": {}}
         except Exception as e:
             logger.error("Failed to load config: %s", e)
             return {"mcpServers": {}, "client_settings": {}}
