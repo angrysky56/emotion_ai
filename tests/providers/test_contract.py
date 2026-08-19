@@ -99,8 +99,19 @@ def test_failure_codes_are_exact_and_never_success_values() -> None:
         failure = ProviderFailure(code=code, provider="ollama", model="model-1")
         assert isinstance(failure, Exception)
         assert not isinstance(failure, ProviderResult)
+        assert is_dataclass(failure)
+        assert type(failure).__dataclass_params__.frozen is True
+        assert hasattr(type(failure), "__slots__")
+        with pytest.raises(FrozenInstanceError):
+            failure.code = ProviderErrorCode.UNAVAILABLE  # type: ignore[misc]
         with pytest.raises(TypeError):
             Completed(result=failure)  # type: ignore[arg-type]
+
+    with pytest.raises(TypeError):
+        ProviderFailure(  # type: ignore[call-arg]
+            code=ProviderErrorCode.UNAVAILABLE,
+            raw_exception=RuntimeError("source exception must remain chained only"),
+        )
 
 
 def test_stream_partial_failure_resource_limit_and_cancel_cannot_complete() -> None:

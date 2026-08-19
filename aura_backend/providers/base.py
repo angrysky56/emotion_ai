@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator as CollectionsAsyncIterator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Mapping, Optional, Protocol, runtime_checkable
 
 
 JsonScalar = str | int | float | bool | None
@@ -238,7 +238,7 @@ class Provider(Protocol):
         """Generate exactly one completed result or raise a provider failure."""
         ...
 
-    def stream(self, request: ProviderRequest) -> CollectionsAsyncIterator[StreamEvent]:
+    def stream(self, request: ProviderRequest) -> AsyncIterator[StreamEvent]:
         """Yield incremental events ending in exactly one valid completion."""
         ...
 
