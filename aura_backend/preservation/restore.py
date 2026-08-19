@@ -211,10 +211,8 @@ def verify_disposable_restore(
         sqlite_pass = (
             expected_database_count > 0
             and len(restored_databases) == expected_database_count
-            and all(
-            database.integrity_status is CheckStatus.PASS
-                for database in restored_databases
-            )
+            and _sqlite_facts(restored_inventory) == _sqlite_facts(inventory_manifest)
+            and _sqlite_expectations_are_licensed(inventory_manifest)
         )
         fk_parity = _foreign_key_facts(restored_inventory) == _foreign_key_facts(
             inventory_manifest
@@ -230,7 +228,11 @@ def verify_disposable_restore(
             _foreign_key_fingerprint(restored_inventory),
         )
 
-        chroma = _verify_chroma(disposable, aliases, hmac_key)
+        chroma = _verify_chroma(
+            disposable,
+            _chroma_aliases(inventory_manifest),
+            hmac_key,
+        )
         base_checks["chroma_counts"] = _check(
             "chroma_counts", chroma.count_status, chroma.count_fingerprint
         )
@@ -444,10 +446,12 @@ def _foreign_key_facts(manifest: InventoryManifest) -> tuple[tuple[Any, ...], ..
     return tuple(
         (
             root.alias,
+            root.role.value,
             item.relative_path,
             item.foreign_key_status.value,
             item.foreign_key_violation_count,
             item.foreign_key_fingerprint,
+            item.reason_code,
         )
         for root in sorted(manifest.roots, key=lambda value: value.alias)
         for item in sorted(root.databases, key=lambda value: value.relative_path)
@@ -461,12 +465,53 @@ def _foreign_key_fingerprint(manifest: InventoryManifest) -> str:
 
 
 def _sqlite_fingerprint(manifest: InventoryManifest) -> str:
-    facts = tuple(
-        (root.alias, item.relative_path, item.integrity_status.value, item.integrity_result)
+    return hashlib.sha256(
+        json.dumps(_sqlite_facts(manifest), separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _sqlite_facts(manifest: InventoryManifest) -> tuple[tuple[Any, ...], ...]:
+    """Return role-bound SQLite facts required to match after restoration."""
+    return tuple(
+        (
+            root.alias,
+            root.role.value,
+            item.relative_path,
+            item.integrity_status.value,
+            item.integrity_result,
+            item.reason_code,
+        )
         for root in sorted(manifest.roots, key=lambda value: value.alias)
         for item in sorted(root.databases, key=lambda value: value.relative_path)
     )
-    return hashlib.sha256(json.dumps(facts, separators=(",", ":")).encode()).hexdigest()
+
+
+def _sqlite_expectations_are_licensed(manifest: InventoryManifest) -> bool:
+    """License PASS, plus the one explicit archive-only N/A classification."""
+    return all(
+        item.integrity_status is CheckStatus.PASS
+        or (
+            root.role.value == "archive"
+            and item.integrity_status is CheckStatus.NOT_APPLICABLE
+            and item.foreign_key_status is CheckStatus.NOT_APPLICABLE
+            and item.reason_code == "preserved_non_sqlite_archive"
+        )
+        for root in manifest.roots
+        for item in root.databases
+    )
+
+
+def _chroma_aliases(manifest: InventoryManifest) -> tuple[str, ...]:
+    """Open only restored roots with a structurally valid Chroma SQLite file."""
+    return tuple(
+        root.alias
+        for root in sorted(manifest.roots, key=lambda value: value.alias)
+        if any(
+            item.integrity_status is CheckStatus.PASS
+            and Path(item.relative_path).name == "chroma.sqlite3"
+            for item in root.databases
+        )
+    )
 
 
 def _check(name: str, status: CheckStatus, evidence: str) -> EvidenceCheck:
