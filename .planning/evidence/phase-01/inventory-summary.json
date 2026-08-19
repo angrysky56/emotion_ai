@@ -1,0 +1,554 @@
+{
+  "checks": [
+    {
+      "evidence_sha256": "769b579a4a11205f62e091eff11baa0ea00016bbdcd3ff4534ea4601d4bab121",
+      "name": "root:active-01",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "c26101a49c92242b81ed3d065185eca5d7f151b13bcdc7d86927f6b527089e54",
+      "name": "root:active-02",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "name": "root:active-03",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "0ac6df6599c600a5536a7ec1109c9d755dc2a112129f9b592b5250aa0ae96deb",
+      "name": "root:active-04",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "name": "root:active-05",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "8d80649c87c575a3f3fe03dbfc2192a32d61965db7abd8b8d8609149364ef421",
+      "name": "root:active-06",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "614874b0751e01d48a9ae60ed48ac01490cf13271174bac20be8c454196855a8",
+      "name": "root:backup-01",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "bdedd04d25dc987177997168270265576b40dba17945a047699fa312e88c5c01",
+      "name": "root:backup-02",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "936efd6ff92001c67e836032ee6a28b3143465380d8af08361bf1235485dd668",
+      "name": "root:backup-03",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "733b2c7491747e1b730373106cef1be5cd5f652318551d41c7813ed0f1e70b9b",
+      "name": "root:test-01",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "912004fec2c04bb93cc85936647a30cfdaa74dcc4f2e5f5d3240f2e74d469eb1",
+      "name": "root:test-02",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "e884f2882409cdf1b8e6b0756f778a8db61514855bdf620bf7140b98e6d90c71",
+      "name": "root:archive-01",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "eeb7354157d3dd49bf0aa8120c77170ef0ee988ea7c93416e6b2fe4f30fc8c19",
+      "name": "root:archive-02",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "0b05586eedc3c5c4ac2114f79bb987db24e0b9c0104702cacfa3019e574cc5cb",
+      "name": "root:archive-03",
+      "status": "pass"
+    }
+  ],
+  "command": "inventory",
+  "created_at_utc": "2026-08-19T12:18:47.722286Z",
+  "private_artifact_relpath": "phase-01-20260819T121845Z/inventory.private.json",
+  "private_artifact_sha256": "f935283ba00df928be09ba9485c6b2702774c4b6a12183d6e44d989ca5b73c52",
+  "root_roles": [
+    "active",
+    "archive",
+    "backup",
+    "test"
+  ],
+  "roots": [
+    {
+      "aggregate_sha256": "769b579a4a11205f62e091eff11baa0ea00016bbdcd3ff4534ea4601d4bab121",
+      "alias": "active-01",
+      "byte_total": 212992,
+      "database_checks": {
+        "database_count": 1,
+        "foreign_key_fingerprint": "f39db0ac9239b95af5b15d1da2774241dd96d4b5a0338e3db89142d7c7d7d834",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 1
+        },
+        "foreign_key_violation_count": 8,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 1
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 3,
+      "repository_relative_path": "aura_chroma_db",
+      "required": true,
+      "role": "active",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "c26101a49c92242b81ed3d065185eca5d7f151b13bcdc7d86927f6b527089e54",
+      "alias": "active-02",
+      "byte_total": 26714129,
+      "database_checks": {
+        "database_count": 1,
+        "foreign_key_fingerprint": "f39db0ac9239b95af5b15d1da2774241dd96d4b5a0338e3db89142d7c7d7d834",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 1
+        },
+        "foreign_key_violation_count": 8,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 1
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 13,
+      "repository_relative_path": "aura_backend/aura_chroma_db",
+      "required": true,
+      "role": "active",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "alias": "active-03",
+      "byte_total": 0,
+      "database_checks": {
+        "database_count": 0,
+        "foreign_key_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "foreign_key_violation_count": 0,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 0,
+      "repository_relative_path": "aura_data",
+      "required": true,
+      "role": "active",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "0ac6df6599c600a5536a7ec1109c9d755dc2a112129f9b592b5250aa0ae96deb",
+      "alias": "active-04",
+      "byte_total": 1823,
+      "database_checks": {
+        "database_count": 0,
+        "foreign_key_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "foreign_key_violation_count": 0,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 6,
+      "repository_relative_path": "aura_backend/aura_data",
+      "required": true,
+      "role": "active",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "alias": "active-05",
+      "byte_total": 0,
+      "database_checks": {
+        "database_count": 0,
+        "foreign_key_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "foreign_key_violation_count": 0,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 0,
+      "repository_relative_path": "memvid_data",
+      "required": true,
+      "role": "active",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "8d80649c87c575a3f3fe03dbfc2192a32d61965db7abd8b8d8609149364ef421",
+      "alias": "active-06",
+      "byte_total": 11857,
+      "database_checks": {
+        "database_count": 0,
+        "foreign_key_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "foreign_key_violation_count": 0,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 12,
+      "repository_relative_path": "aura_backend/memvid_data",
+      "required": true,
+      "role": "active",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "614874b0751e01d48a9ae60ed48ac01490cf13271174bac20be8c454196855a8",
+      "alias": "backup-01",
+      "byte_total": 2129920,
+      "database_checks": {
+        "database_count": 10,
+        "foreign_key_fingerprint": "9d8b247593ad8270acf25098434ee71e9ea45ba7b9f961e27cf3ba9b70ac8bf9",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 10
+        },
+        "foreign_key_violation_count": 80,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 10
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 30,
+      "repository_relative_path": "auto_backups",
+      "required": true,
+      "role": "backup",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "bdedd04d25dc987177997168270265576b40dba17945a047699fa312e88c5c01",
+      "alias": "backup-02",
+      "byte_total": 333669475,
+      "database_checks": {
+        "database_count": 10,
+        "foreign_key_fingerprint": "9d8b247593ad8270acf25098434ee71e9ea45ba7b9f961e27cf3ba9b70ac8bf9",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 10
+        },
+        "foreign_key_violation_count": 80,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 10
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 131,
+      "repository_relative_path": "aura_backend/auto_backups",
+      "required": true,
+      "role": "backup",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "936efd6ff92001c67e836032ee6a28b3143465380d8af08361bf1235485dd668",
+      "alias": "backup-03",
+      "byte_total": 469802822,
+      "database_checks": {
+        "database_count": 53,
+        "foreign_key_fingerprint": "de4cdd9e557aa0839bf65e1678a989980a342038af3d13513414de7521bfd30b",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 53
+        },
+        "foreign_key_violation_count": 424,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 53
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 269,
+      "repository_relative_path": "aura_backend/chromadb_backups",
+      "required": true,
+      "role": "backup",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "733b2c7491747e1b730373106cef1be5cd5f652318551d41c7813ed0f1e70b9b",
+      "alias": "test-01",
+      "byte_total": 188416,
+      "database_checks": {
+        "database_count": 1,
+        "foreign_key_fingerprint": "5b7aa0e55b953dbc78c4b452dcecdec1b06563444e9d37d84df1d5b2311aed8f",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 1
+        },
+        "foreign_key_violation_count": 4,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 1
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 1,
+      "repository_relative_path": "aura_backend/test_chroma_db",
+      "required": true,
+      "role": "test",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "912004fec2c04bb93cc85936647a30cfdaa74dcc4f2e5f5d3240f2e74d469eb1",
+      "alias": "test-02",
+      "byte_total": 16800100,
+      "database_checks": {
+        "database_count": 0,
+        "foreign_key_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "foreign_key_violation_count": 0,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 4,
+      "repository_relative_path": "aura_backend/tests/test_aura_chroma_db",
+      "required": true,
+      "role": "test",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "e884f2882409cdf1b8e6b0756f778a8db61514855bdf620bf7140b98e6d90c71",
+      "alias": "archive-01",
+      "byte_total": 60816,
+      "database_checks": {
+        "database_count": 0,
+        "foreign_key_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "foreign_key_violation_count": 0,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 1,
+      "repository_relative_path": "archive",
+      "required": true,
+      "role": "archive",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "eeb7354157d3dd49bf0aa8120c77170ef0ee988ea7c93416e6b2fe4f30fc8c19",
+      "alias": "archive-02",
+      "byte_total": 142926098,
+      "database_checks": {
+        "database_count": 1,
+        "foreign_key_fingerprint": "0644ab5214c034ec423359b2af06d12ada4a7e451cbc48fb44cf48063f14d271",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 1,
+          "not_run": 0,
+          "pass": 0
+        },
+        "foreign_key_violation_count": 0,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 1,
+          "not_run": 0,
+          "pass": 0
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 1
+        }
+      },
+      "file_count": 190,
+      "repository_relative_path": "aura_backend/archive_unused",
+      "required": true,
+      "role": "archive",
+      "status": "pass"
+    },
+    {
+      "aggregate_sha256": "0b05586eedc3c5c4ac2114f79bb987db24e0b9c0104702cacfa3019e574cc5cb",
+      "alias": "archive-03",
+      "byte_total": 4267,
+      "database_checks": {
+        "database_count": 0,
+        "foreign_key_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "foreign_key_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "foreign_key_violation_count": 0,
+        "integrity_status_counts": {
+          "blocked": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_run": 0,
+          "pass": 0
+        },
+        "not_applicable_reason_counts": {
+          "preserved_non_sqlite_archive": 0
+        }
+      },
+      "file_count": 2,
+      "repository_relative_path": "aura_backend/aura_archives",
+      "required": true,
+      "role": "archive",
+      "status": "pass"
+    }
+  ],
+  "run_id": "phase-01-20260819T121845Z",
+  "schema_version": 1,
+  "source_set_sha256": "350091c106ffb5443d0b9d3dfee3c514789021838322c8440a45f6eaade54c78",
+  "status": "pass",
+  "tool_commit": "654ed790d7cdf82ddafafdc6113d606a96bfbade",
+  "tool_version": "0.1.0",
+  "totals": {
+    "anomaly_count": 605,
+    "byte_total": 992522715,
+    "database_count": 77,
+    "file_count": 662,
+    "root_count": 14,
+    "root_status_counts": {
+      "blocked": 0,
+      "fail": 0,
+      "not_applicable": 0,
+      "not_run": 0,
+      "pass": 14
+    }
+  }
+}
