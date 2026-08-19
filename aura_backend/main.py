@@ -79,6 +79,12 @@ from aura_backend.providers.factory import ModelProviderFactory  # noqa: E402
 from aura_backend.robust_vector_db import (  # noqa: E402
     RobustAuraVectorDB as AuraVectorDB,
 )
+from aura_backend.runtime_security import (  # noqa: E402
+    allowed_browser_origins,
+    safe_export_format,
+    safe_storage_component,
+    server_host,
+)
 from aura_backend.shared_embedding_service import get_embedding_service  # noqa: E402
 from aura_backend.thinking_processor import ThinkingProcessor  # noqa: E402
 
@@ -266,7 +272,8 @@ class AuraFileSystem:
             >>> assert path.endswith("user123.json")
         """
         try:
-            profile_path = self.base_path / "users" / f"{user_id}.json"
+            safe_user_id = safe_storage_component(user_id)
+            profile_path = self.base_path / "users" / f"{safe_user_id}.json"
 
             # Add metadata
             profile_data.update(
@@ -312,7 +319,8 @@ class AuraFileSystem:
             ...     print(f"Welcome back, {profile.get('name', 'User')}")
         """
         try:
-            profile_path = self.base_path / "users" / f"{user_id}.json"
+            safe_user_id = safe_storage_component(user_id)
+            profile_path = self.base_path / "users" / f"{safe_user_id}.json"
 
             if not profile_path.exists():
                 return None
@@ -362,23 +370,24 @@ class AuraFileSystem:
             >>> assert export_path.endswith(".json")
         """
         try:
+            safe_user_id = safe_storage_component(user_id)
+            safe_format = safe_export_format(output_format)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"conversation_export_{user_id}_{timestamp}.{output_format}"
+            filename = f"conversation_export_{safe_user_id}_{timestamp}.{safe_format}"
             export_path = self.base_path / "exports" / filename
 
             # This would integrate with the vector DB to get conversation history
             export_data = {
                 "user_id": user_id,
                 "export_timestamp": datetime.now().isoformat(),
-                "format": output_format,
+                "format": safe_format,
                 "conversations": [],  # Would be populated from vector DB
                 "emotional_patterns": [],  # Would be populated from vector DB
                 "cognitive_patterns": [],  # Would be populated from vector DB
             }
 
-            if output_format == "json":
-                async with aiofiles.open(export_path, "w") as f:
-                    await f.write(json.dumps(export_data, indent=2, default=str))
+            async with aiofiles.open(export_path, "w") as f:
+                await f.write(json.dumps(export_data, indent=2, default=str))
 
             logger.info("📤 Exported conversation history: %s", filename)
             return str(export_path)
@@ -1342,38 +1351,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS with flexible origins for development
-# In production, replace with specific allowed origins from environment variables
-allowed_origins = (
-    os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLOWED_ORIGINS") else []
-)
-
-# For development, allow localhost on any port if no specific origins are set
-if not allowed_origins:
-    # In development mode, use wildcard to allow any localhost origin
-    if os.getenv("DEV_MODE", "true").lower() == "true":
-        # Use wildcard for development - this allows any origin
-        allowed_origins = ["*"]
-        logger.warning("⚠️ CORS: Using wildcard (*) origins for development mode")
-    else:
-        # Production mode - use specific origins
-        allowed_origins = [
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "http://localhost:5174",  # Vite's alternative port
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:5174",
-        ]
-        logger.info("🔒 CORS: Using specific origins: %s", allowed_origins)
+# Aura is a private local application. Explicit origins prevent an unrelated website
+# open in the same browser from driving privileged localhost endpoints.
+allowed_origins = list(allowed_browser_origins(os.getenv("ALLOWED_ORIGINS")))
+logger.info("🔒 CORS: Allowing configured local UI origins: %s", allowed_origins)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_headers=["Content-Type", "X-Request-ID", "X-Attempt"],
 )
 
 # Include MCP router
@@ -4249,8 +4237,8 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "aura_backend.main:app",
-        host="0.0.0.0",  # nosec B104
+        host=server_host(os.getenv("AURA_HOST")),
         port=8000,
-        reload=True,
+        reload=os.getenv("AURA_RELOAD", "false").lower() == "true",
         log_level="info",
     )

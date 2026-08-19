@@ -41,7 +41,7 @@ fi
 source "$VENV_PATH/bin/activate"
 
 # Start API (which includes Aura internal tools)
-log "Starting Aura API Server..."
+log "Starting Aura API Server on loopback..."
 python main.py &
 export API_PID=$!
 

@@ -95,7 +95,7 @@ start_backend() {
 GOOGLE_API_KEY=your-google-api-key-here
 CHROMA_PERSIST_DIRECTORY=./aura_chroma_db
 AURA_DATA_DIRECTORY=./aura_data
-HOST=0.0.0.0
+AURA_HOST=127.0.0.1
 PORT=8000
 DEBUG=false
 LOG_LEVEL=INFO
@@ -122,7 +122,7 @@ EOF
 		chmod +x start.sh
 		./start.sh
 	else
-		uv run --project "$SCRIPT_DIR" uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+		(cd "$SCRIPT_DIR" && uv run uvicorn aura_backend.main:app --host 127.0.0.1 --port 8000)
 	fi
 }
 

@@ -27,5 +27,7 @@
     "paths": {
       "@/*" :  ["./*"]
     }
-  }
+  },
+  "include": ["index.tsx", "src/**/*.ts", "vite.config.ts"],
+  "exclude": ["archive", "aura_backend", "dist", "node_modules"]
 }

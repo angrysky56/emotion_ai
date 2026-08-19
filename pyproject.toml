@@ -47,3 +47,7 @@ typeCheckingMode = "basic"
 src = ["aura_backend", "."]
 target-version = "py312"
 line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-config", "--strict-markers"]
