@@ -267,27 +267,35 @@ def _inventory_for_store(repository: Path, source: Path, key: bytes):
     )
 
 
-def _closed_chroma_store(root: Path) -> None:
+def _closed_chroma_store(root: Path, *, tied_embeddings: bool = False) -> None:
     import chromadb
 
     client = chromadb.PersistentClient(path=str(root))
     collection = client.create_collection("synthetic_collection")
-    collection.add(
-        ids=["opaque-a", "opaque-b", "opaque-c"],
-        embeddings=[[1.0, 0.0], [0.0, 1.0], [0.8, 0.2]],
-        documents=["private one", "private two", "private three"],
-        metadatas=[{"private": 1}, {"private": 2}, {"private": 3}],
-    )
+    if tied_embeddings:
+        collection.add(
+            ids=[f"opaque-{index}" for index in range(6)],
+            embeddings=[[1.0, 0.0] for _ in range(6)],
+            documents=[f"private {index}" for index in range(6)],
+            metadatas=[{"private": index} for index in range(6)],
+        )
+    else:
+        collection.add(
+            ids=["opaque-a", "opaque-b", "opaque-c"],
+            embeddings=[[1.0, 0.0], [0.0, 1.0], [0.8, 0.2]],
+            documents=["private one", "private two", "private three"],
+            metadatas=[{"private": 1}, {"private": 2}, {"private": 3}],
+        )
     del collection
     client.close()
     del client
     gc.collect()
 
 
-def _backed_up_chroma(tmp_path: Path):
+def _backed_up_chroma(tmp_path: Path, *, tied_embeddings: bool = False):
     source = tmp_path / "repository" / "source"
     source.parent.mkdir()
-    _closed_chroma_store(source)
+    _closed_chroma_store(source, tied_embeddings=tied_embeddings)
     key = b"restore-fixture-key-material-32b"
     inventory = _inventory_for_store(source.parent, source, key)
     backup_root = tmp_path / "offline"
@@ -301,6 +309,125 @@ def _backed_up_chroma(tmp_path: Path):
         {"active-01": source}, backup_root, "snapshot", ticket
     )
     return source, backup, inventory, key
+
+
+def test_verify_accepts_deterministic_tied_nearest_neighbors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A valid tied neighbor need not be the lexicographically selected ID."""
+    _, backup, inventory, key = _backed_up_chroma(
+        tmp_path, tied_embeddings=True
+    )
+    restore_parent = tmp_path / "restore-parent"
+    restore_parent.mkdir()
+    import chromadb
+
+    real_client = chromadb.PersistentClient
+
+    class TiedCollection:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+            self.name = wrapped.name
+
+        def count(self):
+            return self._wrapped.count()
+
+        def get(self, *args, **kwargs):
+            return self._wrapped.get(*args, **kwargs)
+
+        @property
+        def configuration(self):
+            return self._wrapped.configuration
+
+        def query(self, *args, **kwargs):
+            identities = sorted(str(value) for value in self._wrapped.get(include=[])["ids"])
+            selected = identities[0]
+            tied_neighbors = [value for value in identities if value != selected][:5]
+            return {
+                "ids": [tied_neighbors],
+                "distances": [[0.0 for _ in tied_neighbors]],
+            }
+
+    class TiedClient:
+        def __init__(self, *args, **kwargs):
+            self._wrapped = real_client(*args, **kwargs)
+
+        def list_collections(self):
+            return self._wrapped.list_collections()
+
+        def get_collection(self, name):
+            return TiedCollection(self._wrapped.get_collection(name))
+
+        def close(self):
+            self._wrapped.close()
+
+    monkeypatch.setattr(chromadb, "PersistentClient", TiedClient)
+
+    result = verify_disposable_restore(
+        backup, restore_parent, inventory, hmac_key=key
+    )
+
+    assert result.status is CheckStatus.PASS
+    assert result.check_status("retrieval_parity") is CheckStatus.PASS
+    assert result.retrieval_fixture_count == 1
+
+
+def test_verify_rejects_nondeterministic_ordered_query_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repeated identical queries must produce one stable opaque fixture."""
+    _, backup, inventory, key = _backed_up_chroma(tmp_path)
+    restore_parent = tmp_path / "restore-parent"
+    restore_parent.mkdir()
+    import chromadb
+
+    real_client = chromadb.PersistentClient
+
+    class NondeterministicCollection:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+            self.name = wrapped.name
+            self._query_count = 0
+
+        def count(self):
+            return self._wrapped.count()
+
+        def get(self, *args, **kwargs):
+            return self._wrapped.get(*args, **kwargs)
+
+        @property
+        def configuration(self):
+            return self._wrapped.configuration
+
+        def query(self, *args, **kwargs):
+            result = self._wrapped.query(*args, **kwargs)
+            self._query_count += 1
+            if self._query_count % 2 == 0:
+                result["ids"][0].reverse()
+                result["distances"][0].reverse()
+            return result
+
+    class NondeterministicClient:
+        def __init__(self, *args, **kwargs):
+            self._wrapped = real_client(*args, **kwargs)
+
+        def list_collections(self):
+            return self._wrapped.list_collections()
+
+        def get_collection(self, name):
+            return NondeterministicCollection(self._wrapped.get_collection(name))
+
+        def close(self):
+            self._wrapped.close()
+
+    monkeypatch.setattr(chromadb, "PersistentClient", NondeterministicClient)
+
+    result = verify_disposable_restore(
+        backup, restore_parent, inventory, hmac_key=key
+    )
+
+    assert result.status is not CheckStatus.PASS
+    assert result.check_status("retrieval_parity") is CheckStatus.FAIL
 
 
 def test_verify_preserves_archive_not_applicable_sqlite_parity(
@@ -685,6 +812,19 @@ def test_cli_runs_inventory_ticket_backup_restore_chain_on_synthetic_data(
             "--public-summary", str(restore_public),
         ]
     ) == 0
+    first_restore_summary = json.loads(restore_public.read_text(encoding="utf-8"))
+    first_private_relpath = first_restore_summary["private_artifact_relpath"]
+    assert (backup_root / first_private_relpath).is_file()
+    assert main(
+        [
+            "verify",
+            "--inventory-summary", str(inventory_public),
+            "--quiescence-summary", str(quiescence_public),
+            "--backup-root", str(backup_root),
+            "--restore-parent", str(restore_parent),
+            "--public-summary", str(restore_public),
+        ]
+    ) == 0
     assert main(
         [
             "validate-restore-summary",
@@ -698,6 +838,9 @@ def test_cli_runs_inventory_ticket_backup_restore_chain_on_synthetic_data(
         ]
     ) == 0
     restore_summary = json.loads(restore_public.read_text(encoding="utf-8"))
+    assert restore_summary["private_artifact_relpath"] != first_private_relpath
+    assert (backup_root / first_private_relpath).is_file()
+    assert (backup_root / restore_summary["private_artifact_relpath"]).is_file()
     assert {
         "schema_version",
         "command",
