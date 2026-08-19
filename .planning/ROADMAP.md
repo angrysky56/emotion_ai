@@ -1,35 +1,89 @@
-# Roadmap: Aura Modernization
+# Roadmap: Aura Rehabilitation
 
-## Milestone 1: Foundation & Providers
-- [x] **Phase 1: Environment & Dependency Refresh**
-  - [x] Update `pyproject.toml` and `package.json` to latest versions.
-  - [x] Fix breaking changes in Pydantic/FastAPI.
-  - [x] Set up `uv` virtual environment.
-- **Phase 2: Unified Model Provider**
-  - Create `ModelProvider` interface.
-  - Implement OpenRouter driver.
-  - Implement Ollama driver.
-  - Add fallback logic.
+## Phase 1: Preservation and Trusted Baseline
 
-## Milestone 2: Backend Refactoring
-- **Phase 3: Modularization**
-  - Extract services (Memory, Vision, Thinking) from `main.py`.
-  - Implement FastAPI routers.
-  - Harden JSON serialization.
-- **Phase 4: Memory Stability**
-  - Refactor ChromaDB integration for better concurrency.
-  - Fix conflict/recovery scripts by making them unnecessary.
+**Goal:** Make Aura safe to change without losing data or mistaking scripts for tests.
+**Requirements:** PRES-01, PRES-02, PRES-03, PRES-04, TEST-01, TEST-02,
+LOCAL-01, LOCAL-02, LOCAL-03, LOCAL-04
+**Status:** In progress
 
-## Milestone 3: Frontend & UI Polish
-- **Phase 5: State Management Refactor**
-  - Separate `AuraUIManager` into UI Components and a State Store.
-  - Polish the "Thinking" visualization.
-- **Phase 6: Integration Testing & Optimization**
-  - End-to-end testing of the new provider flow.
-  - Performance profiling and latency reduction.
+- Inventory and checksum data roots without reading personal content.
+- Prove an isolated restore before migration or deletion.
+- Establish deterministic pytest discovery and classify legacy checks.
+- Capture filesystem, startup, CORS, and current core API behavior.
 
-## Milestone 4: Final Polish
-- **Phase 7: Final Cleanup & Documentation**
-  - Remove deprecated scripts/files.
-  - Update `BACKEND_API_SPEC.md`.
-  - Final stability audit.
+**Execution plan:**
+
+- Wave 1: 01-01 metadata inventory, 01-03 test truth, 01-05 local API boundary.
+- Wave 2 *(blocked on Wave 1)*: 01-02 preservation CLI contract, 01-04 legacy
+  characterization migration, 01-06 filesystem contract, 01-07 companion contract.
+- Wave 3 *(blocked on Wave 2)*: 01-08 repository inventory and safe evidence.
+- Wave 4 *(blocked on Wave 3)*: 01-09 quiescence preflight and explicit checkpoint.
+- Wave 5 *(blocked on checkpoint approval)*: 01-10 real backup and isolated restore.
+
+**Cross-cutting constraints:** no personal content in committable evidence; originals
+remain immutable; no Chroma client opens originals; deterministic tests require no
+live model/service; existing FK anomalies require exact source/restore parity; no
+deletion, migration, tracked-data removal, sign-in, or Git-history rewrite.
+
+## Phase 2: Provider and Runtime Core
+
+**Goal:** Deliver one reliable conversation path through Ollama and the existing
+cloud providers behind a typed, testable runtime boundary.
+**Depends on:** Phase 1
+**Requirements:** TEST-03, TEST-05, AI-01, AI-02, AI-03, OPS-01, OPS-02
+
+- Consolidate provider configuration and error contracts.
+- Make Ornith an optional marked live test, not a deterministic-suite dependency.
+- Remove import-time heavyweight initialization and unify startup/health checks.
+- Reconcile Python and Node dependency sources against actual imports.
+
+## Phase 3: Memory Integrity and Data Lifecycle
+
+**Goal:** Make conversation memory, backup, restore, export, and deletion truthful
+and recoverable through one storage boundary.
+**Depends on:** Phase 1, Phase 2
+**Requirements:** TEST-03, DATA-01, DATA-02, DATA-03, DATA-04, DATA-05, PRES-04
+
+- Characterize and consolidate active persistence implementations.
+- Replace live-directory copying with a verified snapshot strategy.
+- Implement complete export/deletion behavior and bounded history retrieval.
+- Remove tracked runtime data only after restore verification passes.
+
+## Phase 4: Reflective Companion Core
+
+**Goal:** Preserve and sharpen Aura's emotionally perceptive, reflective behavior
+with explicit uncertainty and measurable model/provider behavior.
+**Depends on:** Phase 2, Phase 3
+**Requirements:** PRES-03, AI-04, AI-05, AI-06, ARCH-01, ARCH-02
+
+- Define versioned conversation, emotional-state, and reflection contracts.
+- Separate orchestration from providers, memory, MCP, and autonomic processing.
+- Build a small regression/evaluation corpus from sanitized representative cases.
+- Retain useful reflection summaries without exposing hidden chain-of-thought.
+
+## Phase 5: API and Frontend Rehabilitation
+
+**Goal:** Provide a maintainable, accessible, safe interface for the complete local
+companion workflow without losing Aura's recognizable character.
+**Depends on:** Phase 3, Phase 4
+**Requirements:** TEST-04, LOCAL-05, ARCH-03, ARCH-04, ARCH-05
+
+- Split the TypeScript god object by feature and state boundary.
+- Sanitize all model/memory rendering and remove sensitive production logging.
+- Add unit/component and browser tests for conversation, history, settings, and
+  failures.
+- Refine responsive design and accessibility using the preserved product spirit.
+
+## Phase 6: Performance, Packaging, and Honest Release
+
+**Goal:** Ship a reproducible local application whose performance and documentation
+are supported by current evidence.
+**Depends on:** Phase 1 through Phase 5
+**Requirements:** OPS-03, PERF-01, PERF-02, GIT-01, GIT-02
+
+- Benchmark and optimize measured bottlenecks on the target RTX 3060 system.
+- Package a clear local startup/update/diagnostic experience.
+- Remove obsolete archives and generated artifacts from the current tree.
+- Replace all public and planning documentation with verified instructions.
+- Prepare, but do not perform, optional Git-history rewriting without approval.
