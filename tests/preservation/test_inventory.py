@@ -98,6 +98,22 @@ def test_symlink_is_blocked_without_reading_its_target(tmp_path: Path) -> None:
     assert manifest.status is CheckStatus.BLOCKED
 
 
+def test_symlink_in_declared_root_path_is_never_traversed(tmp_path: Path) -> None:
+    """A symlinked parent component cannot smuggle an outside tree into a root."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_bytes(b"must remain outside inventory")
+    (tmp_path / "linked-parent").symlink_to(outside, target_is_directory=True)
+
+    manifest = inventory_roots(
+        tmp_path, [_root("linked-parent/subdirectory")], hmac_key=b"k" * 32
+    )
+
+    assert manifest.roots[0].files == ()
+    assert manifest.roots[0].status is CheckStatus.BLOCKED
+    assert manifest.status is CheckStatus.BLOCKED
+
+
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation is unavailable")
 def test_fifo_is_blocked_without_opening_it(tmp_path: Path) -> None:
     """Inventorying a FIFO must finish without waiting for a writer."""
