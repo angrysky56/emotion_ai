@@ -22,6 +22,7 @@ from aura_backend.preservation.manifest import (
     InventoryManifest,
     RootDeclaration,
     RootEvidence,
+    RootRole,
 )
 
 _SQLITE_SUFFIXES = frozenset({".db", ".sqlite", ".sqlite3"})
@@ -189,7 +190,12 @@ def _scan_directory(
         if path.suffix.lower() not in _SQLITE_SUFFIXES:
             continue
 
-        database_evidence = _inspect_sqlite(path, relative_path, hmac_key)
+        database_evidence = _inspect_sqlite(
+            path,
+            relative_path,
+            hmac_key,
+            role=declaration.role,
+        )
         databases.append(database_evidence)
         try:
             after_database_stat = path.lstat()
@@ -270,7 +276,13 @@ def _hash_regular_file(
     )
 
 
-def _inspect_sqlite(path: Path, relative_path: str, hmac_key: bytes) -> DatabaseEvidence:
+def _inspect_sqlite(
+    path: Path,
+    relative_path: str,
+    hmac_key: bytes,
+    *,
+    role: RootRole,
+) -> DatabaseEvidence:
     """Run full structural and FK checks through a read-only SQLite URI."""
     fingerprint = hmac.new(hmac_key, digestmod=hashlib.sha256)
     connection: sqlite3.Connection | None = None
@@ -289,6 +301,20 @@ def _inspect_sqlite(path: Path, relative_path: str, hmac_key: bytes) -> Database
             fingerprint.update(b"\n")
             foreign_key_count += 1
     except (OSError, sqlite3.Error) as error:
+        if (
+            role is RootRole.ARCHIVE
+            and isinstance(error, sqlite3.Error)
+            and getattr(error, "sqlite_errorcode", None) == sqlite3.SQLITE_NOTADB
+        ):
+            return DatabaseEvidence(
+                relative_path=relative_path,
+                integrity_status=CheckStatus.NOT_APPLICABLE,
+                integrity_result="not_applicable",
+                foreign_key_status=CheckStatus.NOT_APPLICABLE,
+                foreign_key_violation_count=0,
+                foreign_key_fingerprint=fingerprint.hexdigest(),
+                reason_code="preserved_non_sqlite_archive",
+            )
         return DatabaseEvidence(
             relative_path=relative_path,
             integrity_status=CheckStatus.FAIL,
@@ -469,6 +495,7 @@ def _aggregate_digest(
             item.foreign_key_status.value,
             item.foreign_key_violation_count,
             item.foreign_key_fingerprint,
+            item.reason_code,
         )
         digest.update(json.dumps(public_facts, separators=(",", ":")).encode())
         digest.update(b"\n")

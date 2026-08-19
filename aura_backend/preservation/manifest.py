@@ -27,6 +27,7 @@ class CheckStatus(str, Enum):
     FAIL = "fail"
     BLOCKED = "blocked"
     NOT_RUN = "not_run"
+    NOT_APPLICABLE = "not_applicable"
 
 
 class RootRole(str, Enum):
@@ -83,6 +84,7 @@ class DatabaseEvidence:
     foreign_key_status: CheckStatus
     foreign_key_violation_count: int
     foreign_key_fingerprint: str
+    reason_code: str | None = None
     private_integrity_results: tuple[str, ...] = ()
     private_error_code: str | None = None
     private_error: str | None = None
@@ -234,6 +236,7 @@ class InventoryManifest:
                     "foreign_key_status": item.foreign_key_status.value,
                     "foreign_key_violation_count": item.foreign_key_violation_count,
                     "foreign_key_fingerprint": item.foreign_key_fingerprint,
+                    "reason_code": item.reason_code,
                     "private_integrity_results": list(item.private_integrity_results),
                     "private_error_code": item.private_error_code,
                     "private_error": item.private_error,
@@ -269,6 +272,12 @@ class InventoryManifest:
                     item.foreign_key_violation_count for item in root.databases
                 ),
                 "foreign_key_fingerprint": database_fingerprint.hexdigest(),
+                "not_applicable_reason_counts": {
+                    "preserved_non_sqlite_archive": sum(
+                        item.reason_code == "preserved_non_sqlite_archive"
+                        for item in root.databases
+                    )
+                },
             },
         }
 

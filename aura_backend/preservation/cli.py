@@ -71,7 +71,9 @@ _DATABASE_CHECK_FIELDS = {
     "foreign_key_status_counts",
     "foreign_key_violation_count",
     "foreign_key_fingerprint",
+    "not_applicable_reason_counts",
 }
+_NOT_APPLICABLE_REASON_FIELDS = {"preserved_non_sqlite_archive"}
 _TOTAL_FIELDS = {
     "root_count",
     "file_count",
@@ -640,6 +642,7 @@ def _root_from_private(value: dict[str, Any]) -> RootEvidence:
             foreign_key_status=CheckStatus(item["foreign_key_status"]),
             foreign_key_violation_count=item["foreign_key_violation_count"],
             foreign_key_fingerprint=item["foreign_key_fingerprint"],
+            reason_code=item.get("reason_code"),
             private_integrity_results=tuple(item["private_integrity_results"]),
             private_error_code=item["private_error_code"],
             private_error=item["private_error"],
@@ -985,6 +988,22 @@ def _valid_root(value: Any) -> bool:
     if not _valid_status_counts(database_checks.get("integrity_status_counts")):
         return False
     if not _valid_status_counts(database_checks.get("foreign_key_status_counts")):
+        return False
+    reason_counts = database_checks.get("not_applicable_reason_counts")
+    if (
+        not isinstance(reason_counts, dict)
+        or set(reason_counts) != _NOT_APPLICABLE_REASON_FIELDS
+        or not all(isinstance(count, int) and count >= 0 for count in reason_counts.values())
+    ):
+        return False
+    not_applicable_count = reason_counts["preserved_non_sqlite_archive"]
+    if (
+        database_checks["integrity_status_counts"][CheckStatus.NOT_APPLICABLE.value]
+        != not_applicable_count
+        or database_checks["foreign_key_status_counts"][CheckStatus.NOT_APPLICABLE.value]
+        != not_applicable_count
+        or (value.get("role") != RootRole.ARCHIVE.value and not_applicable_count)
+    ):
         return False
     if not all(
         isinstance(database_checks.get(field), int) and database_checks[field] >= 0
