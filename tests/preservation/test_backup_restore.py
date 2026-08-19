@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import sqlite3
 import gc
-import hashlib
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -515,3 +514,92 @@ def test_cli_rejects_cross_artifact_digest_substitution(tmp_path: Path) -> None:
             "--require-retrieval-parity",
         ]
     ) == 4
+
+
+def test_cli_runs_inventory_ticket_backup_restore_chain_on_synthetic_data(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    source = repository / "data"
+    repository.mkdir()
+    _closed_chroma_store(source)
+    backup_root = tmp_path / "offline"
+    restore_parent = tmp_path / "restore-parent"
+    restore_parent.mkdir()
+    inventory_private = backup_root / "run" / "inventory.private.json"
+    inventory_public = repository / "inventory.json"
+    quiescence_public = repository / "quiescence.json"
+    restore_public = repository / "restore.json"
+
+    assert main(
+        [
+            "inventory",
+            "--repository-root", str(repository),
+            "--backup-root", str(backup_root),
+            "--run-id", "run",
+            "--private-manifest", str(inventory_private),
+            "--public-summary", str(inventory_public),
+            "--root", "active=data",
+            "--require-role", "active",
+        ]
+    ) == 0
+    assert main(
+        [
+            "preflight",
+            "--inventory-summary", str(inventory_public),
+            "--backup-root", str(backup_root),
+            "--public-summary", str(quiescence_public),
+            "--ticket-ttl-seconds", "900",
+        ]
+    ) == 0
+    assert main(
+        [
+            "validate-quiescence",
+            "--summary", str(quiescence_public),
+            "--inventory", str(inventory_public),
+            "--require-pass",
+        ]
+    ) == 0
+    assert main(
+        [
+            "backup-from-ticket",
+            "--inventory-summary", str(inventory_public),
+            "--quiescence-summary", str(quiescence_public),
+            "--backup-root", str(backup_root),
+            "--destination-name", "snapshot",
+        ]
+    ) == 0
+    assert main(
+        [
+            "verify",
+            "--inventory-summary", str(inventory_public),
+            "--quiescence-summary", str(quiescence_public),
+            "--backup-root", str(backup_root),
+            "--restore-parent", str(restore_parent),
+            "--public-summary", str(restore_public),
+        ]
+    ) == 0
+    assert main(
+        [
+            "validate-restore-summary",
+            "--summary", str(restore_public),
+            "--inventory", str(inventory_public),
+            "--quiescence", str(quiescence_public),
+            "--require-pass",
+            "--require-source-unchanged",
+            "--require-fk-parity",
+            "--require-retrieval-parity",
+        ]
+    ) == 0
+    restore_summary = json.loads(restore_public.read_text(encoding="utf-8"))
+    assert {
+        "schema_version",
+        "command",
+        "run_id",
+        "status",
+        "source_set_sha256",
+        "checks",
+        "created_at_utc",
+        "tool_commit",
+    }.issubset(restore_summary)
+    assert restore_summary["status"] == "pass"
