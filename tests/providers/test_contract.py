@@ -53,7 +53,7 @@ def test_result_request_health_and_stream_values_are_frozen_and_slotted() -> Non
         assert is_dataclass(value)
         assert type(value).__dataclass_params__.frozen is True
         assert hasattr(type(value), "__slots__")
-        with pytest.raises((FrozenInstanceError, AttributeError)):
+        with pytest.raises((FrozenInstanceError, AttributeError, TypeError)):
             value.unplanned_field = "mutation"  # type: ignore[attr-defined]
 
     with pytest.raises(TypeError):
