@@ -1,0 +1,43 @@
+{
+  "checks": [
+    {
+      "evidence_sha256": "b0060479336327b827dd5961da06104d5e879ee0fa3e62376b74f52158dcd8bb",
+      "name": "path_disjointness",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "71d2555b7709231ead47c8ffeef757fd0fd800359e0f69597f2dee98f4b1eefd",
+      "name": "source_snapshot",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "name": "open_handles",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "name": "process_scan",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "8aaaeadb0eca9453327252f9f648d51302036d98865774b9f6d43c3ac7b16c67",
+      "name": "mount_free_space",
+      "status": "pass"
+    }
+  ],
+  "command": "preflight",
+  "created_at_utc": "2026-08-19T12:33:23.304733Z",
+  "expires_at_utc": "2026-08-19T12:48:23.304733Z",
+  "inventory_summary_sha256": "debf25853a2301d4372ec8df210128cf31b8d0adb62d3509d1d3ccaabfbd43cc",
+  "issued_at_utc": "2026-08-19T12:33:23.304733Z",
+  "private_ticket_relpath": "phase-01-20260819T121845Z/quiescence.f1573464076d41eda2922306a1b571f9.private.json",
+  "private_ticket_sha256": "6057dea384203a72939608161af460b57971b24d99fe0fef17f23da9c5361d55",
+  "proposed_destination": "/backup/aura-preservation/phase-01-20260819T121845Z",
+  "run_id": "phase-01-20260819T121845Z",
+  "schema_version": 1,
+  "source_set_sha256": "350091c106ffb5443d0b9d3dfee3c514789021838322c8440a45f6eaade54c78",
+  "status": "pass",
+  "ticket_id": "f1573464076d41eda2922306a1b571f9",
+  "tool_commit": "654ed790d7cdf82ddafafdc6113d606a96bfbade"
+}
