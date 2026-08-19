@@ -80,9 +80,10 @@ from aura_backend.robust_vector_db import (  # noqa: E402
     RobustAuraVectorDB as AuraVectorDB,
 )
 from aura_backend.runtime_security import (  # noqa: E402
+    StoragePathError,
     allowed_browser_origins,
-    safe_export_format,
-    safe_storage_component,
+    safe_export_path,
+    safe_profile_path,
     server_host,
 )
 from aura_backend.shared_embedding_service import get_embedding_service  # noqa: E402
@@ -272,8 +273,7 @@ class AuraFileSystem:
             >>> assert path.endswith("user123.json")
         """
         try:
-            safe_user_id = safe_storage_component(user_id)
-            profile_path = self.base_path / "users" / f"{safe_user_id}.json"
+            profile_path = safe_profile_path(self.base_path, user_id)
 
             # Add metadata
             profile_data.update(
@@ -319,8 +319,7 @@ class AuraFileSystem:
             ...     print(f"Welcome back, {profile.get('name', 'User')}")
         """
         try:
-            safe_user_id = safe_storage_component(user_id)
-            profile_path = self.base_path / "users" / f"{safe_user_id}.json"
+            profile_path = safe_profile_path(self.base_path, user_id)
 
             if not profile_path.exists():
                 return None
@@ -329,6 +328,9 @@ class AuraFileSystem:
                 content = await f.read()
                 return json.loads(content)
 
+        except StoragePathError:
+            logger.warning("Rejected invalid user profile path")
+            raise
         except Exception as e:
             logger.error("❌ Failed to load user profile: %s", e)
             return None
@@ -370,11 +372,14 @@ class AuraFileSystem:
             >>> assert export_path.endswith(".json")
         """
         try:
-            safe_user_id = safe_storage_component(user_id)
-            safe_format = safe_export_format(output_format)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"conversation_export_{safe_user_id}_{timestamp}.{safe_format}"
-            export_path = self.base_path / "exports" / filename
+            export_path = safe_export_path(
+                self.base_path,
+                user_id,
+                timestamp,
+                output_format,
+            )
+            safe_format = export_path.suffix.removeprefix(".")
 
             # This would integrate with the vector DB to get conversation history
             export_data = {
@@ -389,7 +394,7 @@ class AuraFileSystem:
             async with aiofiles.open(export_path, "w") as f:
                 await f.write(json.dumps(export_data, indent=2, default=str))
 
-            logger.info("📤 Exported conversation history: %s", filename)
+            logger.info("📤 Exported conversation history: %s", export_path.name)
             return str(export_path)
 
         except Exception as e:
@@ -2827,11 +2832,20 @@ async def export_user_data(user_id: str, format_type: str = "json"):
         export_path = await aura_file_system.export_conversation_history(
             user_id, format_type
         )
+        written_path = Path(export_path)
+        if not written_path.is_file():
+            raise RuntimeError("Export writer returned an unwritten path")
+        json.loads(written_path.read_text(encoding="utf-8"))
         return {"export_path": export_path, "message": "Export completed successfully"}
 
+    except StoragePathError:
+        logger.warning("Rejected invalid export request")
+        raise HTTPException(status_code=400, detail="Invalid export request") from None
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("❌ Failed to export user data: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from None
+        raise HTTPException(status_code=500, detail="Export failed") from None
 
 
 @app.get("/chat-history/{user_id}")

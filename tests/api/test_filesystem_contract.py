@@ -283,7 +283,7 @@ def _endpoint_child(main: Any, root: Path) -> dict[str, Any]:
     exports_path = base_path / "exports"
 
     before = set(exports_path.iterdir())
-    invalid_identifier = client.post("/export/folder%5Cname")
+    invalid_identifier = client.post("/export/..%5Coutside")
     unsupported_format = client.post(
         "/export/ty-local_01", params={"format_type": "csv"}
     )
