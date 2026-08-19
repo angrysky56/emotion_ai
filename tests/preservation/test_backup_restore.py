@@ -302,6 +302,108 @@ def _backed_up_chroma(tmp_path: Path):
     return source, backup, inventory, key
 
 
+def test_verify_preserves_archive_not_applicable_sqlite_parity(
+    tmp_path: Path,
+) -> None:
+    """Disposable restore accepts the same classified archive anomaly only."""
+    repository = tmp_path / "repository"
+    active = repository / "active"
+    archive = repository / "archive"
+    repository.mkdir()
+    _closed_chroma_store(active)
+    archive.mkdir()
+    (archive / "historical.sqlite3").write_bytes(b"retained non-database artifact")
+    key = b"archive-restore-key-material-32"
+    inventory = inventory_roots(
+        repository,
+        (
+            RootDeclaration("active-01", "active", RootRole.ACTIVE),
+            RootDeclaration("archive-01", "archive", RootRole.ARCHIVE),
+        ),
+        hmac_key=key,
+        run_id="archive-parity",
+        tool_commit="test",
+    )
+    sources = {"active-01": active, "archive-01": archive}
+    backup_root = tmp_path / "offline"
+    backup_root.mkdir()
+    ticket = issue_quiescence_ticket(
+        sources,
+        backup_root,
+        inventory_manifest=inventory,
+    )
+    backup = copy_from_ticket(sources, backup_root, "snapshot", ticket)
+    restore_parent = tmp_path / "restore-parent"
+    restore_parent.mkdir()
+
+    result = verify_disposable_restore(
+        backup,
+        restore_parent,
+        inventory,
+        hmac_key=key,
+    )
+
+    assert result.status is CheckStatus.PASS
+    assert result.check_status("sqlite_integrity") is CheckStatus.PASS
+    assert result.check_status("foreign_key_parity") is CheckStatus.PASS
+
+
+def test_verify_never_licenses_not_applicable_on_an_active_root(
+    tmp_path: Path,
+) -> None:
+    """Even forged active N/A evidence must fail disposable SQLite parity."""
+    repository = tmp_path / "repository"
+    active = repository / "active"
+    active.mkdir(parents=True)
+    (active / "broken.sqlite3").write_bytes(b"not a sqlite database")
+    key = b"active-restore-key-material-32b"
+    failed_inventory = inventory_roots(
+        repository,
+        (RootDeclaration("active-01", "active", RootRole.ACTIVE),),
+        hmac_key=key,
+        run_id="active-forgery",
+        tool_commit="test",
+    )
+    database = replace(
+        failed_inventory.roots[0].databases[0],
+        integrity_status=CheckStatus.NOT_APPLICABLE,
+        integrity_result="not_applicable",
+        foreign_key_status=CheckStatus.NOT_APPLICABLE,
+        reason_code="preserved_non_sqlite_archive",
+    )
+    root = replace(
+        failed_inventory.roots[0],
+        status=CheckStatus.PASS,
+        databases=(database,),
+    )
+    forged_inventory = replace(
+        failed_inventory,
+        roots=(root,),
+        status=CheckStatus.PASS,
+    )
+    sources = {"active-01": active}
+    backup_root = tmp_path / "offline"
+    backup_root.mkdir()
+    ticket = issue_quiescence_ticket(
+        sources,
+        backup_root,
+        inventory_manifest=forged_inventory,
+    )
+    backup = copy_from_ticket(sources, backup_root, "snapshot", ticket)
+    restore_parent = tmp_path / "restore-parent"
+    restore_parent.mkdir()
+
+    result = verify_disposable_restore(
+        backup,
+        restore_parent,
+        forged_inventory,
+        hmac_key=key,
+    )
+
+    assert result.status is CheckStatus.FAIL
+    assert result.check_status("sqlite_integrity") is CheckStatus.FAIL
+
+
 def test_verify_opens_chroma_only_on_disposable_restore_and_cleans_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
