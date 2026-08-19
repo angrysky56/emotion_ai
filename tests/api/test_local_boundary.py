@@ -88,8 +88,10 @@ def test_non_json_conversation_is_rejected_before_business_behavior(
     """Simple cross-origin requests cannot drive the local companion route."""
     result = run_probe(scenario)
 
-    assert result["status_code"] == 415
-    assert result["body"] == {"detail": "Unsupported Media Type"}
+    assert result["status_code"] == 422
+    assert result["body"]["detail"][0]["loc"] == ["body"]
+    assert result["body"]["detail"][0]["type"] == "model_attributes_type"
+    assert "access-control-allow-origin" not in result["headers"]
     assert result["provider_calls"] == 0
     assert result["persistence_calls"] == 0
     assert result["lifespan_started"] is False
@@ -106,6 +108,7 @@ def test_allowed_local_json_conversation_succeeds_without_sign_in() -> None:
     assert "access-control-allow-credentials" not in result["headers"]
     assert result["provider_calls"] == 1
     assert result["persistence_calls"] == 1
+    assert result["credential_headers_sent"] == []
     assert result["lifespan_started"] is False
     assert result["body"] == {
         "cognitive_state": {

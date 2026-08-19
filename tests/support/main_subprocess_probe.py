@@ -292,8 +292,10 @@ def _install_route_fakes(main: Any) -> dict[str, int]:
 
 
 def _request_result(response: Any, calls: dict[str, int]) -> dict[str, Any]:
+    content_type = response.headers.get("content-type", "")
+    body = response.json() if content_type.startswith("application/json") else response.text
     return {
-        "body": _normalize(response.json()),
+        "body": _normalize(body),
         "headers": {
             key.lower(): value
             for key, value in response.headers.items()
@@ -365,7 +367,12 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
             "session_id": "probe-session",
             "user_id": "probe-user",
         }
-        headers = {"Origin": DEFAULT_ORIGIN}
+        origin = (
+            DEFAULT_ORIGIN
+            if scenario == "conversation_json"
+            else UNTRUSTED_ORIGIN
+        )
+        headers = {"Origin": origin}
         if scenario == "conversation_json":
             response = client.post("/conversation", json=payload, headers=headers)
         elif scenario == "conversation_missing_content_type":
@@ -381,9 +388,12 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
         else:
             raise ValueError(f"Unknown probe scenario: {scenario}")
         scenario_result = _request_result(response, calls)
+        scenario_result["credential_headers_sent"] = []
 
     return {
         "complete": True,
+        "lifespan_started": False,
+        "production_initializers_called": initializer_calls,
         "scenario": scenario,
         "status": "ok",
         **scenario_result,
