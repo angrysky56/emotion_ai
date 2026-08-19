@@ -281,77 +281,80 @@ def _verify_chroma(
     try:
         for root_ordinal, alias in enumerate(aliases):
             client = chromadb.PersistentClient(path=str(disposable / alias))
-            listed = client.list_collections()
-            names = sorted(
-                item if isinstance(item, str) else item.name for item in listed
-            )
-            collection_total += len(names)
-            for collection_ordinal, name in enumerate(names):
-                collection = client.get_collection(name)
-                api_count = collection.count()
-                identities = collection.get(include=[])["ids"]
-                actual_count = len(identities)
-                count_digest.update(
-                    json.dumps(
-                        (root_ordinal, collection_ordinal, api_count, actual_count),
-                        separators=(",", ":"),
-                    ).encode("utf-8")
+            try:
+                listed = client.list_collections()
+                names = sorted(
+                    item if isinstance(item, str) else item.name for item in listed
                 )
-                count_digest.update(b"\n")
-                record_total += actual_count
-                if api_count != actual_count:
-                    count_status = CheckStatus.FAIL
-                    retrieval_status = CheckStatus.NOT_RUN
-                    continue
-                if actual_count == 0:
-                    continue
-
-                selected = sorted(str(identity) for identity in identities)[0]
-                record = collection.get(ids=[selected], include=["embeddings"])
-                embeddings = record.get("embeddings")
-                if embeddings is None or len(embeddings) != 1:
-                    retrieval_status = CheckStatus.BLOCKED
-                    continue
-                embedding = embeddings[0]
-                query = collection.query(
-                    query_embeddings=[embedding],
-                    n_results=min(5, actual_count),
-                    include=["distances"],
-                )
-                result_ids = query.get("ids")
-                distances = query.get("distances")
-                if (
-                    not result_ids
-                    or not result_ids[0]
-                    or distances is None
-                    or not distances[0]
-                    or str(result_ids[0][0]) != selected
-                    or len(result_ids[0]) != len(distances[0])
-                ):
-                    retrieval_status = CheckStatus.FAIL
-                    continue
-                fixture_total += 1
-                for result_ordinal, (identity, distance) in enumerate(
-                    zip(result_ids[0], distances[0], strict=True)
-                ):
-                    numeric_distance = float(distance)
-                    if not math.isfinite(numeric_distance):
-                        retrieval_status = CheckStatus.FAIL
-                        break
-                    retrieval_digest.update(
+                collection_total += len(names)
+                for collection_ordinal, name in enumerate(names):
+                    collection = client.get_collection(name)
+                    api_count = collection.count()
+                    identities = collection.get(include=[])["ids"]
+                    actual_count = len(identities)
+                    count_digest.update(
                         json.dumps(
-                            (
-                                root_ordinal,
-                                collection_ordinal,
-                                result_ordinal,
-                                str(identity),
-                                format(numeric_distance, ".17g"),
-                            ),
+                            (root_ordinal, collection_ordinal, api_count, actual_count),
                             separators=(",", ":"),
-                            ensure_ascii=True,
                         ).encode("utf-8")
                     )
-                    retrieval_digest.update(b"\n")
+                    count_digest.update(b"\n")
+                    record_total += actual_count
+                    if api_count != actual_count:
+                        count_status = CheckStatus.FAIL
+                        retrieval_status = CheckStatus.NOT_RUN
+                        continue
+                    if actual_count == 0:
+                        continue
+
+                    selected = sorted(str(identity) for identity in identities)[0]
+                    record = collection.get(ids=[selected], include=["embeddings"])
+                    embeddings = record.get("embeddings")
+                    if embeddings is None or len(embeddings) != 1:
+                        retrieval_status = CheckStatus.BLOCKED
+                        continue
+                    embedding = embeddings[0]
+                    query = collection.query(
+                        query_embeddings=[embedding],
+                        n_results=min(5, actual_count),
+                        include=["distances"],
+                    )
+                    result_ids = query.get("ids")
+                    distances = query.get("distances")
+                    if (
+                        not result_ids
+                        or not result_ids[0]
+                        or distances is None
+                        or not distances[0]
+                        or str(result_ids[0][0]) != selected
+                        or len(result_ids[0]) != len(distances[0])
+                    ):
+                        retrieval_status = CheckStatus.FAIL
+                        continue
+                    fixture_total += 1
+                    for result_ordinal, (identity, distance) in enumerate(
+                        zip(result_ids[0], distances[0], strict=True)
+                    ):
+                        numeric_distance = float(distance)
+                        if not math.isfinite(numeric_distance):
+                            retrieval_status = CheckStatus.FAIL
+                            break
+                        retrieval_digest.update(
+                            json.dumps(
+                                (
+                                    root_ordinal,
+                                    collection_ordinal,
+                                    result_ordinal,
+                                    str(identity),
+                                    format(numeric_distance, ".17g"),
+                                ),
+                                separators=(",", ":"),
+                                ensure_ascii=True,
+                            ).encode("utf-8")
+                        )
+                        retrieval_digest.update(b"\n")
+            finally:
+                client.close()
     except Exception:
         if count_status is CheckStatus.PASS:
             retrieval_status = CheckStatus.BLOCKED

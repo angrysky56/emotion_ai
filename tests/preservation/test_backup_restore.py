@@ -279,6 +279,7 @@ def _closed_chroma_store(root: Path) -> None:
         metadatas=[{"private": 1}, {"private": 2}, {"private": 3}],
     )
     del collection
+    client.close()
     del client
     gc.collect()
 
@@ -524,6 +525,9 @@ def test_verify_cannot_pass_count_retrieval_or_resource_failure(
 
         def get_collection(self, name):
             return FaultyCollection(self._wrapped.get_collection(name))
+
+        def close(self):
+            self._wrapped.close()
 
     monkeypatch.setattr(chromadb, "PersistentClient", FaultyClient)
 
