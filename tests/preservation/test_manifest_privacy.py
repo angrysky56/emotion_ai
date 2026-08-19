@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import stat
 from pathlib import Path
 
 import pytest
@@ -162,6 +163,7 @@ def test_inventory_cli_creates_both_lanes_and_refuses_overwrite(tmp_path: Path) 
     assert main(arguments) == 0
     private_before = private_manifest.read_bytes()
     public_before = public_summary.read_bytes()
+    assert stat.S_IMODE(private_manifest.stat().st_mode) == 0o600
     (data_root / "record.txt").write_text("changed after evidence")
 
     assert main(arguments) != 0
@@ -176,6 +178,20 @@ def test_inventory_cli_creates_both_lanes_and_refuses_overwrite(tmp_path: Path) 
             "active",
         ]
     ) == 0
+
+    tampered_summary = repository / "tampered-summary.json"
+    tampered = json.loads(public_before)
+    tampered["roots"][0]["status"] = "blocked"
+    tampered_summary.write_text(json.dumps(tampered))
+    assert main(
+        [
+            "validate-summary",
+            "--summary",
+            str(tampered_summary),
+            "--require-role",
+            "active",
+        ]
+    ) != 0
 
 
 def test_inventory_cli_returns_nonzero_for_a_blocked_required_root(

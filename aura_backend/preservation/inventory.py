@@ -80,6 +80,8 @@ def _inventory_root(
     hmac_key: bytes,
 ) -> RootEvidence:
     path = repository_root.joinpath(*Path(declaration.repository_relative_path).parts)
+    if _has_symlink_component(repository_root, declaration.repository_relative_path):
+        return _empty_root(declaration, CheckStatus.BLOCKED, "root_path_contains_symlink")
     try:
         root_stat = path.lstat()
     except FileNotFoundError:
@@ -228,6 +230,8 @@ def _hash_regular_file(
         flags |= os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
     try:
         descriptor = os.open(path, flags)
         with os.fdopen(descriptor, "rb") as stream:
@@ -323,6 +327,22 @@ def _file_type(mode: int) -> str:
     if stat.S_ISCHR(mode):
         return "character_device"
     return "unknown"
+
+
+def _has_symlink_component(repository_root: Path, relative_path: str) -> bool:
+    """Detect links in every existing component without resolving through them."""
+    current = repository_root
+    for component in Path(relative_path).parts:
+        current = current / component
+        try:
+            component_stat = current.lstat()
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return False
+        if stat.S_ISLNK(component_stat.st_mode):
+            return True
+    return False
 
 
 def _same_identity(left: os.stat_result, right: os.stat_result) -> bool:
