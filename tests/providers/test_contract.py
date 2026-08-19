@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from typing import Any, get_type_hints
 
@@ -164,3 +165,169 @@ def test_legacy_provider_exports_still_construct_and_resolve() -> None:
     assert message.role == "user"
     assert response.content == "Synthetic response."
     assert BaseProvider.__name__ == "BaseProvider"
+
+
+def test_settings_default_to_local_ollama_without_cloud_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pure settings parsing has a useful local default and no ambient env read."""
+    from aura_backend.providers.config import ProviderKind, ProviderSettings
+
+    def forbidden_getenv(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("ProviderSettings.from_mapping must remain pure")
+
+    monkeypatch.setattr(os, "getenv", forbidden_getenv)
+    settings = ProviderSettings.from_mapping({})
+
+    assert settings.kind is ProviderKind.OLLAMA
+    assert settings.model == "llama3.1"
+    assert settings.base_url == "http://127.0.0.1:11434/v1"
+    assert settings.api_key is None
+    assert settings.max_retries == 0
+    assert settings.max_tool_turns == 3
+
+
+@pytest.mark.parametrize(
+    ("provider", "credential_name", "model_name"),
+    (
+        ("gemini", "GEMINI_API_KEY", "gemini-test-model"),
+        ("openrouter", "OPENROUTER_API_KEY", "openrouter/test-model"),
+    ),
+)
+def test_cloud_settings_validate_only_the_selected_credential(
+    provider: str,
+    credential_name: str,
+    model_name: str,
+) -> None:
+    """Explicit cloud selection checks its own key and ignores the other provider."""
+    from aura_backend.providers.config import ProviderKind, ProviderSettings
+
+    model_key = "AURA_MODEL" if provider == "gemini" else "OPENROUTER_MODEL"
+    settings = ProviderSettings.from_mapping(
+        {
+            "AURA_DEFAULT_PROVIDER": provider,
+            credential_name: "credential-SENTINEL-selected",
+            model_key: model_name,
+        }
+    )
+
+    assert settings.kind is ProviderKind(provider)
+    assert settings.model == model_name
+    assert settings.api_key == "credential-SENTINEL-selected"
+
+
+@pytest.mark.parametrize(
+    ("provider", "credential_name"),
+    (("gemini", "GEMINI_API_KEY"), ("openrouter", "OPENROUTER_API_KEY")),
+)
+def test_selected_cloud_provider_requires_its_credential_safely(
+    provider: str,
+    credential_name: str,
+) -> None:
+    """A missing selected cloud key fails before an adapter can be constructed."""
+    from aura_backend.providers.config import ProviderSettings
+    from aura_backend.providers.errors import ProviderErrorCode, ProviderFailure
+
+    with pytest.raises(ProviderFailure) as captured:
+        ProviderSettings.from_mapping({"AURA_DEFAULT_PROVIDER": provider})
+
+    assert captured.value.code is ProviderErrorCode.CONFIGURATION
+    assert captured.value.provider == provider
+    assert captured.value.setting_name == credential_name
+    assert credential_name in str(captured.value)
+
+
+def test_unknown_provider_fails_closed_without_echoing_the_value() -> None:
+    """A typo can never silently select or construct a cloud provider."""
+    from aura_backend.providers.config import ProviderSettings
+    from aura_backend.providers.errors import ProviderErrorCode, ProviderFailure
+
+    unknown = "unknown-provider-credential-SENTINEL"
+    with pytest.raises(ProviderFailure) as captured:
+        ProviderSettings.from_mapping({"AURA_DEFAULT_PROVIDER": unknown})
+
+    assert captured.value.code is ProviderErrorCode.CONFIGURATION
+    assert captured.value.provider is None
+    assert captured.value.setting_name == "AURA_DEFAULT_PROVIDER"
+    assert unknown not in str(captured.value)
+    assert unknown not in repr(captured.value.to_public_dict())
+
+
+@pytest.mark.parametrize(
+    ("setting_name", "invalid_value"),
+    (
+        ("AURA_PROVIDER_REQUEST_TIMEOUT_SECONDS", "0"),
+        ("AURA_PROVIDER_REQUEST_TIMEOUT_SECONDS", "nan"),
+        ("AURA_PROVIDER_CONNECT_TIMEOUT_SECONDS", "inf"),
+        ("AURA_PROVIDER_READ_TIMEOUT_SECONDS", "-1"),
+        ("AURA_PROVIDER_WRITE_TIMEOUT_SECONDS", "3601"),
+        ("AURA_PROVIDER_POOL_TIMEOUT_SECONDS", "not-a-number"),
+        ("AURA_PROVIDER_MAX_RETRIES", "-1"),
+        ("AURA_PROVIDER_MAX_RETRIES", "1.5"),
+        ("AURA_PROVIDER_MAX_RETRIES", "11"),
+        ("MAX_FUNCTION_CALL_ROUNDS", "0"),
+        ("MAX_FUNCTION_CALL_ROUNDS", "101"),
+    ),
+)
+def test_config_rejects_invalid_timeout_retry_and_tool_turn_bounds(
+    setting_name: str,
+    invalid_value: str,
+) -> None:
+    """Numeric provider policy is finite, positive where required, and bounded."""
+    from aura_backend.providers.config import ProviderSettings
+    from aura_backend.providers.errors import ProviderErrorCode, ProviderFailure
+
+    with pytest.raises(ProviderFailure) as captured:
+        ProviderSettings.from_mapping({setting_name: invalid_value})
+
+    assert captured.value.code is ProviderErrorCode.CONFIGURATION
+    assert captured.value.provider == "ollama"
+    assert captured.value.setting_name == setting_name
+    assert invalid_value not in str(captured.value)
+
+
+@pytest.mark.parametrize(
+    ("setting_name", "invalid_value"),
+    (
+        ("OLLAMA_MODEL", "   "),
+        ("OLLAMA_BASE_URL", "https://user:password@example.invalid/v1"),
+        ("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1?token=secret-SENTINEL"),
+    ),
+)
+def test_config_diagnostics_name_setting_without_leaking_credential_or_url(
+    setting_name: str,
+    invalid_value: str,
+) -> None:
+    """Invalid model/URL input is identified only by safe metadata."""
+    from aura_backend.providers.config import ProviderSettings
+    from aura_backend.providers.errors import ProviderFailure
+
+    with pytest.raises(ProviderFailure) as captured:
+        ProviderSettings.from_mapping({setting_name: invalid_value})
+
+    rendered = f"{captured.value!s} {captured.value!r}"
+    assert captured.value.setting_name == setting_name
+    assert invalid_value not in rendered
+    assert "password" not in rendered
+    assert "secret-SENTINEL" not in rendered
+
+
+def test_settings_are_frozen_and_repr_redacts_credentials_and_base_url() -> None:
+    """Secret-bearing settings cannot mutate or leak through routine diagnostics."""
+    from aura_backend.providers.config import ProviderSettings
+
+    api_key = "credential-SENTINEL-private"
+    base_url = "https://openrouter.ai/api/v1"
+    settings = ProviderSettings.from_mapping(
+        {
+            "AURA_DEFAULT_PROVIDER": "openrouter",
+            "OPENROUTER_API_KEY": api_key,
+            "OPENROUTER_BASE_URL": base_url,
+        }
+    )
+
+    rendered = repr(settings)
+    assert api_key not in rendered
+    assert base_url not in rendered
+    with pytest.raises(FrozenInstanceError):
+        settings.max_retries = 2  # type: ignore[misc]
