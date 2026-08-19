@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import gc
+import hashlib
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -20,6 +23,10 @@ from aura_backend.preservation.backup import (
     issue_quiescence_ticket,
 )
 from aura_backend.preservation.manifest import CheckStatus
+from aura_backend.preservation.cli import build_parser, main
+from aura_backend.preservation.inventory import inventory_roots
+from aura_backend.preservation.manifest import RootDeclaration, RootRole
+from aura_backend.preservation.restore import verify_disposable_restore
 
 
 def _synthetic_store(root: Path) -> dict[str, bytes]:
@@ -243,3 +250,268 @@ def test_backup_test_module_contains_no_real_backup_or_aura_root_literal() -> No
     source = Path(__file__).read_text(encoding="utf-8")
     forbidden = (chr(47) + "backup", "aura" + "_chroma" + "_db")
     assert not any(value in source for value in forbidden)
+
+
+def _inventory_for_store(repository: Path, source: Path, key: bytes):
+    return inventory_roots(
+        repository,
+        (
+            RootDeclaration(
+                alias="active-01",
+                repository_relative_path=source.relative_to(repository).as_posix(),
+                role=RootRole.ACTIVE,
+            ),
+        ),
+        hmac_key=key,
+        run_id="synthetic-run",
+        tool_commit="test",
+    )
+
+
+def _closed_chroma_store(root: Path) -> None:
+    import chromadb
+
+    client = chromadb.PersistentClient(path=str(root))
+    collection = client.create_collection("synthetic_collection")
+    collection.add(
+        ids=["opaque-a", "opaque-b", "opaque-c"],
+        embeddings=[[1.0, 0.0], [0.0, 1.0], [0.8, 0.2]],
+        documents=["private one", "private two", "private three"],
+        metadatas=[{"private": 1}, {"private": 2}, {"private": 3}],
+    )
+    del collection
+    del client
+    gc.collect()
+
+
+def _backed_up_chroma(tmp_path: Path):
+    source = tmp_path / "repository" / "source"
+    source.parent.mkdir()
+    _closed_chroma_store(source)
+    key = b"restore-fixture-key-material-32b"
+    inventory = _inventory_for_store(source.parent, source, key)
+    backup_root = tmp_path / "offline"
+    backup_root.mkdir()
+    ticket = issue_quiescence_ticket(
+        {"active-01": source},
+        backup_root,
+        inventory_manifest=inventory,
+    )
+    backup = copy_from_ticket(
+        {"active-01": source}, backup_root, "snapshot", ticket
+    )
+    return source, backup, inventory, key
+
+
+def test_verify_opens_chroma_only_on_disposable_restore_and_cleans_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, backup, inventory, key = _backed_up_chroma(tmp_path)
+    restore_parent = tmp_path / "restore-parent"
+    restore_parent.mkdir()
+    import chromadb
+
+    real_client = chromadb.PersistentClient
+    opened: list[Path] = []
+
+    def recording_client(*args, **kwargs):
+        raw_path = kwargs.get("path", args[0] if args else None)
+        opened.append(Path(raw_path).resolve())
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(chromadb, "PersistentClient", recording_client)
+    source_before = source.joinpath("chroma.sqlite3").read_bytes()
+
+    result = verify_disposable_restore(
+        backup,
+        restore_parent,
+        inventory,
+        hmac_key=key,
+    )
+
+    assert result.status is CheckStatus.PASS
+    assert opened
+    assert all(path.is_relative_to(restore_parent.resolve()) for path in opened)
+    assert all(path != source.resolve() for path in opened)
+    assert all(not path.is_relative_to(backup.destination) for path in opened)
+    assert not result.disposable_path.exists()
+    assert source.joinpath("chroma.sqlite3").read_bytes() == source_before
+    public_text = json.dumps(result.to_public_dict())
+    assert "synthetic_collection" not in public_text
+    assert "opaque-a" not in public_text
+    assert "private one" not in public_text
+
+
+def test_verify_rejects_changed_or_omitted_backup_sidecar(tmp_path: Path) -> None:
+    _, backup, inventory, key = _backed_up_chroma(tmp_path)
+    sidecar = next(backup.destination.rglob("data_level0.bin"))
+    sidecar.unlink()
+    restore_parent = tmp_path / "restore-parent"
+    restore_parent.mkdir()
+
+    result = verify_disposable_restore(
+        backup, restore_parent, inventory, hmac_key=key
+    )
+
+    assert result.status is CheckStatus.FAIL
+    assert result.check_status("backup_hash_parity") is CheckStatus.FAIL
+    assert result.check_status("chroma_counts") is CheckStatus.NOT_RUN
+
+
+def test_verify_rejects_foreign_key_parity_mismatch(tmp_path: Path) -> None:
+    _, backup, inventory, key = _backed_up_chroma(tmp_path)
+    database = backup.destination / "active-01" / "chroma.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("CREATE TABLE extra_parent(id INTEGER PRIMARY KEY)")
+        connection.execute(
+            "CREATE TABLE extra_child(parent_id INTEGER REFERENCES extra_parent(id))"
+        )
+        connection.execute("INSERT INTO extra_child(parent_id) VALUES (404)")
+    current = __import__(
+        "aura_backend.preservation.backup", fromlist=["snapshot_roots"]
+    ).snapshot_roots({"active-01": backup.destination / "active-01"})
+    forged = replace(backup, destination_manifest=current)
+    restore_parent = tmp_path / "restore-parent"
+    restore_parent.mkdir()
+
+    result = verify_disposable_restore(
+        forged, restore_parent, inventory, hmac_key=key
+    )
+
+    assert result.status is CheckStatus.FAIL
+    assert result.check_status("foreign_key_parity") is CheckStatus.FAIL
+
+
+@pytest.mark.parametrize("fault", ["count", "retrieval", "resource"])
+def test_verify_cannot_pass_count_retrieval_or_resource_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    _, backup, inventory, key = _backed_up_chroma(tmp_path)
+    restore_parent = tmp_path / "restore-parent"
+    restore_parent.mkdir()
+    import chromadb
+
+    real_client = chromadb.PersistentClient
+
+    class FaultyCollection:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+            self.name = wrapped.name
+
+        def count(self):
+            count = self._wrapped.count()
+            return count + 1 if fault == "count" else count
+
+        def get(self, *args, **kwargs):
+            return self._wrapped.get(*args, **kwargs)
+
+        def query(self, *args, **kwargs):
+            if fault == "resource":
+                raise RuntimeError("synthetic resource limit")
+            result = self._wrapped.query(*args, **kwargs)
+            if fault == "retrieval":
+                result["ids"][0][0] = "wrong-result"
+            return result
+
+    class FaultyClient:
+        def __init__(self, *args, **kwargs):
+            self._wrapped = real_client(*args, **kwargs)
+
+        def list_collections(self):
+            return self._wrapped.list_collections()
+
+        def get_collection(self, name):
+            return FaultyCollection(self._wrapped.get_collection(name))
+
+    monkeypatch.setattr(chromadb, "PersistentClient", FaultyClient)
+
+    result = verify_disposable_restore(
+        backup, restore_parent, inventory, hmac_key=key
+    )
+
+    assert result.status is not CheckStatus.PASS
+    assert result.check_status("chroma_counts") is not CheckStatus.PASS or result.check_status(
+        "retrieval_parity"
+    ) is not CheckStatus.PASS
+
+
+def test_parser_exposes_every_normative_preservation_command(tmp_path: Path) -> None:
+    parser = build_parser()
+    commands = {
+        "inventory": [
+            "--repository-root", str(tmp_path), "--backup-root", str(tmp_path / "b"),
+            "--run-id", "run", "--private-manifest", str(tmp_path / "p"),
+            "--public-summary", str(tmp_path / "s"), "--root", "active=data",
+        ],
+        "validate-summary": ["--summary", str(tmp_path / "s")],
+        "preflight": [
+            "--inventory-summary", str(tmp_path / "i"), "--backup-root", str(tmp_path / "b"),
+            "--public-summary", str(tmp_path / "q"), "--ticket-ttl-seconds", "900",
+        ],
+        "validate-quiescence": [
+            "--summary", str(tmp_path / "q"), "--inventory", str(tmp_path / "i"),
+            "--require-pass",
+        ],
+        "backup-from-ticket": [
+            "--inventory-summary", str(tmp_path / "i"), "--quiescence-summary", str(tmp_path / "q"),
+            "--backup-root", str(tmp_path / "b"), "--destination-name", "copy",
+        ],
+        "verify": [
+            "--inventory-summary", str(tmp_path / "i"), "--quiescence-summary", str(tmp_path / "q"),
+            "--backup-root", str(tmp_path / "b"), "--restore-parent", str(tmp_path / "r"),
+            "--public-summary", str(tmp_path / "v"),
+        ],
+        "validate-restore-summary": [
+            "--summary", str(tmp_path / "v"), "--inventory", str(tmp_path / "i"),
+            "--quiescence", str(tmp_path / "q"), "--require-pass",
+            "--require-source-unchanged", "--require-fk-parity", "--require-retrieval-parity",
+        ],
+    }
+    assert {parser.parse_args([command, *arguments]).command for command, arguments in commands.items()} == set(commands)
+
+
+def test_cli_rejects_cross_artifact_digest_substitution(tmp_path: Path) -> None:
+    inventory = tmp_path / "inventory.json"
+    quiescence = tmp_path / "quiescence.json"
+    restore = tmp_path / "restore.json"
+    common = {
+        "schema_version": 1,
+        "run_id": "run",
+        "status": "pass",
+        "source_set_sha256": "a" * 64,
+        "checks": [{"name": "required", "status": "pass", "evidence_sha256": "b" * 64}],
+        "created_at_utc": "2026-08-19T00:00:00Z",
+        "tool_commit": "test",
+    }
+    inventory.write_text(json.dumps({**common, "command": "inventory"}), encoding="utf-8")
+    quiescence.write_text(json.dumps({**common, "command": "preflight"}), encoding="utf-8")
+    restore.write_text(
+        json.dumps(
+            {
+                **common,
+                "command": "verify",
+                "inventory_summary_sha256": "c" * 64,
+                "quiescence_summary_sha256": "d" * 64,
+                "gates": {
+                    "source_unchanged": True,
+                    "foreign_key_parity": True,
+                    "retrieval_parity": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(
+        [
+            "validate-restore-summary",
+            "--summary", str(restore),
+            "--inventory", str(inventory),
+            "--quiescence", str(quiescence),
+            "--require-pass",
+            "--require-source-unchanged",
+            "--require-fk-parity",
+            "--require-retrieval-parity",
+        ]
+    ) == 4
