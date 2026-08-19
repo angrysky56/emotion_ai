@@ -68,8 +68,10 @@ def _sanitized_environment() -> dict[str, str]:
     return {
         "ALLOWED_ORIGINS": DEFAULT_ORIGIN,
         "AUTONOMIC_ENABLED": "false",
+        "EMERGENCY_PERSISTENCE_RETRIES": "0",
         "IMMEDIATE_PERSISTENCE_ENABLED": "true",
         "PATH": os.environ.get("PATH", ""),
+        "PERSISTENCE_TIMEOUT": "4.25",
         "PYTHONHASHSEED": "0",
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONNOUSERSITE": "1",
@@ -221,8 +223,14 @@ def _normalize(value: Any) -> Any:
     return value
 
 
-def _install_route_fakes(main: Any) -> dict[str, int]:
-    calls = {"provider": 0, "persistence": 0}
+def _install_route_fakes(main: Any, scenario: str) -> dict[str, Any]:
+    calls: dict[str, Any] = {
+        "background": 0,
+        "filesystem_writes": 0,
+        "persistence": 0,
+        "persistence_evidence": None,
+        "provider": 0,
+    }
 
     class FakeProvider:
         async def generate_response(self, *_args: Any, **_kwargs: Any) -> Any:
@@ -238,19 +246,82 @@ def _install_route_fakes(main: Any) -> dict[str, int]:
         async def load_user_profile(self, _user_id: str) -> dict[str, str]:
             return {"name": "Local Probe"}
 
+        async def save_user_profile(self, *_args: Any, **_kwargs: Any) -> None:
+            calls["filesystem_writes"] += 1
+            raise AssertionError("conversation probe must not write a profile file")
+
+        async def export_conversation_history(
+            self, *_args: Any, **_kwargs: Any
+        ) -> None:
+            calls["filesystem_writes"] += 1
+            raise AssertionError("conversation probe must not write an export file")
+
     class FakePersistence:
         async def safe_search_conversations(self, **_kwargs: Any) -> list[Any]:
             return []
 
         async def persist_conversation_exchange_immediate(
-            self, *_args: Any, **_kwargs: Any
+            self,
+            exchange: Any,
+            *,
+            update_profile: bool,
+            timeout: float,
         ) -> dict[str, Any]:
             calls["persistence"] += 1
-            return {
-                "success": True,
-                "method": "fake",
-                "stored_components": ["synthetic"],
+            failed = scenario == "persistence_failure"
+            result = {
                 "duration_ms": 0.0,
+                "errors": ["synthetic persistence failure"] if failed else [],
+                "method": (
+                    "fake_immediate_failure" if failed else "fake_immediate"
+                ),
+                "stored_components": [] if failed else ["synthetic"],
+                "success": not failed,
+            }
+            session_values = (
+                exchange.session_id,
+                exchange.user_memory.session_id,
+                exchange.ai_memory.session_id,
+            )
+            calls["persistence_evidence"] = {
+                "exchange": {
+                    "aura_message_nonempty": bool(exchange.ai_memory.message),
+                    "aura_sender": exchange.ai_memory.sender,
+                    "aura_user_matches": exchange.ai_memory.user_id == "probe-user",
+                    "session_ids": [
+                        "<session>"
+                        if value == "probe-session"
+                        else "<unexpected-session>"
+                        for value in session_values
+                    ],
+                    "user_message_matches": (
+                        exchange.user_memory.message
+                        == "A deterministic local boundary probe"
+                    ),
+                    "user_sender": exchange.user_memory.sender,
+                    "user_user_matches": exchange.user_memory.user_id == "probe-user",
+                },
+                "method": "persist_conversation_exchange_immediate",
+                "result": {
+                    "error_count": len(result["errors"]),
+                    "method": result["method"],
+                    "stored_component_count": len(result["stored_components"]),
+                    "success": result["success"],
+                },
+                "timeout": timeout,
+                "update_profile": update_profile,
+            }
+            return result
+
+        async def persist_conversation_exchange(
+            self, _exchange: Any, update_profile: bool = True
+        ) -> dict[str, Any]:
+            calls["background"] += 1
+            return {
+                "errors": ["synthetic background persistence failure"],
+                "stored_components": [],
+                "success": False,
+                "update_profile": update_profile,
             }
 
     async def fake_user_emotion(**_kwargs: Any) -> Any:
@@ -291,7 +362,7 @@ def _install_route_fakes(main: Any) -> dict[str, int]:
     return calls
 
 
-def _request_result(response: Any, calls: dict[str, int]) -> dict[str, Any]:
+def _request_result(response: Any, calls: dict[str, Any]) -> dict[str, Any]:
     content_type = response.headers.get("content-type", "")
     body = response.json() if content_type.startswith("application/json") else response.text
     return {
@@ -339,7 +410,7 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
     import aura_backend.main as main
     from fastapi.testclient import TestClient
 
-    calls = _install_route_fakes(main)
+    calls = _install_route_fakes(main, scenario)
     client = TestClient(main.app, raise_server_exceptions=True)
 
     if scenario == "probe":
@@ -369,11 +440,16 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
         }
         origin = (
             DEFAULT_ORIGIN
-            if scenario == "conversation_json"
+            if scenario
+            in {"conversation_json", "persistence_failure", "persistence_success"}
             else UNTRUSTED_ORIGIN
         )
         headers = {"Origin": origin}
-        if scenario == "conversation_json":
+        if scenario in {
+            "conversation_json",
+            "persistence_failure",
+            "persistence_success",
+        }:
             response = client.post("/conversation", json=payload, headers=headers)
         elif scenario == "conversation_missing_content_type":
             response = client.post(
@@ -389,6 +465,23 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
             raise ValueError(f"Unknown probe scenario: {scenario}")
         scenario_result = _request_result(response, calls)
         scenario_result["credential_headers_sent"] = []
+        if scenario in {"persistence_failure", "persistence_success"}:
+            response_body = scenario_result.pop("body")
+            persistence_evidence = calls["persistence_evidence"]
+            if persistence_evidence is None:
+                raise AssertionError("persistence scenario did not reach the fake service")
+            scenario_result["filesystem_write_attempts"] = calls[
+                "filesystem_writes"
+            ]
+            scenario_result["persistence"] = {
+                "background_calls": calls["background"],
+                "immediate_calls": calls["persistence"],
+                **persistence_evidence,
+            }
+            scenario_result["visible_provider_answer_preserved"] = (
+                isinstance(response_body, dict)
+                and response_body.get("response") == "Synthetic local reply."
+            )
 
     return {
         "complete": True,
