@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -133,6 +134,17 @@ def _fake_module(name: str, **attributes: Any) -> None:
     module = types.ModuleType(name)
     module.__dict__.update(attributes)
     sys.modules[name] = module
+
+
+def _forbid_network_calls() -> None:
+    """Make an accidental provider or service connection fail inside the child."""
+
+    def forbidden_connect(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("network access is forbidden in the deterministic probe")
+
+    socket.create_connection = forbidden_connect
+    socket.socket.connect = forbidden_connect
+    socket.socket.connect_ex = forbidden_connect
 
 
 def _install_import_fakes(initializer_calls: list[str]) -> None:
@@ -434,6 +446,7 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
     initializer_calls: list[str] = []
     if scenario == "wildcard_origin":
         os.environ["ALLOWED_ORIGINS"] = "*"
+    _forbid_network_calls()
     _install_import_fakes(initializer_calls)
 
     if scenario == "wildcard_origin":
