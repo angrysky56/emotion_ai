@@ -8,7 +8,7 @@
 
 - Evidence-based codebase map committed as `7a79048`.
 - Local-only runtime boundary committed as `541b5da`.
-- Deterministic Python suite: 130 passing tests.
+- Deterministic Python suite: 131 passing tests.
 - Active TypeScript type-check and Vite production build pass.
 - `ornith:latest` is installed locally and available for marked live-model checks.
 - Git tracks 59 grandfathered runtime/generated artifact paths totaling exactly
