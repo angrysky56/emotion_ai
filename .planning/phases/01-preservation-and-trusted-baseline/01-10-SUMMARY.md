@@ -41,7 +41,7 @@ patterns-established:
 
 requirements-completed: [PRES-01, PRES-02, PRES-04]
 
-duration: 21min
+duration: 54min
 completed: 2026-08-19
 status: complete
 ---
@@ -52,9 +52,9 @@ status: complete
 
 ## Performance
 
-- **Duration:** 21 min
+- **Duration:** 54 min, including the independent verifier repair
 - **Started:** 2026-08-19T16:19:38Z
-- **Completed:** 2026-08-19T16:40:38Z
+- **Completed:** 2026-08-19T17:13:07Z
 - **Tasks:** 2
 - **Files modified:** 7 repository files plus private backup/restore evidence outside Git
 
@@ -73,14 +73,16 @@ Each outcome was committed atomically:
 1. **Retrieval oracle RED gates** - `3418532` (test)
 2. **Tied-neighbor and immutable retry implementation** - `bf25b3f` (fix)
 3. **Task 1: Immutable backup and disposable restore evidence** - `1f91657` (feat)
-4. **Task 2: Phase evidence gate** - verified by the final metadata commit with no additional production change
+4. **Restore validator adversarial RED gate** - `bdf3f4b` (test)
+5. **Complete evidence-chain validator** - `a725749` (fix)
+6. **Task 2: Phase evidence gate** - verified by the final metadata commits
 
 ## Files Created/Modified
 
 - `.planning/evidence/phase-01/restore-drill-summary.json` - Canonical allowlisted passing restore evidence.
 - `aura_backend/preservation/restore.py` - Stable known-ID, finite-distance, metric-aware, repeated-query retrieval oracle.
 - `aura_backend/preservation/cli.py` - New immutable private evidence path for every verification retry.
-- `tests/preservation/test_backup_restore.py` - Tied-neighbor, nondeterminism, unknown-result, resource-failure, and retry-retention coverage.
+- `tests/preservation/test_backup_restore.py` - Tied-neighbor, nondeterminism, unknown-result, resource-failure, retry-retention, and adversarial validator coverage.
 - `/backup/aura-preservation/phase-01-20260819T121845Z/backup/` - Complete durable copy, never opened through Chroma.
 - `/backup/aura-preservation/phase-01-20260819T121845Z/backup.private.json` - Private exact source/destination manifests.
 - `/backup/aura-preservation/phase-01-20260819T121845Z/restore.attempt-02.private.json` - Passing private restore evidence.
@@ -120,9 +122,17 @@ Each outcome was committed atomically:
 - **Verification:** The synthetic CLI chain passes twice with two extant private artifacts; the real canonical summary points to `restore.attempt-02.private.json`.
 - **Committed in:** `3418532`, `bf25b3f`
 
+**4. [Rule 1 - Bug] Rejected vacuous and unbound restore summaries**
+- **Found during:** Independent Phase 1 verification after Task 2
+- **Issue:** `validate-restore-summary` accepted a digest-bound top-level `pass` document with an empty `checks` list because universal quantification over the empty list was vacuously true. It also did not reopen the named private restore and backup artifacts to verify their digest and source-chain bindings.
+- **Fix:** Require the exact seven restore checks without omissions, duplicates, substitutions, or reordering; derive top-level status and gate booleans from those checks; validate totals; reopen and hash the private restore, backup, inventory, and ticket evidence; and require exact source-before/source-after/destination manifest parity.
+- **Files modified:** `cli.py` and focused adversarial tests.
+- **Verification:** RED reproduced empty-check exit `0`; GREEN rejects empty, missing, duplicate, unknown, and forged-binding summaries while accepting the complete synthetic and real chains.
+- **Committed in:** `bdf3f4b`, `a725749`
+
 ---
 
-**Total deviations:** 3 auto-fixed (1 bug, 1 missing critical audit safeguard, 1 blocking environment setup)
+**Total deviations:** 4 auto-fixed (2 bugs, 1 missing critical audit safeguard, 1 blocking environment setup)
 **Impact on plan:** All changes tighten the planned privacy and truthfulness gates. No persistence source, durable backup, schema, or product behavior was altered.
 
 ## Issues Encountered
@@ -141,15 +151,17 @@ Each outcome was committed atomically:
 - Archive parity: the retained non-database archive remains exactly one role-bound `not_applicable` item.
 - Chroma restore: **10 collections**, **1,204 records**, **2/2 non-empty collection fixtures**, retrieval HMAC `7c10f11712192a7e57c7e46262231725152beb803040cc9282d006ca578b8889`.
 - Exact required restore validator - exit `0` with every `--require-*` gate.
-- `uv run python -m pytest -q tests/preservation/test_backup_restore.py` - **24 passed**.
-- `uv run python -m pytest -q tests/preservation` - **40 passed**.
-- `uv run python -m pytest -q` - **130 passed**.
+- `uv run python -m pytest -q tests/preservation/test_backup_restore.py` - **25 passed**.
+- `uv run python -m pytest -q tests/preservation` - **41 passed**.
+- `uv run python -m pytest -q` - **131 passed**.
 - `npx tsc --noEmit`, `npm run build`, Ruff, bytecode compilation, and `git diff --check` - passed independently.
 
 ## TDD Gate Compliance
 
 - RED commit `3418532` produced the three intended failures: tied-neighbor false rejection, undetected nondeterministic ordering, and private retry collision.
 - GREEN commit `bf25b3f` passed all three focused gates and the complete preservation suite.
+- RED commit `bdf3f4b` reproduced the empty-check false success and defines missing, duplicate, unknown, and forged-binding rejection.
+- GREEN commit `a725749` validates the exact real evidence chain and passes the complete preservation suite.
 
 ## Authentication Gates
 
@@ -172,7 +184,7 @@ None - no dependency, external service, credential, model, or system configurati
 ## Self-Check: PASSED
 
 - The durable backup, backup manifest, failed-attempt artifacts, passing private artifact, and canonical public summary exist with the recorded digests and permissions.
-- TDD commits `3418532` and `bf25b3f` and evidence commit `1f91657` exist in Git history.
+- TDD commits `3418532`, `bf25b3f`, `bdf3f4b`, and `a725749` and evidence commit `1f91657` exist in Git history.
 - All seven required restore checks are `pass`; both non-empty collections produced stable opaque fixtures.
 - No original or durable backup path was passed to Chroma, and no source was deleted, migrated, normalized, renamed, repaired, or declared canonical.
 - Stub and threat-surface scans found no blocking stub or unplanned network, authentication, schema, or trust-boundary expansion.

@@ -11,7 +11,8 @@
 - Deterministic Python suite: 130 passing tests.
 - Active TypeScript type-check and Vite production build pass.
 - `ornith:latest` is installed locally and available for marked live-model checks.
-- Git tracks 39 database/vector/backup artifacts totaling approximately 33 MB.
+- Git tracks 59 grandfathered runtime/generated artifact paths totaling exactly
+  153,612,467 bytes in the content-free tracked-runtime baseline.
 - No database, backup, archive, or Git history has been deleted or rewritten.
 - All 662 inventoried files have an outside-Git immutable backup with exact
   source-before/source-after/destination parity.
