@@ -194,6 +194,55 @@ def test_inventory_cli_creates_both_lanes_and_refuses_overwrite(tmp_path: Path) 
     ) != 0
 
 
+def test_archive_not_applicable_reason_is_public_safe_and_validated(
+    tmp_path: Path,
+) -> None:
+    """A fixed archive reason is public, but the raw SQLite error stays private."""
+    repository = tmp_path / "repository"
+    archive = repository / "archive"
+    archive.mkdir(parents=True)
+    (archive / "historical.sqlite3").write_bytes(b"retained non-database artifact")
+    backup_root = tmp_path / "backup"
+    private_manifest = backup_root / "run" / "inventory.private.json"
+    public_summary = repository / "inventory-summary.json"
+
+    exit_code = main(
+        [
+            "inventory",
+            "--repository-root",
+            str(repository),
+            "--backup-root",
+            str(backup_root),
+            "--run-id",
+            "run",
+            "--private-manifest",
+            str(private_manifest),
+            "--public-summary",
+            str(public_summary),
+            "--root",
+            "archive=archive",
+            "--require-role",
+            "archive",
+        ]
+    )
+
+    public_text = public_summary.read_text(encoding="utf-8")
+    public = json.loads(public_text)
+    assert exit_code == 0
+    assert "preserved_non_sqlite_archive" in public_text
+    assert "file is not a database" not in public_text
+    assert public["status"] == "pass"
+    assert main(
+        [
+            "validate-summary",
+            "--summary",
+            str(public_summary),
+            "--require-role",
+            "archive",
+        ]
+    ) == 0
+
+
 def test_inventory_cli_returns_nonzero_for_a_blocked_required_root(
     tmp_path: Path,
 ) -> None:

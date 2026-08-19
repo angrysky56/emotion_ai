@@ -80,6 +80,73 @@ def test_sqlite_integrity_and_foreign_key_results_are_separate(tmp_path: Path) -
     assert manifest.status is CheckStatus.PASS
 
 
+def test_non_database_sqlite_suffix_is_a_preserved_archive_anomaly(
+    tmp_path: Path,
+) -> None:
+    """A hashed archive artifact is preserved without a false integrity pass."""
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    artifact = archive_root / "historical.sqlite3"
+    artifact.write_bytes(b"intentionally retained non-database archive artifact")
+    declaration = RootDeclaration(
+        alias="archive-root",
+        repository_relative_path="archive",
+        role=RootRole.ARCHIVE,
+    )
+
+    manifest = inventory_roots(tmp_path, [declaration], hmac_key=b"a" * 32)
+
+    root = manifest.roots[0]
+    database = root.databases[0]
+    public = manifest.to_public_summary(
+        private_artifact_relpath="run/inventory.private.json",
+        private_artifact_sha256="a" * 64,
+    )
+    database_checks = public["roots"][0]["database_checks"]
+    assert root.file_count == 1
+    assert root.files[0].sha256 is not None
+    assert database.integrity_status is CheckStatus.NOT_APPLICABLE
+    assert database.foreign_key_status is CheckStatus.NOT_APPLICABLE
+    assert database.integrity_result == "not_applicable"
+    assert database.reason_code == "preserved_non_sqlite_archive"
+    assert root.status is CheckStatus.PASS
+    assert manifest.status is CheckStatus.PASS
+    assert database_checks["integrity_status_counts"]["not_applicable"] == 1
+    assert database_checks["foreign_key_status_counts"]["not_applicable"] == 1
+    assert database_checks["not_applicable_reason_counts"] == {
+        "preserved_non_sqlite_archive": 1
+    }
+    assert public["totals"]["anomaly_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "role",
+    [RootRole.ACTIVE, RootRole.BACKUP, RootRole.TEST],
+)
+def test_non_database_sqlite_suffix_still_fails_non_archive_roles(
+    tmp_path: Path,
+    role: RootRole,
+) -> None:
+    """The archive exception cannot license unreadable operational databases."""
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    (data_root / "broken.sqlite3").write_bytes(b"not a sqlite database")
+    declaration = RootDeclaration(
+        alias=f"{role.value}-root",
+        repository_relative_path="data",
+        role=role,
+    )
+
+    manifest = inventory_roots(tmp_path, [declaration], hmac_key=b"r" * 32)
+
+    database = manifest.roots[0].databases[0]
+    assert database.integrity_status is CheckStatus.FAIL
+    assert database.foreign_key_status is CheckStatus.NOT_RUN
+    assert database.reason_code is None
+    assert manifest.roots[0].status is CheckStatus.FAIL
+    assert manifest.status is CheckStatus.FAIL
+
+
 def test_symlink_is_blocked_without_reading_its_target(tmp_path: Path) -> None:
     """A link is evidence of an anomaly, not permission to traverse its target."""
     data_root = tmp_path / "data"
