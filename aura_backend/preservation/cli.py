@@ -84,6 +84,66 @@ _TOTAL_FIELDS = {
 }
 _CHECK_FIELDS = {"name", "status", "evidence_sha256"}
 _STATUS_FIELDS = {status.value for status in CheckStatus}
+_RESTORE_CHECK_NAMES = (
+    "source_unchanged",
+    "backup_hash_parity",
+    "restore_copy_parity",
+    "sqlite_integrity",
+    "foreign_key_parity",
+    "chroma_counts",
+    "retrieval_parity",
+)
+_RESTORE_GATE_FIELDS = {
+    "source_unchanged",
+    "foreign_key_parity",
+    "retrieval_parity",
+}
+_RESTORE_TOTAL_FIELDS = {
+    "collection_count",
+    "record_count",
+    "retrieval_fixture_count",
+}
+_RESTORE_PUBLIC_FIELDS = {
+    "schema_version",
+    "command",
+    "run_id",
+    "status",
+    "source_set_sha256",
+    "checks",
+    "created_at_utc",
+    "tool_commit",
+    "gates",
+    "totals",
+    "retrieval_fingerprint",
+    "inventory_summary_sha256",
+    "quiescence_summary_sha256",
+    "backup_result_sha256",
+    "private_artifact_relpath",
+    "private_artifact_sha256",
+}
+_RESTORE_PRIVATE_FIELDS = (
+    _RESTORE_PUBLIC_FIELDS
+    - {"private_artifact_relpath", "private_artifact_sha256"}
+    | {"finalized_backup_path"}
+)
+_BACKUP_PRIVATE_FIELDS = {
+    "schema_version",
+    "command",
+    "run_id",
+    "status",
+    "source_set_sha256",
+    "checks",
+    "created_at_utc",
+    "tool_commit",
+    "inventory_summary_sha256",
+    "inventory_private_sha256",
+    "quiescence_summary_sha256",
+    "quiescence_ticket_sha256",
+    "destination",
+    "source_before",
+    "source_after",
+    "destination_manifest",
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -462,27 +522,67 @@ def _run_validate_restore(arguments: argparse.Namespace) -> int:
     summary = json.loads(summary_bytes)
     inventory_bytes = arguments.inventory.read_bytes()
     quiescence_bytes = arguments.quiescence.read_bytes()
-    if summary.get("schema_version") != 1 or summary.get("command") != "verify":
+    if (
+        not isinstance(summary, dict)
+        or set(summary) != _RESTORE_PUBLIC_FIELDS
+        or summary.get("schema_version") != 1
+        or summary.get("command") != "verify"
+    ):
         raise VerificationMismatch("restore schema mismatch")
-    if summary.get("inventory_summary_sha256") != hashlib.sha256(
-        inventory_bytes
-    ).hexdigest():
+    inventory_digest = hashlib.sha256(inventory_bytes).hexdigest()
+    quiescence_digest = hashlib.sha256(quiescence_bytes).hexdigest()
+    if summary.get("inventory_summary_sha256") != inventory_digest:
         raise VerificationMismatch("inventory digest mismatch")
-    if summary.get("quiescence_summary_sha256") != hashlib.sha256(
-        quiescence_bytes
-    ).hexdigest():
+    if summary.get("quiescence_summary_sha256") != quiescence_digest:
         raise VerificationMismatch("quiescence digest mismatch")
+
+    quiescence_hint = json.loads(quiescence_bytes)
+    proposed_destination = quiescence_hint.get("proposed_destination")
+    if not isinstance(proposed_destination, str):
+        raise VerificationMismatch("quiescence destination missing")
+    destination_parent = Path(proposed_destination).resolve(strict=True)
+    backup_root = destination_parent.parent
+    manifest, _, inventory_public, loaded_inventory_bytes = _load_inventory_bundle(
+        arguments.inventory, backup_root
+    )
+    ticket, quiescence_public, _, loaded_quiescence_bytes = _load_quiescence_bundle(
+        arguments.quiescence,
+        arguments.inventory,
+        expected_backup_root=backup_root,
+    )
+    if loaded_inventory_bytes != inventory_bytes or loaded_quiescence_bytes != quiescence_bytes:
+        raise VerificationMismatch("artifact bytes changed during validation")
+    if (
+        summary.get("run_id") != manifest.run_id
+        or summary.get("source_set_sha256") != manifest.source_set_sha256
+        or summary.get("source_set_sha256") != ticket.inventory_source_set_sha256
+        or summary.get("tool_commit") != manifest.tool_commit
+    ):
+        raise VerificationMismatch("restore source-set binding mismatch")
+
     checks = summary.get("checks")
     if not isinstance(checks, list) or not all(_valid_check(item) for item in checks):
         raise VerificationMismatch("restore checks invalid")
+    if tuple(item["name"] for item in checks) != _RESTORE_CHECK_NAMES:
+        raise VerificationMismatch("required restore checks are incomplete")
+    expected_status = _aggregate_restore_status(checks)
+    if summary.get("status") != expected_status.value:
+        raise VerificationMismatch("restore status does not match its checks")
     if arguments.require_pass and (
         summary.get("status") != CheckStatus.PASS.value
         or any(item["status"] != CheckStatus.PASS.value for item in checks)
     ):
         raise VerificationMismatch("restore did not pass every required check")
     gates = summary.get("gates")
-    if not isinstance(gates, dict):
+    if not isinstance(gates, dict) or set(gates) != _RESTORE_GATE_FIELDS:
         raise VerificationMismatch("restore gates missing")
+    checks_by_name = {item["name"]: item["status"] for item in checks}
+    if any(
+        not isinstance(gates[name], bool)
+        or gates[name] != (checks_by_name[name] == CheckStatus.PASS.value)
+        for name in _RESTORE_GATE_FIELDS
+    ):
+        raise VerificationMismatch("restore gates do not match check evidence")
     gate_requirements = (
         (arguments.require_source_unchanged, "source_unchanged"),
         (arguments.require_fk_parity, "foreign_key_parity"),
@@ -490,7 +590,98 @@ def _run_validate_restore(arguments: argparse.Namespace) -> int:
     )
     if any(required and gates.get(name) is not True for required, name in gate_requirements):
         raise VerificationMismatch("required restore parity gate failed")
+
+    totals = summary.get("totals")
+    if (
+        not isinstance(totals, dict)
+        or set(totals) != _RESTORE_TOTAL_FIELDS
+        or any(
+            isinstance(totals[field], bool)
+            or not isinstance(totals[field], int)
+            or totals[field] < 0
+            for field in _RESTORE_TOTAL_FIELDS
+        )
+        or totals["retrieval_fixture_count"] > totals["collection_count"]
+        or (
+            checks_by_name["retrieval_parity"] == CheckStatus.PASS.value
+            and totals["retrieval_fixture_count"] == 0
+        )
+    ):
+        raise VerificationMismatch("restore totals invalid")
+    if not _is_digest(summary.get("retrieval_fingerprint")):
+        raise VerificationMismatch("restore retrieval fingerprint invalid")
+
+    backup_path = ticket.destination_parent / "backup.private.json"
+    backup_bytes = backup_path.read_bytes()
+    if hashlib.sha256(backup_bytes).hexdigest() != summary.get("backup_result_sha256"):
+        raise VerificationMismatch("backup result digest mismatch")
+    backup_private = json.loads(backup_bytes)
+    if not isinstance(backup_private, dict) or set(backup_private) != _BACKUP_PRIVATE_FIELDS:
+        raise VerificationMismatch("backup evidence schema mismatch")
+    backup_checks = backup_private.get("checks")
+    if (
+        backup_private.get("schema_version") != 1
+        or backup_private.get("command") != "backup-from-ticket"
+        or backup_private.get("status") != CheckStatus.PASS.value
+        or not isinstance(backup_checks, list)
+        or not all(_valid_check(item) for item in backup_checks)
+        or tuple(item["name"] for item in backup_checks)
+        != ("source_unchanged", "destination_parity")
+        or any(item["status"] != CheckStatus.PASS.value for item in backup_checks)
+        or backup_private.get("run_id") != manifest.run_id
+        or backup_private.get("tool_commit") != manifest.tool_commit
+        or backup_private.get("source_set_sha256") != manifest.source_set_sha256
+        or backup_private.get("inventory_summary_sha256") != inventory_digest
+        or backup_private.get("inventory_private_sha256")
+        != inventory_public["private_artifact_sha256"]
+        or backup_private.get("quiescence_summary_sha256") != quiescence_digest
+        or backup_private.get("quiescence_ticket_sha256")
+        != quiescence_public["private_ticket_sha256"]
+        or backup_private.get("source_before") != backup_private.get("source_after")
+        or backup_private.get("source_before")
+        != backup_private.get("destination_manifest")
+        or not isinstance(backup_private.get("source_before"), dict)
+        or backup_private["source_before"].get("sha256") != ticket.source_set_sha256
+    ):
+        raise VerificationMismatch("backup evidence chain mismatch")
+    finalized_backup = Path(backup_private["destination"]).resolve(strict=True)
+    if not finalized_backup.is_dir() or finalized_backup.parent != ticket.destination_parent:
+        raise VerificationMismatch("finalized backup path mismatch")
+
+    private_relpath = summary.get("private_artifact_relpath")
+    if not isinstance(private_relpath, str):
+        raise VerificationMismatch("restore private artifact pointer invalid")
+    relative = PurePosixPath(private_relpath)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise VerificationMismatch("restore private artifact escapes backup root")
+    private_path = backup_root.joinpath(*relative.parts).resolve(strict=True)
+    if not private_path.is_relative_to(backup_root):
+        raise VerificationMismatch("restore private artifact escapes backup root")
+    private_bytes = private_path.read_bytes()
+    if hashlib.sha256(private_bytes).hexdigest() != summary.get("private_artifact_sha256"):
+        raise VerificationMismatch("restore private artifact digest mismatch")
+    private = json.loads(private_bytes)
+    if not isinstance(private, dict) or set(private) != _RESTORE_PRIVATE_FIELDS:
+        raise VerificationMismatch("restore private artifact schema mismatch")
+    public_private_fields = _RESTORE_PUBLIC_FIELDS - {
+        "private_artifact_relpath",
+        "private_artifact_sha256",
+    }
+    if any(private.get(field) != summary.get(field) for field in public_private_fields):
+        raise VerificationMismatch("restore public/private evidence mismatch")
+    if Path(private["finalized_backup_path"]).resolve(strict=True) != finalized_backup:
+        raise VerificationMismatch("restore backup path binding mismatch")
     return 0
+
+
+def _aggregate_restore_status(checks: list[dict[str, Any]]) -> CheckStatus:
+    """Derive the only licensed top-level restore status from required checks."""
+    states = {CheckStatus(item["status"]) for item in checks}
+    if CheckStatus.FAIL in states:
+        return CheckStatus.FAIL
+    if states != {CheckStatus.PASS}:
+        return CheckStatus.BLOCKED
+    return CheckStatus.PASS
 
 
 def _load_inventory_bundle(
