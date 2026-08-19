@@ -5,7 +5,7 @@
 **Goal:** Make Aura safe to change without losing data or mistaking scripts for tests.
 **Requirements:** PRES-01, PRES-02, PRES-03, PRES-04, TEST-01, TEST-02,
 LOCAL-01, LOCAL-02, LOCAL-03, LOCAL-04
-**Status:** In progress
+**Status:** Complete
 
 - Inventory and checksum data roots without reading personal content.
 - Prove an isolated restore before migration or deletion.
