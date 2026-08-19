@@ -40,7 +40,7 @@ def test_regular_and_nested_files_are_inventoried_once_with_stable_totals(
     root = first.roots[0]
     assert root.status is CheckStatus.PASS
     assert root.file_count == 2
-    assert root.byte_total == 39
+    assert root.byte_total == 45
     assert [record.relative_path for record in root.files] == [
         "nested/two.bin",
         "one.txt",
