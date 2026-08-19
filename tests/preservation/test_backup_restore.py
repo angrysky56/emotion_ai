@@ -749,9 +749,10 @@ def test_cli_rejects_cross_artifact_digest_substitution(tmp_path: Path) -> None:
     ) == 4
 
 
-def test_cli_runs_inventory_ticket_backup_restore_chain_on_synthetic_data(
+def _run_synthetic_cli_chain(
     tmp_path: Path,
-) -> None:
+) -> tuple[Path, Path, Path, Path, Path]:
+    """Create one complete private/public CLI evidence chain beneath ``tmp_path``."""
     repository = tmp_path / "repository"
     source = repository / "data"
     repository.mkdir()
@@ -812,6 +813,90 @@ def test_cli_runs_inventory_ticket_backup_restore_chain_on_synthetic_data(
             "--public-summary", str(restore_public),
         ]
     ) == 0
+    return (
+        backup_root,
+        restore_parent,
+        inventory_public,
+        quiescence_public,
+        restore_public,
+    )
+
+
+def _validate_restore_args(
+    restore_public: Path, inventory_public: Path, quiescence_public: Path
+) -> list[str]:
+    """Return the strict synthetic restore validator arguments."""
+    return [
+        "validate-restore-summary",
+        "--summary", str(restore_public),
+        "--inventory", str(inventory_public),
+        "--quiescence", str(quiescence_public),
+        "--require-pass",
+        "--require-source-unchanged",
+        "--require-fk-parity",
+        "--require-retrieval-parity",
+    ]
+
+
+def test_cli_rejects_incomplete_or_unbound_restore_evidence(tmp_path: Path) -> None:
+    """Top-level pass cannot replace complete named and digest-bound evidence."""
+    (
+        _,
+        _,
+        inventory_public,
+        quiescence_public,
+        restore_public,
+    ) = _run_synthetic_cli_chain(tmp_path)
+    canonical = json.loads(restore_public.read_text(encoding="utf-8"))
+
+    adversarial: dict[str, dict[str, object]] = {}
+    empty_checks = json.loads(json.dumps(canonical))
+    empty_checks["checks"] = []
+    adversarial["empty_checks"] = empty_checks
+    missing_check = json.loads(json.dumps(canonical))
+    missing_check["checks"] = missing_check["checks"][:-1]
+    adversarial["missing_check"] = missing_check
+    duplicate_check = json.loads(json.dumps(canonical))
+    duplicate_check["checks"].append(duplicate_check["checks"][0])
+    adversarial["duplicate_check"] = duplicate_check
+    unknown_check = json.loads(json.dumps(canonical))
+    unknown_check["checks"][-1]["name"] = "unknown_restore_check"
+    adversarial["unknown_check"] = unknown_check
+    for field in (
+        "private_artifact_sha256",
+        "backup_result_sha256",
+        "source_set_sha256",
+        "inventory_summary_sha256",
+        "quiescence_summary_sha256",
+    ):
+        broken_binding = json.loads(json.dumps(canonical))
+        broken_binding[field] = "0" * 64
+        adversarial[f"broken_{field}"] = broken_binding
+
+    for case, forged in adversarial.items():
+        restore_public.write_text(json.dumps(forged), encoding="utf-8")
+        assert main(
+            _validate_restore_args(
+                restore_public, inventory_public, quiescence_public
+            )
+        ) == 4, case
+
+    restore_public.write_text(json.dumps(canonical), encoding="utf-8")
+    assert main(
+        _validate_restore_args(restore_public, inventory_public, quiescence_public)
+    ) == 0
+
+
+def test_cli_runs_inventory_ticket_backup_restore_chain_on_synthetic_data(
+    tmp_path: Path,
+) -> None:
+    (
+        backup_root,
+        restore_parent,
+        inventory_public,
+        quiescence_public,
+        restore_public,
+    ) = _run_synthetic_cli_chain(tmp_path)
     first_restore_summary = json.loads(restore_public.read_text(encoding="utf-8"))
     first_private_relpath = first_restore_summary["private_artifact_relpath"]
     assert (backup_root / first_private_relpath).is_file()
@@ -826,16 +911,7 @@ def test_cli_runs_inventory_ticket_backup_restore_chain_on_synthetic_data(
         ]
     ) == 0
     assert main(
-        [
-            "validate-restore-summary",
-            "--summary", str(restore_public),
-            "--inventory", str(inventory_public),
-            "--quiescence", str(quiescence_public),
-            "--require-pass",
-            "--require-source-unchanged",
-            "--require-fk-parity",
-            "--require-retrieval-parity",
-        ]
+        _validate_restore_args(restore_public, inventory_public, quiescence_public)
     ) == 0
     restore_summary = json.loads(restore_public.read_text(encoding="utf-8"))
     assert restore_summary["private_artifact_relpath"] != first_private_relpath
