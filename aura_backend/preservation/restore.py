@@ -275,6 +275,7 @@ def _verify_chroma(
     retrieval_digest = hmac.new(hmac_key, digestmod=hashlib.sha256)
     collection_total = 0
     record_total = 0
+    non_empty_collection_total = 0
     fixture_total = 0
     count_status = CheckStatus.PASS
     retrieval_status = CheckStatus.PASS
@@ -306,6 +307,7 @@ def _verify_chroma(
                         continue
                     if actual_count == 0:
                         continue
+                    non_empty_collection_total += 1
 
                     selected = sorted(str(identity) for identity in identities)[0]
                     record = collection.get(ids=[selected], include=["embeddings"])
@@ -314,45 +316,47 @@ def _verify_chroma(
                         retrieval_status = CheckStatus.BLOCKED
                         continue
                     embedding = embeddings[0]
-                    query = collection.query(
+                    first_query = collection.query(
                         query_embeddings=[embedding],
                         n_results=min(5, actual_count),
                         include=["distances"],
                     )
-                    result_ids = query.get("ids")
-                    distances = query.get("distances")
-                    if (
-                        not result_ids
-                        or not result_ids[0]
-                        or distances is None
-                        or not distances[0]
-                        or str(result_ids[0][0]) != selected
-                        or len(result_ids[0]) != len(distances[0])
-                    ):
+                    second_query = collection.query(
+                        query_embeddings=[embedding],
+                        n_results=min(5, actual_count),
+                        include=["distances"],
+                    )
+                    first_fixture = _normalize_query_fixture(
+                        first_query,
+                        known_identities={str(identity) for identity in identities},
+                        embedding=embedding,
+                        distance_space=_distance_space(collection),
+                    )
+                    second_fixture = _normalize_query_fixture(
+                        second_query,
+                        known_identities={str(identity) for identity in identities},
+                        embedding=embedding,
+                        distance_space=_distance_space(collection),
+                    )
+                    if first_fixture is None or first_fixture != second_fixture:
                         retrieval_status = CheckStatus.FAIL
                         continue
-                    fixture_total += 1
-                    for result_ordinal, (identity, distance) in enumerate(
-                        zip(result_ids[0], distances[0], strict=True)
-                    ):
-                        numeric_distance = float(distance)
-                        if not math.isfinite(numeric_distance):
-                            retrieval_status = CheckStatus.FAIL
-                            break
+                    for result_ordinal, (identity, distance) in enumerate(first_fixture):
                         retrieval_digest.update(
                             json.dumps(
                                 (
                                     root_ordinal,
                                     collection_ordinal,
                                     result_ordinal,
-                                    str(identity),
-                                    format(numeric_distance, ".17g"),
+                                    identity,
+                                    distance,
                                 ),
                                 separators=(",", ":"),
                                 ensure_ascii=True,
                             ).encode("utf-8")
                         )
                         retrieval_digest.update(b"\n")
+                    fixture_total += 1
             finally:
                 client.close()
     except Exception:
@@ -361,6 +365,8 @@ def _verify_chroma(
 
     if fixture_total == 0 and retrieval_status is CheckStatus.PASS:
         retrieval_status = CheckStatus.NOT_RUN
+    elif fixture_total != non_empty_collection_total:
+        retrieval_status = CheckStatus.FAIL
     return _ChromaEvidence(
         count_status=count_status,
         retrieval_status=retrieval_status,
@@ -370,6 +376,90 @@ def _verify_chroma(
         count_fingerprint=count_digest.hexdigest(),
         fingerprint=retrieval_digest.hexdigest(),
     )
+
+
+def _normalize_query_fixture(
+    query: dict[str, Any],
+    *,
+    known_identities: set[str],
+    embedding: Any,
+    distance_space: str,
+) -> tuple[tuple[str, str], ...] | None:
+    """Validate and normalize one content-free ordered retrieval fixture."""
+    result_ids = query.get("ids")
+    distances = query.get("distances")
+    if (
+        not isinstance(result_ids, list)
+        or len(result_ids) != 1
+        or not isinstance(result_ids[0], list)
+        or not result_ids[0]
+        or not isinstance(distances, list)
+        or len(distances) != 1
+        or not isinstance(distances[0], list)
+        or len(result_ids[0]) != len(distances[0])
+    ):
+        return None
+    identities = tuple(str(identity) for identity in result_ids[0])
+    if len(set(identities)) != len(identities) or any(
+        identity not in known_identities for identity in identities
+    ):
+        return None
+    try:
+        numeric_distances = tuple(float(distance) for distance in distances[0])
+        query_embedding = tuple(float(value) for value in embedding)
+    except (TypeError, ValueError):
+        return None
+    if (
+        not query_embedding
+        or not all(math.isfinite(value) for value in query_embedding)
+        or not all(math.isfinite(value) for value in numeric_distances)
+        or any(
+            right < left
+            for left, right in zip(
+                numeric_distances, numeric_distances[1:], strict=False
+            )
+        )
+    ):
+        return None
+    expected_self_distance = _self_distance(query_embedding, distance_space)
+    tolerance = 1e-6 * max(1.0, abs(expected_self_distance))
+    if distance_space in {"l2", "cosine"}:
+        if not math.isclose(
+            numeric_distances[0], expected_self_distance, abs_tol=tolerance
+        ):
+            return None
+    elif numeric_distances[0] > expected_self_distance + tolerance:
+        return None
+    return tuple(
+        (identity, format(distance, ".17g"))
+        for identity, distance in zip(identities, numeric_distances, strict=True)
+    )
+
+
+def _distance_space(collection: Any) -> str:
+    """Return the configured Chroma metric, defaulting only as Chroma does."""
+    configuration = getattr(collection, "configuration", None)
+    if configuration is None:
+        return "l2"
+    if not isinstance(configuration, dict):
+        raise ValueError("Chroma collection configuration must be a mapping")
+    for index_name in ("hnsw", "spann"):
+        index_configuration = configuration.get(index_name)
+        if isinstance(index_configuration, dict) and index_configuration.get("space"):
+            space = str(index_configuration["space"])
+            if space not in {"l2", "cosine", "ip"}:
+                raise ValueError("unsupported Chroma distance space")
+            return space
+    return "l2"
+
+
+def _self_distance(embedding: tuple[float, ...], distance_space: str) -> float:
+    """Return the exact distance from an embedding to itself for one metric."""
+    if distance_space in {"l2", "cosine"}:
+        return 0.0
+    if distance_space == "ip":
+        return 1.0 - sum(value * value for value in embedding)
+    raise ValueError("unsupported Chroma distance space")
 
 
 def _result(

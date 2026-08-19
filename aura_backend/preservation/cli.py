@@ -429,7 +429,9 @@ def _run_verify(arguments: argparse.Namespace) -> int:
         manifest,
         hmac_key=hmac_key,
     )
-    private_path = ticket.destination_parent / "restore.private.json"
+    private_path = _next_private_artifact(
+        ticket.destination_parent, "restore.private.json"
+    )
     private_dict = {
         **restore.to_private_dict(),
         "inventory_summary_sha256": hashlib.sha256(inventory_bytes).hexdigest(),
@@ -780,6 +782,20 @@ def _write_private_replace_public(
             temporary.unlink()
         except FileNotFoundError:
             pass
+
+
+def _next_private_artifact(directory: Path, base_name: str) -> Path:
+    """Choose a new attempt path without overwriting earlier private evidence."""
+    base = directory / base_name
+    if not base.exists() and not base.is_symlink():
+        return base
+    stem = base_name.removesuffix(".private.json")
+    attempt = 2
+    while True:
+        candidate = directory / f"{stem}.attempt-{attempt:02d}.private.json"
+        if not candidate.exists() and not candidate.is_symlink():
+            return candidate
+        attempt += 1
 
 
 def _write_new_private(path: Path, payload: bytes) -> None:
