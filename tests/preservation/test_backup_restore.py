@@ -6,7 +6,6 @@ must never inspect Aura's real persistence roots or the system backup mount.
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 from dataclasses import replace
@@ -242,5 +241,5 @@ def test_quiescence_ticket_has_no_false_success_when_a_check_is_not_pass(
 
 def test_backup_test_module_contains_no_real_backup_or_aura_root_literal() -> None:
     source = Path(__file__).read_text(encoding="utf-8")
-    forbidden = (chr(47) + "backup", "aura_chroma_db")
+    forbidden = (chr(47) + "backup", "aura" + "_chroma" + "_db")
     assert not any(value in source for value in forbidden)
