@@ -230,16 +230,40 @@ def _install_route_fakes(main: Any, scenario: str) -> dict[str, Any]:
         "persistence": 0,
         "persistence_evidence": None,
         "provider": 0,
+        "provider_clear_session": 0,
+        "provider_input": None,
     }
 
     class FakeProvider:
-        async def generate_response(self, *_args: Any, **_kwargs: Any) -> Any:
+        async def generate_response(
+            self,
+            *,
+            messages: list[Any],
+            system_instruction: str | None,
+            **_kwargs: Any,
+        ) -> Any:
             from aura_backend.providers.base import ProviderResponse
 
             calls["provider"] += 1
+            calls["provider_input"] = {
+                "message_count": len(messages),
+                "system_instruction_nonempty": bool(system_instruction),
+                "user_message_present": any(
+                    message.role == "user"
+                    and message.content == "A deterministic local boundary probe"
+                    for message in messages
+                ),
+            }
+            if scenario == "provider_error":
+                return ProviderResponse(
+                    content="", error="synthetic provider failure"
+                )
+            if scenario == "provider_empty":
+                return ProviderResponse(content="")
             return ProviderResponse(content="Synthetic local reply.")
 
         async def clear_session(self, _session_id: str) -> None:
+            calls["provider_clear_session"] += 1
             return None
 
     class FakeFileSystem:
@@ -378,6 +402,25 @@ def _request_result(response: Any, calls: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _stable_type_name(value: Any) -> str:
+    """Return JSON-oriented type evidence without serializing volatile values."""
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, dict):
+        return "dict"
+    if isinstance(value, list):
+        return "list"
+    if isinstance(value, str):
+        return "str"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    return "other"
+
+
 def _execute_scenario(scenario: str) -> dict[str, Any]:
     if scenario == "_hang":
         time.sleep(60.0)
@@ -441,14 +484,24 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
         origin = (
             DEFAULT_ORIGIN
             if scenario
-            in {"conversation_json", "persistence_failure", "persistence_success"}
+            in {
+                "companion_success",
+                "conversation_json",
+                "persistence_failure",
+                "persistence_success",
+                "provider_empty",
+                "provider_error",
+            }
             else UNTRUSTED_ORIGIN
         )
         headers = {"Origin": origin}
         if scenario in {
+            "companion_success",
             "conversation_json",
             "persistence_failure",
             "persistence_success",
+            "provider_empty",
+            "provider_error",
         }:
             response = client.post("/conversation", json=payload, headers=headers)
         elif scenario == "conversation_missing_content_type":
@@ -482,6 +535,45 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
                 isinstance(response_body, dict)
                 and response_body.get("response") == "Synthetic local reply."
             )
+        elif scenario in {"companion_success", "provider_empty", "provider_error"}:
+            response_body = scenario_result.pop("body")
+            if not isinstance(response_body, dict):
+                raise AssertionError("companion scenario returned a non-object response")
+            response_text = response_body.get("response")
+            scenario_result["hidden_reasoning_present"] = bool(
+                response_body.get("has_thinking")
+                or response_body.get("thinking_content")
+                or response_body.get("thinking_metrics")
+            )
+            scenario_result["normalized_fields"] = {
+                "cognitive_description": response_body["cognitive_state"][
+                    "description"
+                ],
+                "cognitive_focus": response_body["cognitive_state"]["focus"],
+                "emotion_intensity": response_body["emotional_state"]["intensity"],
+                "emotion_name": response_body["emotional_state"]["name"],
+                "session_id": (
+                    "<session>"
+                    if response_body.get("session_id") == "probe-session"
+                    else "<unexpected-session>"
+                ),
+            }
+            scenario_result["provider_clear_session_calls"] = calls[
+                "provider_clear_session"
+            ]
+            scenario_result["provider_error_exposed"] = (
+                "synthetic provider failure" in json.dumps(response_body)
+            )
+            scenario_result["provider_input"] = calls["provider_input"]
+            scenario_result["response_schema"] = {
+                key: _stable_type_name(value)
+                for key, value in sorted(response_body.items())
+            }
+            scenario_result["returned_fallback_response"] = (
+                scenario in {"provider_empty", "provider_error"}
+                and bool(response_text)
+            )
+            scenario_result["visible_answer_nonempty"] = bool(response_text)
 
     return {
         "complete": True,
