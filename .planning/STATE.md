@@ -1,8 +1,8 @@
 # Project State: Aura Rehabilitation
 
 **Updated:** 2026-08-19
-**Active phase:** Phase 1 — Preservation and Trusted Baseline
-**Status:** Phase 1 complete — preservation and trusted-baseline gates passed
+**Active phase:** Phase 2 — Provider and Runtime Core
+**Status:** Ready to execute — 18 verified plans, 38 tasks, 12 waves
 
 ## Verified So Far
 
@@ -21,9 +21,11 @@
 
 ## Current Position
 
-Phase 1 is complete. Phase 2 may begin provider/runtime consolidation. The
-preservation gate does not itself authorize storage cleanup: root ownership and
-the retained eight-row FK anomalies remain Phase 3 work before migration or deletion.
+Phase 1 is independently verified at 30/30. Phase 2 plans have passed independent
+review with zero blockers or warnings and may execute through Plan 02-14. Plan
+02-15 is the blocking package-legitimacy approval before any manifest/lock change.
+The preservation gate does not authorize storage cleanup: root ownership and the
+retained eight-row FK anomalies remain Phase 3 work before migration or deletion.
 
 ## Locked Decisions
 

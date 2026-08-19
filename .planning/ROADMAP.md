@@ -33,10 +33,31 @@ cloud providers behind a typed, testable runtime boundary.
 **Depends on:** Phase 1
 **Requirements:** TEST-03, TEST-05, AI-01, AI-02, AI-03, OPS-01, OPS-02
 
-- Consolidate provider configuration and error contracts.
-- Make Ornith an optional marked live test, not a deterministic-suite dependency.
-- Remove import-time heavyweight initialization and unify startup/health checks.
-- Reconcile Python and Node dependency sources against actual imports.
+**Wave 1:** 02-01 typed provider contract; 02-14 package-legitimacy evidence.
+
+**Wave 2** *(blocked on Wave 1):* 02-02 deterministic provider runtime/fakes;
+02-03 neutral tool boundary; 02-15 package-legitimacy approval checkpoint.
+
+**Waves 3–4** *(blocked on provider contracts):* 02-04 Ollama/OpenRouter shared
+transport; 02-05 async Gemini; 02-06 local-first factory/autonomic integration.
+
+**Waves 5–9** *(blocked on adapters):* 02-07 application runtime; 02-08
+import-safe FastAPI lifespan; 02-09 provider-neutral conversation path; 02-10
+honest health; 02-11 canonical non-mutating preflight/serve CLI.
+
+**Waves 10–11** *(blocked on runtime and package approval):* 02-12 launcher
+delegation; 02-16 Python dependency authority; 02-13 startup documentation;
+02-17 Node dependency and typing authority.
+
+**Wave 12** *(final gate):* 02-18 optional bounded Ornith evidence, performance
+baselines, and independent CI truth lanes.
+
+Cross-cutting constraints: preserve Phase 1's seven-field response, HTTP-200
+provider fallback, persistence/session behavior, loopback/no-sign-in boundary, and
+offline deterministic suite; partial, cancelled, malformed, unavailable, blocked,
+or resource-limited provider work cannot become completed success; no package or
+lock mutation before Plan 02-15 approval; no storage migration/deletion, broad
+upgrade, prompt-quality redesign, frontend refactor, or Git-history rewrite.
 
 ## Phase 3: Memory Integrity and Data Lifecycle
 
