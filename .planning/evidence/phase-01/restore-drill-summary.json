@@ -1,0 +1,62 @@
+{
+  "backup_result_sha256": "153d5b55dfb3d1eeb50f7583446385080ec83074d7e213e928702eddd5de098a",
+  "checks": [
+    {
+      "evidence_sha256": "71d2555b7709231ead47c8ffeef757fd0fd800359e0f69597f2dee98f4b1eefd",
+      "name": "source_unchanged",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "71d2555b7709231ead47c8ffeef757fd0fd800359e0f69597f2dee98f4b1eefd",
+      "name": "backup_hash_parity",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "71d2555b7709231ead47c8ffeef757fd0fd800359e0f69597f2dee98f4b1eefd",
+      "name": "restore_copy_parity",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "d1b903f6f53bb41eec1553074c54ab650acbb5f66bb2fdca5351470c038bd393",
+      "name": "sqlite_integrity",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "5ca01608b5ec95c3ed6e6d9df8350c1c130e3cd1e06ad55245cb1fe58505fc6b",
+      "name": "foreign_key_parity",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "8b54c7218061fed030ac5ad6f1fe70e6fb0bd9ea4cf2ff90c01878395d901476",
+      "name": "chroma_counts",
+      "status": "pass"
+    },
+    {
+      "evidence_sha256": "711a68e2ac98874d6f4a1c22704eb63e51f2c2678ee06f73adf4cb54b59ddc8b",
+      "name": "retrieval_parity",
+      "status": "pass"
+    }
+  ],
+  "command": "verify",
+  "created_at_utc": "2026-08-19T16:37:59.597979Z",
+  "gates": {
+    "foreign_key_parity": true,
+    "retrieval_parity": true,
+    "source_unchanged": true
+  },
+  "inventory_summary_sha256": "debf25853a2301d4372ec8df210128cf31b8d0adb62d3509d1d3ccaabfbd43cc",
+  "private_artifact_relpath": "phase-01-20260819T121845Z/restore.attempt-02.private.json",
+  "private_artifact_sha256": "e6b1c64face60c4257aeb17716b5998dbf38da0130201d5112af28bb53f3bb7b",
+  "quiescence_summary_sha256": "8ed35d1678275d565d36dc6b645e7219c090132816a2133710dfb10dab9595ab",
+  "retrieval_fingerprint": "7c10f11712192a7e57c7e46262231725152beb803040cc9282d006ca578b8889",
+  "run_id": "phase-01-20260819T121845Z",
+  "schema_version": 1,
+  "source_set_sha256": "350091c106ffb5443d0b9d3dfee3c514789021838322c8440a45f6eaade54c78",
+  "status": "pass",
+  "tool_commit": "654ed790d7cdf82ddafafdc6113d606a96bfbade",
+  "totals": {
+    "collection_count": 10,
+    "record_count": 1204,
+    "retrieval_fixture_count": 2
+  }
+}
