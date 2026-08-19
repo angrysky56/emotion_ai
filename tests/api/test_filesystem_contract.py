@@ -146,6 +146,25 @@ def test_path_constructors_reject_traversal_without_creating_directories(
     assert not (tmp_path / "outside.json").exists()
 
 
+def test_existing_profile_file_symlink_cannot_redirect_the_final_candidate(
+    tmp_path: Path,
+) -> None:
+    """Containment covers the resolved file itself, not only its category."""
+    users_path = tmp_path / "users"
+    outside_path = tmp_path / "outside"
+    users_path.mkdir()
+    outside_path.mkdir()
+    os.symlink(
+        outside_path / "profile.json",
+        users_path / "ty-local_01.json",
+    )
+
+    with pytest.raises(StoragePathError, match="outside configured Aura data root"):
+        safe_profile_path(tmp_path, "ty-local_01")
+
+    assert list(outside_path.iterdir()) == []
+
+
 def _run_filesystem_probe(scenario: str, tmp_path: Path) -> dict[str, Any]:
     """Run production filesystem behavior in a bounded disposable child."""
     completed = subprocess.run(
@@ -212,6 +231,10 @@ def test_export_endpoint_returns_client_errors_and_only_claims_written_files(
     assert result["success"]["path_under_exports"] is True
     assert result["success"]["json_parseable"] is True
     assert result["success"]["conversations"] == []
+    assert result["unwritten_export"] == {
+        "body": {"detail": "Export failed"},
+        "status_code": 500,
+    }
 
 
 async def _direct_child(main: Any, root: Path) -> dict[str, Any]:
@@ -293,6 +316,17 @@ def _endpoint_child(main: Any, root: Path) -> dict[str, Any]:
     success_body = success.json()
     export_path = Path(success_body["export_path"])
     export_data = json.loads(export_path.read_text(encoding="utf-8"))
+
+    class UnwrittenFileSystem:
+        async def export_conversation_history(
+            self, _user_id: str, _output_format: str
+        ) -> str:
+            return str(root / "not-written.json")
+
+    main.aura_file_system = UnwrittenFileSystem()
+    unwritten_export = client.post(
+        "/export/ty-local_01", params={"format_type": "json"}
+    )
     return {
         "invalid_identifier": {
             "body": invalid_identifier.json(),
@@ -311,6 +345,10 @@ def _endpoint_child(main: Any, root: Path) -> dict[str, Any]:
         "unsupported_format": {
             "body": unsupported_format.json(),
             "status_code": unsupported_format.status_code,
+        },
+        "unwritten_export": {
+            "body": unwritten_export.json(),
+            "status_code": unwritten_export.status_code,
         },
     }
 

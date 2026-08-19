@@ -341,9 +341,8 @@ class AuraFileSystem:
         """
         Export conversation history in various formats for data portability.
 
-        Generates comprehensive data exports including conversation transcripts,
-        emotional patterns, and cognitive analysis data. Supports multiple
-        output formats for different use cases and integrations.
+        Writes the currently captured Phase 1 baseline. Conversation and pattern
+        arrays remain empty until later lifecycle work wires their data sources.
 
         Args:
             user_id: Unique identifier for the user whose data to export
@@ -357,9 +356,9 @@ class AuraFileSystem:
             - user_id: User identifier
             - export_timestamp: ISO timestamp of export generation
             - output_format: Export format specification
-            - conversations: Complete conversation history
-            - emotional_patterns: Temporal emotional analysis data
-            - cognitive_patterns: ASEKE cognitive focus patterns
+            - conversations: Empty Phase 1 baseline array
+            - emotional_patterns: Empty Phase 1 baseline array
+            - cognitive_patterns: Empty Phase 1 baseline array
 
         Raises:
             ValueError: If output_format is not supported
