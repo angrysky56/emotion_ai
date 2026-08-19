@@ -51,3 +51,9 @@ line-length = 88
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--strict-config", "--strict-markers"]
+asyncio_mode = "strict"
+markers = [
+    "live: requires an explicitly available external service",
+    "ollama: requires a running Ollama service and installed model",
+    "gpu: requires compatible GPU hardware and drivers",
+]

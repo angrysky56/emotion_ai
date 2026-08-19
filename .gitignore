@@ -32,8 +32,12 @@ venv/
 
 # Environment variables
 .env
-.env.local
+.env.*
+.envrc
+!.env.example
+!.env.template
 mcp_client_config.json
+**/mcp_client_config.json
 
 # Backend specific ignores
 aura_backend/aura_chroma_db/
@@ -44,14 +48,39 @@ aura_backend/mcp_client_config.json
 
 # Runtime databases and generated personal data
 aura_chroma_db/
+mcp_aura_chroma_db/
 auto_backups/
+aura_backend/aura_chroma_db/
+aura_backend/mcp_aura_chroma_db/
 aura_backend/auto_backups/*
 !aura_backend/auto_backups/.gitkeep
 aura_backend/chromadb_backups/*
 !aura_backend/chromadb_backups/.gitkeep
+aura_backend/chromadb_emergency_backups/
 aura_backend/aura_data/exports/
 aura_backend/aura_data/sessions/
+aura_backend/aura_data/profiles/
+aura_backend/aura_data/users/
+exports/
+sessions/
+profiles/
+users/
+traces/
+*.prof
+*.profile
+*.trace
 *.sqlite
 *.sqlite3
+*.db
+*.sqlite-shm
+*.sqlite-wal
 *.sqlite3-shm
 *.sqlite3-wal
+*.db-shm
+*.db-wal
+index_metadata.pickle
+data_level0.bin
+header.bin
+length.bin
+link_lists.bin
+.chromadb.lock
