@@ -21,7 +21,7 @@ import re
 import sqlite3
 import sys
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
@@ -31,7 +31,7 @@ from typing import Annotated, Any, Dict, List, Optional, Tuple
 import aiofiles
 import numpy as np
 import uvicorn
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -80,6 +80,7 @@ embedding_service: Any = None
 execute_mcp_tool: Any = None
 get_all_available_tools: Any = None
 get_mcp_status: Any = None
+_mcp_provider_client: Any = None
 
 
 def ensure_json_serializable(data: Any) -> Any:
@@ -390,7 +391,7 @@ class AuraStateManager:
     """
 
     def __init__(
-        self, vector_db: AuraVectorDB, aura_file_system: AuraFileSystem
+        self, vector_db: Any, aura_file_system: AuraFileSystem
     ) -> None:
         """
         Initialize the state manager with required dependencies.
@@ -695,16 +696,16 @@ class ExecuteToolResponse(BaseModel):
 
 
 # Global variables (initialized in lifespan)
-vector_db: Optional[AuraVectorDB] = None
+vector_db: Any = None
 aura_file_system: Optional[AuraFileSystem] = None
 state_manager: Optional[AuraStateManager] = None
-aura_internal_tools: Optional[AuraInternalTools] = None
+aura_internal_tools: Any = None
 conversation_persistence: Optional[ConversationPersistenceService] = None
-memvid_archival: Optional[MemvidArchivalService] = None
-mcp_gemini_bridge: Optional[MCPGeminiBridge] = None
-autonomic_system: Optional[AutonomicNervousSystem] = None
-db_protection_service: Optional[DatabaseProtectionService] = None
-thinking_processor: Optional[ThinkingProcessor] = None
+memvid_archival: Any = None
+mcp_gemini_bridge: Any = None
+autonomic_system: Any = None
+db_protection_service: Any = None
+thinking_processor: Any = None
 provider: Optional[BaseProvider] = None
 
 # Session management for persistent chat contexts
@@ -1182,160 +1183,254 @@ Output only the component code (e.g., "KI", "ESA", "Learning")."""
         return None
 
 
-# FastAPI app lifecycle
+# FastAPI application lifecycle and composition
+@dataclass(slots=True)
+class _LegacyRuntimeResources:
+    """Resources still consumed through compatibility globals during Phase 2."""
+
+    mcp_router: Any
+
+
+def _clear_runtime_aliases() -> None:
+    """Remove compatibility references without constructing replacement resources."""
+    global vector_db, aura_file_system, state_manager, aura_internal_tools
+    global conversation_persistence, memvid_archival, mcp_gemini_bridge
+    global autonomic_system, db_protection_service, thinking_processor, provider
+    global client, embedding_service, execute_mcp_tool, get_all_available_tools
+    global get_mcp_status, _mcp_provider_client
+
+    vector_db = None
+    aura_file_system = None
+    state_manager = None
+    aura_internal_tools = None
+    conversation_persistence = None
+    memvid_archival = None
+    mcp_gemini_bridge = None
+    autonomic_system = None
+    db_protection_service = None
+    thinking_processor = None
+    provider = None
+    client = None
+    embedding_service = None
+    execute_mcp_tool = None
+    get_all_available_tools = None
+    get_mcp_status = None
+    _mcp_provider_client = None
+
+
+async def _start_legacy_resources() -> Any:
+    """Construct legacy services only after FastAPI enters lifespan."""
+    global vector_db, aura_file_system, state_manager, aura_internal_tools
+    global conversation_persistence, memvid_archival, mcp_gemini_bridge
+    global autonomic_system, db_protection_service, embedding_service
+    global execute_mcp_tool, get_all_available_tools, get_mcp_status
+    global _mcp_provider_client, global_tool_version
+
+    from aura_backend.aura_autonomic_system import (
+        initialize_autonomic_system,
+        shutdown_autonomic_system,
+    )
+    from aura_backend.aura_internal_tools import AuraInternalTools
+    from aura_backend.database_protection import get_protection_service
+    from aura_backend.mcp_integration import (
+        execute_mcp_tool as legacy_execute_mcp_tool,
+        mcp_router,
+        shutdown_mcp_client,
+    )
+    from aura_backend.mcp_system import (
+        get_all_available_tools as list_available_tools,
+        get_mcp_bridge,
+        get_mcp_client,
+        get_mcp_status as read_mcp_status,
+        initialize_mcp_system,
+        shutdown_mcp_system,
+    )
+    from aura_backend.memvid_archival_service import MemvidArchivalService
+    from aura_backend.robust_vector_db import RobustAuraVectorDB
+    from aura_backend.runtime import StartedResource
+    from aura_backend.shared_embedding_service import get_embedding_service
+
+    stack = AsyncExitStack()
+    try:
+        db_protection_service = get_protection_service()
+        stack.callback(db_protection_service.stop_protection)
+
+        vector_db = RobustAuraVectorDB()
+        stack.push_async_callback(vector_db.close)
+        aura_file_system = AuraFileSystem()
+        state_manager = AuraStateManager(vector_db, aura_file_system)
+        aura_internal_tools = AuraInternalTools(vector_db, aura_file_system)
+        embedding_service = get_embedding_service()
+
+        # Both legacy MCP surfaces are imported and owned here so module import
+        # cannot create a client or process. Shutdown callbacks are registered
+        # before initialization to cover partial starts.
+        stack.push_async_callback(shutdown_mcp_client)
+        stack.push_async_callback(shutdown_mcp_system)
+        mcp_status = await initialize_mcp_system(aura_internal_tools)
+        if mcp_status.get("status") == "success":
+            _mcp_provider_client = get_mcp_client()
+            mcp_gemini_bridge = get_mcp_bridge()
+            if mcp_gemini_bridge is not None:
+                global_tool_version += 1
+        else:
+            _mcp_provider_client = None
+            mcp_gemini_bridge = None
+            logger.warning("Optional MCP startup is unavailable")
+
+        execute_mcp_tool = legacy_execute_mcp_tool
+        get_all_available_tools = list_available_tools
+        get_mcp_status = read_mcp_status
+
+        conversation_persistence = ConversationPersistenceService(
+            vector_db,
+            aura_file_system,
+        )
+        memvid_archival = MemvidArchivalService()
+        memvid_close = getattr(memvid_archival, "close", None)
+        if callable(memvid_close):
+            stack.push_async_callback(memvid_close)
+
+        if os.getenv("AUTONOMIC_ENABLED", "true").lower() == "true":
+            stack.push_async_callback(shutdown_autonomic_system)
+            try:
+                autonomic_system = await initialize_autonomic_system(
+                    mcp_bridge=mcp_gemini_bridge,
+                    internal_tools=aura_internal_tools,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                autonomic_system = None
+                logger.warning("Optional autonomic startup is unavailable")
+
+        resources = _LegacyRuntimeResources(mcp_router=mcp_router)
+
+        async def close_resources() -> None:
+            try:
+                await stack.aclose()
+            finally:
+                _clear_runtime_aliases()
+
+        return StartedResource(value=resources, close=close_resources)
+    except BaseException:
+        try:
+            await stack.aclose()
+        finally:
+            _clear_runtime_aliases()
+        raise
+
+
+def _build_application_runtime() -> Any:
+    """Build the pure lifecycle owner; concrete resources start later."""
+    global thinking_budget, provider, thinking_processor, client
+
+    from dotenv import load_dotenv
+
+    from aura_backend.mcp_system import (
+        get_provider_tool_catalog,
+        get_provider_tool_executor,
+    )
+    from aura_backend.providers.factory import ModelProviderFactory
+    from aura_backend.providers.runtime import ProviderRuntime
+    from aura_backend.runtime import ApplicationRuntime, ResourceFactory, RuntimeSettings
+
+    load_dotenv()
+    settings = RuntimeSettings.from_mapping(dict(os.environ))
+    thinking_budget = settings.provider.thinking_budget
+
+    async def start_provider() -> ProviderRuntime:
+        global provider, thinking_processor, client
+
+        catalog = await get_provider_tool_catalog(
+            mcp_client=_mcp_provider_client,
+            internal_tools=aura_internal_tools,
+        )
+        tool_executor = get_provider_tool_executor(
+            catalog,
+            mcp_client=_mcp_provider_client,
+            internal_tools=aura_internal_tools,
+        )
+        selected = ModelProviderFactory.create_provider(
+            settings.provider,
+            tool_executor=tool_executor,
+        )
+        runtime = ProviderRuntime(
+            selected,
+            timeout_seconds=settings.provider.request_timeout_seconds,
+        )
+        provider = selected  # type: ignore[assignment]
+        thinking_processor = getattr(selected, "thinking_processor", None)
+        client = getattr(selected, "client", None)
+        return runtime
+
+    return ApplicationRuntime(
+        settings=settings,
+        resources=(
+            ResourceFactory(
+                name="legacy_services",
+                start=_start_legacy_resources,
+                required=True,
+            ),
+        ),
+        provider_factory=start_provider,
+    )
+
+
+def _install_lifespan_routes(app: FastAPI, runtime: Any) -> None:
+    """Install the legacy MCP router at most once after its owned import."""
+    if getattr(app.state, "legacy_mcp_router_installed", False):
+        return
+    resource_getter = getattr(runtime, "resource", None)
+    if not callable(resource_getter):
+        return
+    resources = resource_getter("legacy_services")
+    router = getattr(resources, "mcp_router", None)
+    if router is not None:
+        app.include_router(router)
+        app.state.legacy_mcp_router_installed = True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage app lifecycle including MCP client"""
-    # Startup
-    logger.info("🚀 Starting Aura Backend...")
+    """Own exactly one runtime and never publish partial startup state."""
+    runtime_builder = app.state.runtime_builder
+    runtime = runtime_builder()
+    try:
+        await runtime.start()
+        app.state.runtime = runtime
+        _install_lifespan_routes(app, runtime)
+        yield
+    finally:
+        app.state.runtime = None
+        await runtime.aclose()
 
-    # Initialize global components (prevents duplicate initialization)
-    global vector_db, aura_file_system, state_manager, aura_internal_tools
-    global conversation_persistence, memvid_archival, mcp_gemini_bridge, global_tool_version
-    global autonomic_system, db_protection_service, thinking_processor, provider, client
 
-    # Initialize database protection service FIRST (before any database operations)
-    # CRITICAL: This prevents the 4x ChromaDB data loss incidents
-    db_protection_service = get_protection_service()
-    logger.info("🛡️ Database Protection Service initialized and active")
+api_router = APIRouter()
 
-    # 1. Initialize core infrastructure first
-    # Initialize with robust vector database with SQLite-level concurrency control
-    vector_db = AuraVectorDB()
-    logger.info("✅ Using RobustAuraVectorDB with SQLite-level concurrency control")
 
-    aura_file_system = AuraFileSystem()
-    state_manager = AuraStateManager(vector_db, aura_file_system)
-    aura_internal_tools = AuraInternalTools(vector_db, aura_file_system)
-
-    # 2. Initialize the complete MCP system
-    # This must happen before the provider so the client is available
-    mcp_status = await initialize_mcp_system(aura_internal_tools)
-
-    if mcp_status["status"] == "success":
-        logger.info("✅ MCP system initialized successfully")
-        logger.info(
-            f"📊 Connected to {mcp_status['connected_servers']}/{mcp_status['total_servers']} servers"
-        )
-        logger.info("📦 Total available tools: %s", mcp_status["available_tools"])
-
-        mcp_client_manager = get_mcp_client()
-        mcp_gemini_bridge = get_mcp_bridge()
-
-        if mcp_gemini_bridge:
-            # Increment global tool version to force session recreation
-            global_tool_version += 1
-            logger.info("🔄 Incremented global tool version to %s", global_tool_version)
-
-            # Log tools by server for debugging
-            if "tools_by_server" in mcp_status:
-                for server, tools in mcp_status["tools_by_server"].items():
-                    logger.info("  %s: %s tools", server, len(tools))
-        else:
-            logger.warning("⚠️ MCP bridge not initialized properly")
-            mcp_client_manager = None
-    else:
-        logger.error(
-            f"❌ MCP system initialization failed: {mcp_status.get('error', 'Unknown error')}"
-        )
-        logger.warning("⚠️ Continuing with limited functionality (internal tools only)")
-        mcp_client_manager = None
-
-    # 3. Initialize the Unified Model Provider
-    # Use the factory to get the default provider
-    provider = ModelProviderFactory.get_provider(
-        mcp_client_manager=mcp_client_manager, aura_internal_tools=aura_internal_tools
+def create_app(runtime_builder: Any = _build_application_runtime) -> FastAPI:
+    """Return an import-compatible app without constructing runtime resources."""
+    created = FastAPI(
+        title="Aura Backend",
+        description="Advanced AI Companion with Vector Database and MCP Integration",
+        version="1.0.0",
+        lifespan=lifespan,
     )
-
-    # 4. Extract specialized components from the provider
-    # Extract the thinking processor from the provider if available
-    if hasattr(provider, "thinking_processor"):
-        thinking_processor = provider.thinking_processor
-
-    # Extract the base client for legacy routes if available
-    if hasattr(provider, "client"):
-        client = provider.client
-
-    logger.info("🤖 Unified Model Provider initialized: %s", type(provider).__name__)
-
-    # Initialize the battle-tested persistence services with protection
-    conversation_persistence = ConversationPersistenceService(
-        vector_db, aura_file_system
+    created.state.runtime_builder = runtime_builder
+    created.state.runtime = None
+    created.state.legacy_mcp_router_installed = False
+    created.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(allowed_browser_origins(os.getenv("ALLOWED_ORIGINS"))),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Request-ID", "X-Attempt"],
     )
-    memvid_archival = MemvidArchivalService()
+    created.include_router(api_router)
+    return created
 
-    # Initialize Autonomic Nervous System
-    autonomic_enabled = os.getenv("AUTONOMIC_ENABLED", "true").lower() == "true"
-
-    if autonomic_enabled:
-        logger.info("🧠 Initializing Autonomic Nervous System...")
-        try:
-            autonomic_system = await initialize_autonomic_system(
-                mcp_bridge=mcp_gemini_bridge, internal_tools=aura_internal_tools
-            )
-            logger.info("✅ Autonomic Nervous System initialized successfully")
-
-            # Get system status for logging
-            autonomic_status = autonomic_system.get_system_status()
-            logger.info("🤖 Autonomic Model: %s", autonomic_status["autonomic_model"])
-            logger.info(
-                f"🔧 Max Concurrent Tasks: {autonomic_status['max_concurrent_tasks']}"
-            )
-            logger.info("📊 Task Threshold: %s", autonomic_status["task_threshold"])
-
-        except Exception as e:
-            logger.error("❌ Failed to initialize Autonomic Nervous System: %s", e)
-            logger.warning("⚠️ Continuing without autonomic processing")
-            autonomic_system = None
-    else:
-        logger.info("⚠️ Autonomic Nervous System disabled in configuration")
-        autonomic_system = None
-
-    yield
-
-    # Shutdown
-    logger.info("🛑 Shutting down Aura Backend...")
-
-    # Shutdown autonomic system first
-    await shutdown_autonomic_system()
-
-    # Shutdown MCP system
-    await shutdown_mcp_system()
-
-    # Gracefully close the enhanced vector database
-    if vector_db:
-        await vector_db.close()
-
-    # Shutdown database protection service (after database operations complete)
-    if db_protection_service:
-        db_protection_service.stop_protection()
-        logger.info("🛡️ Database Protection Service stopped")
-
-    logger.info("✅ Aura Backend shutdown complete")
-
-
-# FastAPI app
-app = FastAPI(
-    title="Aura Backend",
-    description="Advanced AI Companion with Vector Database and MCP Integration",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-# Aura is a private local application. Explicit origins prevent an unrelated website
-# open in the same browser from driving privileged localhost endpoints.
-allowed_origins = list(allowed_browser_origins(os.getenv("ALLOWED_ORIGINS")))
-logger.info("🔒 CORS: Allowing configured local UI origins: %s", allowed_origins)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Request-ID", "X-Attempt"],
-)
-
-@app.get("/")
+@api_router.get("/")
 async def root() -> Dict[str, Any]:
     """
     Provide comprehensive system information and capability overview for the Aura Backend.
@@ -1393,7 +1488,7 @@ async def root() -> Dict[str, Any]:
     }
 
 
-@app.get("/health")
+@api_router.get("/health")
 # @protected_db_operation("health_check") # Causes error 422,Temporarily comment this line out
 async def health_check(background_tasks: BackgroundTasks) -> Dict[str, Any]:
     """
@@ -1494,7 +1589,7 @@ async def health_check(background_tasks: BackgroundTasks) -> Dict[str, Any]:
         }
 
 
-@app.post("/conversation", response_model=ConversationResponse)
+@api_router.post("/conversation", response_model=ConversationResponse)
 async def process_conversation(
     request: ConversationRequest, background_tasks: BackgroundTasks
 ) -> ConversationResponse:
@@ -2383,7 +2478,7 @@ async def _analyze_conversation_for_autonomic_tasks(
     return submitted_tasks
 
 
-@app.post("/search")
+@api_router.post("/search")
 async def search_memories(request: SearchRequest) -> Dict[str, Any]:
     """
     Search through conversation memories using Aura's comprehensive memory system.
@@ -2621,7 +2716,7 @@ async def _cleanup_session_related_data(user_id: str, session_id: str):
         logger.error("❌ Background cleanup failed for session %s: %s", session_id, e)
 
 
-@app.get("/thinking-status")
+@api_router.get("/thinking-status")
 async def get_thinking_status() -> Dict[str, Any]:
     """
     Get the current status and configuration of the thinking system.
@@ -2673,7 +2768,7 @@ async def get_thinking_status() -> Dict[str, Any]:
         return {"status": "error", "error": str(e), "thinking_enabled": False}
 
 
-@app.get("/emotional-analysis/{user_id}")
+@api_router.get("/emotional-analysis/{user_id}")
 async def get_emotional_analysis(
     user_id: str, period: str = "week", custom_days: Optional[int] = None
 ) -> Dict[str, Any]:
@@ -2782,7 +2877,7 @@ async def get_emotional_analysis(
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.post("/export/{user_id}")
+@api_router.post("/export/{user_id}")
 async def export_user_data(user_id: str, format_type: str = "json"):
     """Export user conversation history and patterns"""
     try:
@@ -2810,7 +2905,7 @@ async def export_user_data(user_id: str, format_type: str = "json"):
         raise HTTPException(status_code=500, detail="Export failed") from None
 
 
-@app.get("/chat-history/{user_id}")
+@api_router.get("/chat-history/{user_id}")
 async def get_chat_history(user_id: str, limit: int = 5000) -> Dict[str, Any]:
     """
     Retrieve comprehensive chat history for a user with thread-safe database access.
@@ -2926,7 +3021,7 @@ async def get_chat_history(user_id: str, limit: int = 5000) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.get("/chat-history/{user_id}/{session_id}")
+@api_router.get("/chat-history/{user_id}/{session_id}")
 async def get_session_messages(user_id: str, session_id: str) -> List[Dict[str, Any]]:
     """
     Retrieve all messages for a specific chat session with comprehensive error handling.
@@ -3018,7 +3113,7 @@ async def get_session_messages(user_id: str, session_id: str) -> List[Dict[str, 
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.delete("/chat-history/{user_id}/{session_id}")
+@api_router.delete("/chat-history/{user_id}/{session_id}")
 async def delete_chat_session(user_id: str, session_id: str):
     """Delete a specific chat session using enhanced database operations"""
     try:
@@ -3074,7 +3169,7 @@ async def delete_chat_session(user_id: str, session_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.post("/mcp/execute-tool", response_model=ExecuteToolResponse)
+@api_router.post("/mcp/execute-tool", response_model=ExecuteToolResponse)
 async def mcp_execute_tool(request: ExecuteToolRequest):
     """
     Execute an MCP tool with enhanced error handling and validation.
@@ -3201,7 +3296,7 @@ async def mcp_execute_tool(request: ExecuteToolRequest):
         )
 
 
-@app.get("/mcp/tools")
+@api_router.get("/mcp/tools")
 async def list_available_tools():
     """
     List all available MCP tools with their descriptions and schemas.
@@ -3274,7 +3369,7 @@ async def list_available_tools():
         ) from e
 
 
-@app.get("/mcp/tools/{tool_name}")
+@api_router.get("/mcp/tools/{tool_name}")
 async def get_tool_info(tool_name: str):
     """
     Get detailed information about a specific tool.
@@ -3339,7 +3434,7 @@ async def get_tool_info(tool_name: str):
         ) from e
 
 
-@app.post("/mcp/tools/validate")
+@api_router.post("/mcp/tools/validate")
 async def validate_tool_request(request: ExecuteToolRequest):
     """
     Validate a tool execution request without actually executing it.
@@ -3471,7 +3566,7 @@ async def validate_tool_request(request: ExecuteToolRequest):
         ) from None
 
 
-@app.delete("/sessions/{user_id}")
+@api_router.delete("/sessions/{user_id}")
 async def clear_user_sessions(user_id: str):
     """Clear chat sessions for a user"""
     try:
@@ -3504,7 +3599,7 @@ async def clear_user_sessions(user_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.get("/mcp/bridge-status")
+@api_router.get("/mcp/bridge-status")
 async def get_mcp_bridge_status():
     """Get MCP-Gemini bridge status and statistics"""
     try:
@@ -3529,7 +3624,7 @@ async def get_mcp_bridge_status():
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.get("/mcp/system-status")
+@api_router.get("/mcp/system-status")
 async def get_mcp_system_status():
     """Get comprehensive MCP system status"""
     try:
@@ -3566,7 +3661,7 @@ async def get_mcp_system_status():
         return {"status": "error", "error": str(e), "initialized": False}
 
 
-@app.get("/persistence/health")
+@api_router.get("/persistence/health")
 async def get_persistence_health():
     """Get persistence layer health status"""
     try:
@@ -3598,7 +3693,7 @@ async def get_persistence_health():
         }
 
 
-@app.post("/test/persistence")
+@api_router.post("/test/persistence")
 async def test_persistence_reliability():
     """Test endpoint to validate chat persistence reliability"""
     try:
@@ -3684,7 +3779,7 @@ async def test_persistence_reliability():
         }
 
 
-@app.get("/memvid/status")
+@api_router.get("/memvid/status")
 async def get_memvid_status():
     """Get memvid archival service status"""
     try:
@@ -3714,7 +3809,7 @@ async def get_memvid_status():
         }
 
 
-@app.get("/vector-db/health")
+@api_router.get("/vector-db/health")
 async def get_vector_db_health():
     """Get detailed vector database health information"""
     try:
@@ -3737,7 +3832,7 @@ async def get_vector_db_health():
         }
 
 
-@app.get("/database-protection/status")
+@api_router.get("/database-protection/status")
 async def get_database_protection_status():
     """Get database protection service status and health"""
     try:
@@ -3774,7 +3869,7 @@ async def get_database_protection_status():
         }
 
 
-@app.post("/database-protection/emergency-backup")
+@api_router.post("/database-protection/emergency-backup")
 async def trigger_emergency_backup():
     """Trigger emergency database backup manually"""
     try:
@@ -3804,7 +3899,7 @@ async def trigger_emergency_backup():
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.get("/autonomic/status")
+@api_router.get("/autonomic/status")
 async def get_autonomic_status() -> Dict[str, Any]:
     """
     Retrieve comprehensive autonomic nervous system status and operational metrics.
@@ -3915,7 +4010,7 @@ async def get_autonomic_status() -> Dict[str, Any]:
         }
 
 
-@app.get("/autonomic/tasks/{user_id}")
+@api_router.get("/autonomic/tasks/{user_id}")
 async def get_user_autonomic_tasks(user_id: str, limit: int = 20):
     """Get autonomic tasks for a specific user"""
     try:
@@ -3985,7 +4080,7 @@ async def get_user_autonomic_tasks(user_id: str, limit: int = 20):
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.get("/autonomic/task/{task_id}")
+@api_router.get("/autonomic/task/{task_id}")
 async def get_autonomic_task_details(task_id: str):
     """Get detailed information about a specific autonomic task"""
     try:
@@ -4033,7 +4128,7 @@ async def get_autonomic_task_details(task_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.post("/autonomic/submit-task")
+@api_router.post("/autonomic/submit-task")
 async def submit_autonomic_task(
     description: str,
     payload: Dict[str, Any],
@@ -4076,7 +4171,7 @@ async def submit_autonomic_task(
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.get("/autonomic/task/{task_id}/result")
+@api_router.get("/autonomic/task/{task_id}/result")
 async def get_autonomic_task_result(task_id: str, timeout: Optional[float] = None):
     """Get the result of an autonomic task, optionally waiting for completion"""
     try:
@@ -4111,7 +4206,7 @@ async def get_autonomic_task_result(task_id: str, timeout: Optional[float] = Non
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.post("/autonomic/control/{action}")
+@api_router.post("/autonomic/control/{action}")
 async def control_autonomic_system(action: str):
     """Control autonomic system (start/stop/restart)"""
     try:
@@ -4172,7 +4267,7 @@ async def control_autonomic_system(action: str):
         raise HTTPException(status_code=500, detail=str(e)) from None
 
 
-@app.post("/vector-db/optimize")
+@api_router.post("/vector-db/optimize")
 async def optimize_vector_db():
     """Trigger vector database optimization"""
     try:
@@ -4201,6 +4296,11 @@ async def optimize_vector_db():
     except Exception as e:
         logger.error("❌ Failed to optimize vector database: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from None
+
+
+# Compatibility import target for Uvicorn, tests, and existing local launchers.
+# Route registration is complete before the pure factory is called.
+app = create_app()
 
 
 if __name__ == "__main__":
