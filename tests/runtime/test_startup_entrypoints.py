@@ -20,6 +20,8 @@ ROOT_WINDOWS = REPOSITORY_ROOT / "start_full_system.bat"
 BACKEND_FULL = REPOSITORY_ROOT / "aura_backend" / "start.sh"
 BACKEND_API = REPOSITORY_ROOT / "aura_backend" / "start_api.sh"
 BACKEND_ALL = REPOSITORY_ROOT / "aura_backend" / "start_all.sh"
+FRONTEND = REPOSITORY_ROOT / "aura_backend" / "start_frontend.sh"
+MCP = REPOSITORY_ROOT / "aura_backend" / "start_mcp.sh"
 CANONICAL_SERVE = (
     "run",
     "--locked",
@@ -28,6 +30,23 @@ CANONICAL_SERVE = (
     "-m",
     "aura_backend.runtime",
     "serve",
+)
+CANONICAL_MCP = (
+    "run",
+    "--locked",
+    "--no-sync",
+    "python",
+    "-m",
+    "aura_backend.aura_server",
+)
+SUPPORTED_LAUNCHERS = (
+    ROOT_LINUX,
+    ROOT_WINDOWS,
+    BACKEND_FULL,
+    BACKEND_API,
+    BACKEND_ALL,
+    FRONTEND,
+    MCP,
 )
 
 
@@ -197,3 +216,41 @@ def test_backend_launchers_have_no_duplicate_lifecycle_logic(launcher: Path) -> 
     assert "uvicorn" not in executable
     assert "trap " not in executable
     assert "http://" not in executable
+
+
+@pytest.mark.parametrize(
+    ("launcher", "expected"),
+    (
+        (FRONTEND, (*CANONICAL_SERVE, "--frontend-only")),
+        (MCP, CANONICAL_MCP),
+    ),
+)
+def test_specialized_launchers_delegate_without_installing_or_claiming_success(
+    launcher: Path,
+    expected: tuple[str, ...],
+    tmp_path: Path,
+) -> None:
+    completed, invocation = _run_posix_spy(
+        launcher,
+        tmp_path,
+        exit_code=31,
+        arguments=("--example",),
+    )
+
+    assert completed.returncode == 31
+    assert invocation == [str(REPOSITORY_ROOT), *expected, "--example"]
+    executable = _executable_text(launcher).lower()
+    assert "ready" not in executable
+    assert "started" not in executable
+
+
+def test_mcp_launcher_names_the_supported_module_not_missing_script() -> None:
+    executable = _executable_text(MCP)
+
+    assert "aura_backend.aura_server" in executable
+    assert "mcp_server.py" not in executable
+
+
+@pytest.mark.parametrize("launcher", SUPPORTED_LAUNCHERS)
+def test_every_supported_launcher_satisfies_static_contract(launcher: Path) -> None:
+    _assert_non_mutating(launcher)
