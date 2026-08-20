@@ -23,7 +23,7 @@ import sys
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional, Tuple
 
@@ -32,6 +32,7 @@ import numpy as np
 import uvicorn
 from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # Add the parent directory to sys.path to support absolute imports from aura_backend package
@@ -62,6 +63,8 @@ from aura_backend.conversation import (  # noqa: E402
 from aura_backend.providers.base import (  # noqa: E402
     BaseProvider,
     Message,
+    ProviderHealth,
+    ProviderHealthStatus,
     ProviderMessage,
     ProviderRequest,
     ProviderResult,
@@ -71,6 +74,11 @@ from aura_backend.providers.errors import (  # noqa: E402
     ProviderFailure,
 )
 from aura_backend.providers.tools import ToolCatalog  # noqa: E402
+from aura_backend.runtime.health import (  # noqa: E402
+    HealthSnapshot,
+    aggregate_health,
+    public_readiness,
+)
 from aura_backend.runtime_security import (  # noqa: E402
     StoragePathError,
     allowed_browser_origins,
@@ -1066,6 +1074,75 @@ def _install_lifespan_routes(app: FastAPI, runtime: Any) -> None:
         app.state.legacy_mcp_router_installed = True
 
 
+def _unstarted_health_snapshot() -> HealthSnapshot:
+    """Return an import-safe fail-closed snapshot before/after lifespan."""
+    return aggregate_health(
+        runtime_snapshot=None,
+        selected_provider="ollama",
+        selected_model="unknown",
+        selected_health=None,
+    )
+
+
+def _runtime_health_selection(runtime: Any) -> tuple[str, str, float] | None:
+    """Read validated provider identifiers and the bounded preflight timeout."""
+    settings = getattr(runtime, "settings", None)
+    provider_settings = getattr(settings, "provider", None)
+    kind = getattr(provider_settings, "kind", None)
+    provider_name = getattr(kind, "value", kind)
+    model = getattr(provider_settings, "model", None)
+    timeout = getattr(settings, "preflight_timeout_seconds", None)
+    if (
+        not isinstance(provider_name, str)
+        or not isinstance(model, str)
+        or isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or timeout <= 0
+    ):
+        return None
+    return provider_name, model, float(timeout)
+
+
+async def _capture_runtime_health(runtime: Any) -> HealthSnapshot:
+    """Capture one bounded startup observation for later side-effect-free reads."""
+    selection = _runtime_health_selection(runtime)
+    snapshot_reader = getattr(runtime, "snapshot", None)
+    if selection is None or not callable(snapshot_reader):
+        return _unstarted_health_snapshot()
+
+    selected_provider, selected_model, timeout_seconds = selection
+    runtime_snapshot = snapshot_reader()
+    selected_health: ProviderHealth | None = None
+    try:
+        provider_runtime = runtime.provider_runtime
+        health_reader = getattr(provider_runtime, "health", None)
+        if not callable(health_reader):
+            raise TypeError("provider runtime has no health reader")
+        async with asyncio.timeout(timeout_seconds):
+            observed = await health_reader()
+        if not isinstance(observed, ProviderHealth):
+            raise TypeError("provider health returned an invalid result")
+        selected_health = observed
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # The public status records only the safe category.  Source exceptions,
+        # URLs, credentials, prompts, and SDK objects are never stored or logged.
+        selected_health = ProviderHealth(
+            provider=selected_provider,
+            model=selected_model,
+            status=ProviderHealthStatus.UNAVAILABLE,
+            retryable=True,
+        )
+
+    return aggregate_health(
+        runtime_snapshot=runtime_snapshot,
+        selected_provider=selected_provider,
+        selected_model=selected_model,
+        selected_health=selected_health,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Own exactly one runtime and never publish partial startup state."""
@@ -1073,11 +1150,13 @@ async def lifespan(app: FastAPI):
     runtime = runtime_builder()
     try:
         await runtime.start()
+        app.state.health_snapshot = await _capture_runtime_health(runtime)
         app.state.runtime = runtime
         _install_lifespan_routes(app, runtime)
         yield
     finally:
         app.state.runtime = None
+        app.state.health_snapshot = _unstarted_health_snapshot()
         await runtime.aclose()
 
 
@@ -1094,6 +1173,7 @@ def create_app(runtime_builder: Any = _build_application_runtime) -> FastAPI:
     )
     created.state.runtime_builder = runtime_builder
     created.state.runtime = None
+    created.state.health_snapshot = _unstarted_health_snapshot()
     created.state.legacy_mcp_router_installed = False
     created.add_middleware(
         CORSMiddleware,
@@ -1163,105 +1243,85 @@ async def root() -> Dict[str, Any]:
     }
 
 
+def _health_correlation_id(request: Request) -> str:
+    """Use a safe request identifier or generate a content-free local one."""
+    return request.headers.get("X-Request-ID") or uuid.uuid4().hex
+
+
+def _cached_health_payload(request: Request) -> dict[str, Any]:
+    """Serialize app-cached health without probing or constructing anything."""
+    snapshot = getattr(request.app.state, "health_snapshot", None)
+    if not isinstance(snapshot, HealthSnapshot):
+        snapshot = _unstarted_health_snapshot()
+    payload = public_readiness(
+        snapshot,
+        correlation_id=_health_correlation_id(request),
+    )
+    payload["providers"] = [
+        {**provider, "ready": provider["status"] == "ready"}
+        for provider in payload["providers"]
+    ]
+    return payload
+
+
+@api_router.get("/live")
+async def live(request: Request) -> JSONResponse:
+    """Report only that this process and event loop can serve a request."""
+    correlation_id = _health_correlation_id(request)
+    payload = {
+        "status": "live",
+        "live": True,
+        "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "correlation_id": correlation_id,
+    }
+    return JSONResponse(status_code=200, content=payload)
+
+
+@api_router.get("/ready")
+async def ready(request: Request) -> JSONResponse:
+    """Return cached application readiness with conventional 200/503 status."""
+    payload = _cached_health_payload(request)
+    return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
+
+
+@api_router.get("/health/providers")
+async def provider_health(request: Request) -> JSONResponse:
+    """Return cached selected/optional provider diagnostics without polling."""
+    readiness = _cached_health_payload(request)
+    selected = next(
+        provider for provider in readiness["providers"] if provider["selected"]
+    )
+    payload = {
+        "status": selected["status"],
+        "ready": selected["ready"],
+        "code": selected["code"],
+        "timestamp": readiness["timestamp"],
+        "age_seconds": readiness["age_seconds"],
+        "correlation_id": readiness["correlation_id"],
+        "providers": readiness["providers"],
+    }
+    return JSONResponse(status_code=200, content=payload)
+
+
 @api_router.get("/health")
-# @protected_db_operation("health_check") # Causes error 422,Temporarily comment this line out
-async def health_check(background_tasks: BackgroundTasks) -> Dict[str, Any]:
-    """
-    Perform comprehensive system health assessment with multi-component status evaluation.
-
-    Implements systematic health monitoring across critical system components,
-    providing operational status insights essential for production monitoring,
-    debugging, and performance optimization.
-
-    Args:
-        background_tasks: FastAPI background task manager for non-blocking operations
-
-    Returns:
-        Dictionary containing comprehensive health status:
-        - status: Overall system health ("healthy", "unhealthy", "degraded")
-        - timestamp: ISO timestamp of health check execution
-        - vector_db: Vector database connectivity and operational status
-        - aura_file_system: File system accessibility and functionality status
-        - error: Error description if health check fails (optional)
-
-    Conceptual Framework for Health Assessment:
-
-        1. System Component Architecture:
-           - Vector Database: Core semantic storage and retrieval system
-           - File System: Persistent data storage and backup infrastructure
-           - Background Tasks: Asynchronous processing capability
-
-        2. Health Check Methodology:
-           - Non-intrusive assessment to prevent performance impact
-           - Component isolation to identify specific failure points
-           - Graceful degradation recognition for partial functionality
-
-        3. Status Classification Framework:
-           healthy: All components operational and accessible
-           degraded: Some components operational with limited functionality
-           unhealthy: Critical components unavailable or malfunctioning
-
-        4. Operational Integrity Verification:
-           - Database connectivity without heavy operations
-           - File system accessibility verification
-           - Component initialization status assessment
-
-    Component-Specific Health Indicators:
-
-        Vector Database Status:
-        - connected: Database client initialized and accessible
-        - disconnected: Database unavailable or uninitialized
-        - error: Database connectivity or operational issues
-
-        File System Status:
-        - operational: File system accessible and functional
-        - degraded: Limited accessibility or performance issues
-        - error: File system unavailable or permission issues
-
-    Error Handling Strategy:
-        - Graceful failure modes with informative error messages
-        - Component-level error isolation
-        - Non-blocking error responses for partial functionality
-
-    Use Cases:
-        - Production monitoring and alerting systems
-        - Load balancer health check integration
-        - Debugging and troubleshooting system issues
-        - Performance monitoring and optimization
-
-    Note:
-        This endpoint serves as the primary system health indicator for
-        monitoring infrastructure and automated deployment systems.
-        Designed for high-frequency polling without performance impact.
-    """
-    try:
-        # Simple status check without heavy database operations
-        db_status = "unknown"
-        if vector_db:
-            # Use a simple check instead of full health_check to avoid conflicts
-            try:
-                # Just check if the vector_db object exists and is accessible
-                db_status = (
-                    "connected" if hasattr(vector_db, "client") else "disconnected"
-                )
-            except Exception:
-                db_status = "error"
-
-        return {
-            "status": "operational",
-            "timestamp": datetime.now().isoformat(),
-            "vector_db": db_status,
-            "aura_file_system": "operational",
-        }
-    except Exception as e:
-        logger.error("❌ Health check failed: %s", e)
-        return {
-            "status": "unhealthy",
-            "timestamp": datetime.now().isoformat(),
-            "vector_db": "error",
-            "aura_file_system": "operational",
-            "error": str(e),
-        }
+async def health_check(request: Request) -> JSONResponse:
+    """Keep the legacy route as a composite of the same cached health truth."""
+    readiness = _cached_health_payload(request)
+    payload = {
+        "status": "operational" if readiness["ready"] else "unhealthy",
+        "timestamp": readiness["timestamp"],
+        "age_seconds": readiness["age_seconds"],
+        "correlation_id": readiness["correlation_id"],
+        "liveness": {"status": "live", "live": True},
+        "readiness": {
+            "status": readiness["status"],
+            "ready": readiness["ready"],
+            "code": readiness["code"],
+        },
+        "providers": readiness["providers"],
+        "resources": readiness["resources"],
+    }
+    return JSONResponse(status_code=200, content=payload)
 
 
 async def _legacy_process_conversation(
