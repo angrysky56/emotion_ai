@@ -201,9 +201,10 @@ def test_adapter_validates_credential_before_lazy_client_construction() -> None:
     assert captured.value.code is ProviderErrorCode.CONFIGURATION
     assert captured.value.setting_name == "GEMINI_API_KEY"
     assert constructed is False
-    module_source = inspect.getsource(__import__("aura_backend.providers.gemini", fromlist=["*"]))
-    assert "from google import genai" not in module_source
-    assert "from google.genai import types" not in module_source
+    module = __import__("aura_backend.providers.gemini", fromlist=["*"])
+    assert "genai" not in vars(module)
+    assert "types" not in vars(module)
+    assert "genai.Client(" not in inspect.getsource(GeminiProvider)
 
 
 @pytest.mark.asyncio
@@ -323,6 +324,40 @@ async def test_stream_is_incremental_and_closes_upstream() -> None:
     with pytest.raises(StopAsyncIteration):
         await anext(stream)
     assert upstream.closed
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_follow_up_uses_async_chat_and_typed_events() -> None:
+    definition = ToolDefinition(
+        name="lookup",
+        description="Synthetic lookup",
+        input_schema={"type": "object", "properties": {}},
+    )
+    registration = ToolRegistration(
+        definition=definition,
+        source=ToolSource.INTERNAL,
+        server="aura-internal",
+    )
+
+    async def dispatch(_route: ToolRegistration, _arguments: Any) -> object:
+        return {"ok": True}
+
+    call = SimpleNamespace(name="lookup", args={})
+    first_upstream = FakeAsyncStream([_response(_part(function_call=call))])
+    second_upstream = FakeAsyncStream([_response(_part("done"))])
+    chat = FakeAsyncChat([first_upstream, second_upstream])
+    provider = _provider(
+        FakeClient([chat]),
+        tool_executor=ToolExecutor(ToolCatalog((registration,)), dispatch),
+    )
+
+    observed = [event async for event in provider.stream(_request(tools=(definition,)))]
+
+    assert observed[0] == ToolCallDelta(index=0, name="lookup", arguments_fragment="{}")
+    assert observed[1] == TextDelta("done")
+    assert isinstance(observed[2], Completed)
+    assert observed[2].result.content == "done"
+    assert first_upstream.closed and second_upstream.closed
 
 
 @pytest.mark.asyncio
