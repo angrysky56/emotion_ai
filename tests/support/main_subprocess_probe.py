@@ -606,6 +606,8 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
         return {"scenario": scenario, "status": "ok"}
 
     initializer_calls: list[str] = []
+    if scenario == "base_only_startup":
+        return _run_base_only_startup_scenario(initializer_calls)
     if scenario in {"import_safety", "import_without_optional_provider"}:
         return _run_import_safety_scenario(
             initializer_calls,

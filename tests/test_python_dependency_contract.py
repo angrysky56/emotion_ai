@@ -123,8 +123,8 @@ EXPECTED_OPTIONAL_LANES = {
     "memvid": ["memvid-sdk==2.0.159"],
 }
 SUPPORTED_ENTRYPOINT_LANES = {
-    "aura_backend.main": {"base", "provider-gemini", "mcp", "memvid"},
-    "aura_backend.runtime": {"base", "provider-gemini", "mcp", "memvid"},
+    "aura_backend.main": {"base"},
+    "aura_backend.runtime": {"base"},
     "aura_backend.providers.gemini": {"base", "provider-gemini"},
     "aura_backend.aura_server": {"base", "mcp", "memvid"},
     "aura_backend.aura_as_mcp_server": {"base"},
