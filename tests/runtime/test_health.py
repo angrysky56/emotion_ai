@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from aura_backend.providers.base import ProviderHealth, ProviderHealthStatus
+from aura_backend.runtime.config import RuntimeSettings
 from aura_backend.runtime.app import (
     ApplicationRuntimeSnapshot,
     ResourceState,
@@ -21,6 +26,7 @@ from aura_backend.runtime.health import (
     aggregate_health,
     public_readiness,
 )
+from aura_backend.main import create_app
 
 
 CHECKED_AT = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
@@ -258,3 +264,193 @@ import aura_backend.runtime.health
     )
 
     assert completed.returncode == 0, completed.stderr[-1000:]
+
+
+class _CachedProviderRuntime:
+    """Provider boundary that records every potentially expensive operation."""
+
+    def __init__(
+        self,
+        health: ProviderHealth | None = None,
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        self.health_result = health or _selected_health()
+        self.error = error
+        self.health_calls = 0
+        self.generate_calls = 0
+        self.model_download_calls = 0
+
+    async def health(self) -> ProviderHealth:
+        self.health_calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.health_result
+
+    async def generate(self, *_args: Any, **_kwargs: Any) -> None:
+        self.generate_calls += 1
+        raise AssertionError("health must never generate model text")
+
+
+class _CachedHealthRuntime:
+    """Started runtime fake exposing only cached lifecycle/provider evidence."""
+
+    def __init__(self, provider_runtime: _CachedProviderRuntime) -> None:
+        self.settings = RuntimeSettings.from_mapping(
+            {"AURA_DEFAULT_PROVIDER": "ollama", "OLLAMA_MODEL": "ornith:latest"}
+        )
+        self.provider_runtime = provider_runtime
+        self.start_calls = 0
+        self.close_calls = 0
+        self.snapshot_calls = 0
+        self.resource_calls = 0
+        self.database_open_calls = 0
+        self.source_write_calls = 0
+
+    async def start(self) -> _CachedHealthRuntime:
+        self.start_calls += 1
+        return self
+
+    async def aclose(self) -> None:
+        self.close_calls += 1
+
+    def snapshot(self) -> ApplicationRuntimeSnapshot:
+        self.snapshot_calls += 1
+        return _runtime_snapshot()
+
+    def resource(self, name: str) -> SimpleNamespace:
+        self.resource_calls += 1
+        assert name == "legacy_services"
+        return SimpleNamespace(mcp_router=None)
+
+
+def test_live_is_process_local_and_ready_is_unavailable_before_lifespan() -> None:
+    provider_runtime = _CachedProviderRuntime()
+    runtime = _CachedHealthRuntime(provider_runtime)
+    client = TestClient(create_app(runtime_builder=lambda: runtime))
+
+    live = client.get("/live", headers={"X-Request-ID": "live-request"})
+    ready = client.get("/ready", headers={"X-Request-ID": "ready-request"})
+
+    assert live.status_code == 200
+    assert live.json()["status"] == "live"
+    assert live.json()["live"] is True
+    assert live.json()["correlation_id"] == "live-request"
+    assert ready.status_code == 503
+    assert ready.json()["ready"] is False
+    assert ready.json()["status"] == "not_run"
+    assert runtime.start_calls == 0
+    assert runtime.snapshot_calls == 0
+    assert provider_runtime.health_calls == 0
+
+
+def test_health_routes_share_one_cached_ready_snapshot_without_polling_work() -> None:
+    provider_runtime = _CachedProviderRuntime()
+    runtime = _CachedHealthRuntime(provider_runtime)
+    created = create_app(runtime_builder=lambda: runtime)
+
+    with TestClient(created) as client:
+        responses = [
+            client.get(path, headers={"X-Request-ID": f"request-{index}"})
+            for index, path in enumerate(
+                ("/live", "/ready", "/health/providers", "/health", "/ready")
+            )
+        ]
+
+        assert [response.status_code for response in responses] == [200] * 5
+        assert responses[1].json()["ready"] is True
+        assert responses[2].json()["providers"] == responses[1].json()["providers"]
+        assert responses[2].json()["providers"] == [
+            {
+                "code": None,
+                "model": "ornith:latest",
+                "provider": "ollama",
+                "ready": True,
+                "required": True,
+                "retryable": False,
+                "selected": True,
+                "status": "ready",
+            },
+            {
+                "code": "provider_not_configured",
+                "model": None,
+                "provider": "gemini",
+                "ready": False,
+                "required": False,
+                "retryable": False,
+                "selected": False,
+                "status": "not_configured",
+            },
+            {
+                "code": "provider_not_configured",
+                "model": None,
+                "provider": "openrouter",
+                "ready": False,
+                "required": False,
+                "retryable": False,
+                "selected": False,
+                "status": "not_configured",
+            },
+        ]
+        assert responses[3].json()["status"] == "operational"
+        assert responses[3].json()["readiness"]["ready"] is True
+
+        assert runtime.start_calls == 1
+        assert runtime.snapshot_calls == 1
+        assert runtime.resource_calls == 1
+        assert runtime.database_open_calls == 0
+        assert runtime.source_write_calls == 0
+        assert provider_runtime.health_calls == 1
+        assert provider_runtime.generate_calls == 0
+        assert provider_runtime.model_download_calls == 0
+
+
+def test_selected_provider_unavailable_makes_ready_503_but_diagnostics_200() -> None:
+    provider_runtime = _CachedProviderRuntime(
+        _selected_health(ProviderHealthStatus.UNAVAILABLE)
+    )
+    runtime = _CachedHealthRuntime(provider_runtime)
+
+    with TestClient(create_app(runtime_builder=lambda: runtime)) as client:
+        ready = client.get("/ready")
+        providers = client.get("/health/providers")
+        compatibility = client.get("/health")
+
+    assert ready.status_code == 503
+    assert ready.json()["status"] == "unavailable"
+    assert ready.json()["ready"] is False
+    assert providers.status_code == 200
+    assert providers.json()["providers"][0]["status"] == "unavailable"
+    assert compatibility.status_code == 200
+    assert compatibility.json()["status"] == "unhealthy"
+
+
+def test_provider_probe_failure_is_redacted_from_responses_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    sentinels = (
+        "SECRET-API-KEY",
+        "https://user:password@example.invalid/private",
+        "private prompt and response",
+        "Traceback (most recent call last)",
+    )
+    provider_runtime = _CachedProviderRuntime(
+        error=RuntimeError(" ".join(sentinels))
+    )
+    runtime = _CachedHealthRuntime(provider_runtime)
+
+    with caplog.at_level(logging.DEBUG):
+        with TestClient(create_app(runtime_builder=lambda: runtime)) as client:
+            bodies = " ".join(
+                response.text
+                for response in (
+                    client.get("/ready"),
+                    client.get("/health/providers"),
+                    client.get("/health"),
+                )
+            )
+
+    diagnostics = f"{bodies} {caplog.text}"
+    assert all(sentinel not in diagnostics for sentinel in sentinels)
+    assert provider_runtime.health_calls == 1
+    assert provider_runtime.generate_calls == 0
