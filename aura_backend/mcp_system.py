@@ -11,11 +11,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Protocol
 
-from aura_backend.aura_internal_tools import AuraInternalTools
-from aura_backend.mcp_client import AuraMCPClient, AuraMCPIntegration
-from aura_backend.mcp_to_gemini_bridge import MCPGeminiBridge
 from aura_backend.providers.base import JsonValue, ToolDefinition
 from aura_backend.providers.tools import (
     ToolCatalog,
@@ -28,10 +25,10 @@ from aura_backend.providers.tools import (
 logger = logging.getLogger(__name__)
 
 # Global MCP client instance
-_mcp_client: Optional[AuraMCPClient] = None
-_mcp_integration: Optional[AuraMCPIntegration] = None
-_mcp_bridge: Optional[MCPGeminiBridge] = None
-_aura_internal_tools: Optional[AuraInternalTools] = None
+_mcp_client: Any = None
+_mcp_integration: Any = None
+_mcp_bridge: Any = None
+_aura_internal_tools: Any = None
 _initialized = False
 
 
@@ -56,15 +53,17 @@ class _InternalToolRegistry(Protocol):
 
 
 async def initialize_mcp_system(
-    aura_internal_tools: AuraInternalTools,
+    aura_internal_tools: _InternalToolRegistry,
+    *,
+    client_factory: Callable[..., Any] | None = None,
+    integration_factory: Callable[[Any], Any] | None = None,
 ) -> Dict[str, Any]:
-    """
-    Initialize the complete MCP system with proper error handling
+    """Start only the provider-neutral MCP client and tool discovery surface.
 
-    Returns:
-        Dict with initialization status and available tools
+    The concrete MCP imports are deliberately local.  The Gemini bridge belongs
+    to a separate lifecycle stage and is never constructed here.
     """
-    global _mcp_client, _mcp_integration, _mcp_bridge, _aura_internal_tools, _initialized
+    global _mcp_client, _mcp_integration, _aura_internal_tools, _initialized
 
     # Retain internal-tool ownership even when optional MCP startup is unavailable.
     _aura_internal_tools = aura_internal_tools
@@ -73,68 +72,66 @@ async def initialize_mcp_system(
         logger.info("MCP system already initialized")
         return get_mcp_status()
 
-    try:
-        # Create MCP client with config
-        # 1. Try project root first
-        root_config = Path(__file__).parent.parent / "mcp_client_config.json"
-        # 2. Try package directory
-        local_config = Path(__file__).parent / "mcp_client_config.json"
+    if client_factory is None or integration_factory is None:
+        from aura_backend.mcp_client import AuraMCPClient, AuraMCPIntegration
 
-        if root_config.exists():
-            config_path = root_config
-            logger.info("📄 Using MCP config from project root: %s", config_path)
-        else:
-            config_path = local_config
-            logger.info("📄 Using MCP config from package directory: %s", config_path)
+        client_factory = client_factory or AuraMCPClient
+        integration_factory = integration_factory or AuraMCPIntegration
 
-        _mcp_client = AuraMCPClient(config_path=str(config_path))
+    root_config = Path(__file__).parent.parent / "mcp_client_config.json"
+    local_config = Path(__file__).parent / "mcp_client_config.json"
+    config_path = root_config if root_config.exists() else local_config
 
-        # Start the MCP client
-        logger.info("🚀 Starting MCP client...")
-        await _mcp_client.start()
+    _mcp_client = client_factory(config_path=str(config_path))
+    await _mcp_client.start()
+    _mcp_integration = integration_factory(_mcp_client)
+    capabilities = await _mcp_integration.get_available_capabilities()
+    _initialized = True
+    return {
+        "status": "success",
+        "connected_servers": capabilities["connected_servers"],
+        "total_servers": capabilities["total_servers"],
+        "available_tools": capabilities["available_tools"],
+        "gemini_tools_count": 0,
+        "tools_by_server": capabilities.get("tools_by_server", {}),
+    }
 
-        # Create integration
-        _mcp_integration = AuraMCPIntegration(_mcp_client)
 
-        # Get capabilities to verify
-        capabilities = await _mcp_integration.get_available_capabilities()
-        logger.info(
-            f"✅ MCP client connected to {capabilities['connected_servers']}/{capabilities['total_servers']} servers"
-        )
-        logger.info("📦 Found %s tools total", capabilities["available_tools"])
+async def initialize_gemini_bridge(
+    *,
+    bridge_factory: Callable[[Any, Any], Any] | None = None,
+) -> Any:
+    """Construct and populate the Gemini bridge only for its owning stage."""
+    global _mcp_bridge
 
-        # Create MCP-Gemini bridge
-        _mcp_bridge = MCPGeminiBridge(_mcp_client, aura_internal_tools)
+    if not _initialized or _mcp_client is None:
+        raise RuntimeError("MCP client is unavailable")
+    if _mcp_bridge is not None:
+        return _mcp_bridge
+    if bridge_factory is None:
+        from aura_backend.mcp_to_gemini_bridge import MCPGeminiBridge
 
-        # Convert tools to Gemini format
-        gemini_tools = await _mcp_bridge.convert_mcp_tools_to_gemini_functions()
-        logger.info("🔧 Converted %s tools to Gemini format", len(gemini_tools))
+        bridge_factory = MCPGeminiBridge
+    bridge = bridge_factory(_mcp_client, _aura_internal_tools)
+    # Publish the stage-owned object before conversion so the already-registered
+    # shutdown callback can close a bridge whose initialization fails partway.
+    _mcp_bridge = bridge
+    await bridge.convert_mcp_tools_to_gemini_functions()
+    return bridge
 
-        _initialized = True
 
-        return {
-            "status": "success",
-            "connected_servers": capabilities["connected_servers"],
-            "total_servers": capabilities["total_servers"],
-            "available_tools": capabilities["available_tools"],
-            "gemini_tools_count": len(gemini_tools),
-            "tools_by_server": capabilities.get("tools_by_server", {}),
-        }
+async def shutdown_gemini_bridge() -> None:
+    """Drop the stage-owned bridge reference exactly once."""
+    global _mcp_bridge
 
-    except Exception as e:
-        logger.error("❌ Failed to initialize MCP system: %s", e)
-        import traceback
-
-        traceback.print_exc()
-
-        return {
-            "status": "error",
-            "error": str(e),
-            "connected_servers": 0,
-            "total_servers": 0,
-            "available_tools": 0,
-            "gemini_tools_count": 0,
-        }
+    bridge, _mcp_bridge = _mcp_bridge, None
+    if bridge is None:
+        return
+    close = getattr(bridge, "aclose", None) or getattr(bridge, "close", None)
+    if callable(close):
+        outcome = close()
+        if hasattr(outcome, "__await__"):
+            await outcome
 
 
 def get_mcp_status() -> Dict[str, Any]:
@@ -157,12 +154,12 @@ def get_mcp_status() -> Dict[str, Any]:
     }
 
 
-def get_mcp_bridge() -> Optional[MCPGeminiBridge]:
+def get_mcp_bridge() -> Any:
     """Get the MCP-Gemini bridge instance"""
     return _mcp_bridge
 
 
-def get_mcp_client() -> Optional[AuraMCPClient]:
+def get_mcp_client() -> _MCPToolClient | None:
     """Get the MCP client instance"""
     return _mcp_client
 
@@ -323,17 +320,15 @@ async def get_all_available_tools() -> List[Dict[str, Any]]:
 
 async def shutdown_mcp_system():
     """Properly shutdown the MCP system"""
-    global _mcp_client, _mcp_integration, _mcp_bridge, _aura_internal_tools, _initialized
+    global _mcp_client, _mcp_integration, _aura_internal_tools, _initialized
 
-    if _mcp_client:
+    client, _mcp_client = _mcp_client, None
+    if client:
         try:
-            await _mcp_client.stop()
-            logger.info("✅ MCP client stopped")
-        except Exception as e:
-            logger.error("Error stopping MCP client: %s", e)
+            await client.stop()
+        except Exception:
+            logger.error("MCP client shutdown failed")
 
-    _mcp_client = None
     _mcp_integration = None
-    _mcp_bridge = None
     _aura_internal_tools = None
     _initialized = False

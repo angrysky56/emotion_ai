@@ -58,11 +58,11 @@ def test_base_only_child_proves_complete_runtime_path() -> None:
         "status": "pass",
     }
     assert evidence["lifespan"] == {
-        "cleanup_events": ["provider", "base_services"],
+        "cleanup_events": ["provider", "legacy_services"],
         "ready": True,
         "resource_states": {
             "autonomic": "not_configured",
-            "base_services": "ready",
+            "legacy_services": "ready",
             "gemini_bridge": "not_configured",
             "mcp": "not_configured",
             "memvid": "not_configured",
@@ -82,7 +82,7 @@ def test_base_only_probe_rejects_incomplete_or_unbounded_children(
 
 
 def test_public_main_imports_when_every_optional_distribution_is_blocked() -> None:
-    script = r'''
+    script = r"""
 import builtins
 
 blocked = {"mcp", "fastmcp", "google", "memvid_sdk"}
@@ -100,7 +100,7 @@ builtins.__import__ = guarded
 import aura_backend.main
 import aura_backend.runtime
 assert attempted == [], attempted
-'''
+"""
     completed = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,

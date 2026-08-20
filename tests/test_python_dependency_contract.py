@@ -46,9 +46,7 @@ PRECHANGE_AUTHORITY_SHA256 = {
     ),
     "uv.lock": "4b7df8a21291f380a42f4b4a5d360d194b8228a0632ca84cae7dcffe35fca74e",
 }
-REQUIREMENTS_SHA256 = (
-    "5a52f57420ed9e918310725475fe77647b821dbcd10a7dde3a87b7035d0d2744"
-)
+REQUIREMENTS_SHA256 = "5a52f57420ed9e918310725475fe77647b821dbcd10a7dde3a87b7035d0d2744"
 MAX_EVIDENCE_AGE = timedelta(days=7)
 
 APPROVED_PYTHON_ACTIONS = {
@@ -87,9 +85,7 @@ REJECTED_LOCK_RECORD_SHA256 = {
     "asyncio-mqtt": (
         "151bad2f48d5e630f0aae7c548845bce59ef99329a8275e99924d02b575feb87"
     ),
-    "faiss-cpu": (
-        "f68e3568d34ef9fa5dccf5b45a02f53531fe641fe145677969ce8d34b9c0da29"
-    ),
+    "faiss-cpu": ("f68e3568d34ef9fa5dccf5b45a02f53531fe641fe145677969ce8d34b9c0da29"),
     "faiss-gpu-cu12": (
         "254e90b6a88f3227c18d3afdf292ce621714f9ea1e6178d457d5fe40f884e93b"
     ),
@@ -239,7 +235,9 @@ def validate_evidence_scope(
         raise AuthorizationError("evidence may not directly authorize candidates")
     if set(approval.get("blocked_downstream_plans", [])) != {"02-16", "02-17"}:
         raise AuthorizationError("revised plans must independently clear their gates")
-    if any(row.get("manifest_change_authorized") is not False for row in packages.values()):
+    if any(
+        row.get("manifest_change_authorized") is not False for row in packages.values()
+    ):
         raise AuthorizationError("row-level evidence may not grant manifest authority")
 
     approved_python = {
@@ -310,7 +308,9 @@ def validate_no_unrelated_version_churn(
     added = set(after) - set(before)
     removed = set(before) - set(after)
     if not added <= allowed_added:
-        raise AuthorizationError(f"unexpected lock additions: {sorted(added - allowed_added)}")
+        raise AuthorizationError(
+            f"unexpected lock additions: {sorted(added - allowed_added)}"
+        )
     if not removed <= allowed_removed:
         raise AuthorizationError(
             f"unexpected lock removals: {sorted(removed - allowed_removed)}"
@@ -339,7 +339,9 @@ def test_prechange_authorization_gate() -> None:
     ("mutation", "match"),
     [
         (
-            lambda values: values.update(evidence_bytes=values["evidence_bytes"] + b" "),
+            lambda values: values.update(
+                evidence_bytes=values["evidence_bytes"] + b" "
+            ),
             "evidence SHA-256",
         ),
         (
@@ -514,7 +516,8 @@ HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('/healt
 CMD ["uvicorn", "aura_backend.main:create_app", "--host", "127.0.0.1"]
 """
     synthetic = (
-        approved_source + "\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\n"
+        approved_source
+        + "\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\n"
     )
     with pytest.raises(AuthorizationError, match="duplicate legacy authority"):
         validate_docker_authority(synthetic)

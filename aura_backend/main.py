@@ -69,6 +69,7 @@ from aura_backend.providers.base import (  # noqa: E402
     ProviderRequest,
     ProviderResult,
 )
+from aura_backend.providers.config import ProviderKind  # noqa: E402
 from aura_backend.providers.errors import (  # noqa: E402
     ProviderErrorCode,
     ProviderFailure,
@@ -370,9 +371,7 @@ class AuraStateManager:
         - State history preservation and analysis
     """
 
-    def __init__(
-        self, vector_db: Any, aura_file_system: AuraFileSystem
-    ) -> None:
+    def __init__(self, vector_db: Any, aura_file_system: AuraFileSystem) -> None:
         """
         Initialize the state manager with required dependencies.
 
@@ -887,33 +886,17 @@ def _clear_runtime_aliases() -> None:
 
 
 async def _start_legacy_resources() -> Any:
-    """Construct legacy services only after FastAPI enters lifespan."""
-    global vector_db, aura_file_system, state_manager, aura_internal_tools
-    global conversation_persistence, memvid_archival, mcp_gemini_bridge
-    global autonomic_system, db_protection_service, embedding_service
-    global execute_mcp_tool, get_all_available_tools, get_mcp_status
-    global _mcp_provider_client, global_tool_version
+    """Compatibility alias for the required base-services lifecycle stage."""
+    return await _start_base_resources()
 
-    from aura_backend.aura_autonomic_system import (
-        initialize_autonomic_system,
-        shutdown_autonomic_system,
-    )
+
+async def _start_base_resources() -> Any:
+    """Construct only required base services after FastAPI enters lifespan."""
+    global vector_db, aura_file_system, state_manager, aura_internal_tools
+    global conversation_persistence, db_protection_service, embedding_service
+
     from aura_backend.aura_internal_tools import AuraInternalTools
     from aura_backend.database_protection import get_protection_service
-    from aura_backend.mcp_integration import (
-        execute_mcp_tool as legacy_execute_mcp_tool,
-        mcp_router,
-        shutdown_mcp_client,
-    )
-    from aura_backend.mcp_system import (
-        get_all_available_tools as list_available_tools,
-        get_mcp_bridge,
-        get_mcp_client,
-        get_mcp_status as read_mcp_status,
-        initialize_mcp_system,
-        shutdown_mcp_system,
-    )
-    from aura_backend.memvid_archival_service import MemvidArchivalService
     from aura_backend.robust_vector_db import RobustAuraVectorDB
     from aura_backend.runtime import StartedResource
     from aura_backend.shared_embedding_service import get_embedding_service
@@ -930,49 +913,11 @@ async def _start_legacy_resources() -> Any:
         aura_internal_tools = AuraInternalTools(vector_db, aura_file_system)
         embedding_service = get_embedding_service()
 
-        # Both legacy MCP surfaces are imported and owned here so module import
-        # cannot create a client or process. Shutdown callbacks are registered
-        # before initialization to cover partial starts.
-        stack.push_async_callback(shutdown_mcp_client)
-        stack.push_async_callback(shutdown_mcp_system)
-        mcp_status = await initialize_mcp_system(aura_internal_tools)
-        if mcp_status.get("status") == "success":
-            _mcp_provider_client = get_mcp_client()
-            mcp_gemini_bridge = get_mcp_bridge()
-            if mcp_gemini_bridge is not None:
-                global_tool_version += 1
-        else:
-            _mcp_provider_client = None
-            mcp_gemini_bridge = None
-            logger.warning("Optional MCP startup is unavailable")
-
-        execute_mcp_tool = legacy_execute_mcp_tool
-        get_all_available_tools = list_available_tools
-        get_mcp_status = read_mcp_status
-
         conversation_persistence = ConversationPersistenceService(
             vector_db,
             aura_file_system,
         )
-        memvid_archival = MemvidArchivalService()
-        memvid_close = getattr(memvid_archival, "close", None)
-        if callable(memvid_close):
-            stack.push_async_callback(memvid_close)
-
-        if os.getenv("AUTONOMIC_ENABLED", "true").lower() == "true":
-            stack.push_async_callback(shutdown_autonomic_system)
-            try:
-                autonomic_system = await initialize_autonomic_system(
-                    mcp_bridge=mcp_gemini_bridge,
-                    internal_tools=aura_internal_tools,
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                autonomic_system = None
-                logger.warning("Optional autonomic startup is unavailable")
-
-        resources = _LegacyRuntimeResources(mcp_router=mcp_router)
+        resources = _LegacyRuntimeResources(mcp_router=None)
 
         async def close_resources() -> None:
             try:
@@ -989,11 +934,178 @@ async def _start_legacy_resources() -> Any:
         raise
 
 
+async def _start_mcp_resource() -> Any:
+    """Start the provider-neutral MCP client behind its explicit feature gate."""
+    global execute_mcp_tool, get_all_available_tools, get_mcp_status
+    global _mcp_provider_client
+
+    from aura_backend.mcp_integration import (
+        execute_mcp_tool as legacy_execute_mcp_tool,
+        mcp_router,
+        shutdown_mcp_client,
+    )
+    from aura_backend.mcp_system import (
+        get_all_available_tools as list_available_tools,
+        get_mcp_client,
+        get_mcp_status as read_mcp_status,
+        initialize_mcp_system,
+        shutdown_mcp_system,
+    )
+    from aura_backend.runtime import StartedResource
+
+    stack = AsyncExitStack()
+    stack.push_async_callback(shutdown_mcp_client)
+    stack.push_async_callback(shutdown_mcp_system)
+    try:
+        await initialize_mcp_system(aura_internal_tools)
+        _mcp_provider_client = get_mcp_client()
+        execute_mcp_tool = legacy_execute_mcp_tool
+        get_all_available_tools = list_available_tools
+        get_mcp_status = read_mcp_status
+
+        async def close_mcp() -> None:
+            global execute_mcp_tool, get_all_available_tools, get_mcp_status
+            global _mcp_provider_client
+            try:
+                await stack.aclose()
+            finally:
+                execute_mcp_tool = None
+                get_all_available_tools = None
+                get_mcp_status = None
+                _mcp_provider_client = None
+
+        return StartedResource(value=mcp_router, close=close_mcp)
+    except BaseException:
+        await stack.aclose()
+        _mcp_provider_client = None
+        raise
+
+
+async def _start_gemini_bridge_resource() -> Any:
+    """Start Gemini tool conversion only after explicit Gemini selection."""
+    global mcp_gemini_bridge, global_tool_version
+
+    from aura_backend.mcp_system import (
+        initialize_gemini_bridge,
+        shutdown_gemini_bridge,
+    )
+    from aura_backend.runtime import StartedResource
+
+    stack = AsyncExitStack()
+    stack.push_async_callback(shutdown_gemini_bridge)
+    try:
+        mcp_gemini_bridge = await initialize_gemini_bridge()
+        global_tool_version += 1
+
+        async def close_bridge() -> None:
+            global mcp_gemini_bridge
+            try:
+                await stack.aclose()
+            finally:
+                mcp_gemini_bridge = None
+
+        return StartedResource(value=mcp_gemini_bridge, close=close_bridge)
+    except BaseException:
+        await stack.aclose()
+        mcp_gemini_bridge = None
+        raise
+
+
+async def _start_memvid_resource() -> Any:
+    """Start the archival facade only when its declared extra is available."""
+    global memvid_archival
+
+    import importlib
+
+    from aura_backend.runtime import StartedResource
+
+    importlib.import_module("memvid_sdk")
+    from aura_backend.memvid_archival_service import MemvidArchivalService
+
+    async def close_memvid() -> None:
+        global memvid_archival
+        service, memvid_archival = memvid_archival, None
+        close = getattr(service, "close", None)
+        if callable(close):
+            await close()
+
+    # Bind cleanup before running the legacy constructor.  This keeps a
+    # partially initialized facade inside the same exactly-once stage boundary.
+    service = MemvidArchivalService.__new__(MemvidArchivalService)
+    memvid_archival = service
+    try:
+        MemvidArchivalService.__init__(service)
+    except BaseException:
+        await close_memvid()
+        raise
+    return StartedResource(value=service, close=close_memvid)
+
+
+class _DeferredProviderRuntime:
+    """Provider-neutral target used before the selected provider starts last."""
+
+    def __init__(self) -> None:
+        self._target: Any = None
+
+    def bind(self, target: Any) -> None:
+        if self._target is not None:
+            raise RuntimeError("provider runtime is already bound")
+        self._target = target
+
+    async def generate(self, request: ProviderRequest) -> ProviderResult:
+        if self._target is None:
+            raise ProviderFailure(
+                code=ProviderErrorCode.UNAVAILABLE,
+                provider="selected",
+                retryable=True,
+            )
+        return await self._target.generate(request)
+
+
+async def _start_autonomic_resource(provider_runtime: Any) -> Any:
+    """Start optional provider-neutral autonomic work with owned cleanup."""
+    global autonomic_system
+
+    from aura_backend.aura_autonomic_system import (
+        initialize_autonomic_system,
+        shutdown_autonomic_system,
+    )
+    from aura_backend.runtime import StartedResource
+
+    stack = AsyncExitStack()
+    stack.push_async_callback(shutdown_autonomic_system)
+    try:
+        autonomic_system = await initialize_autonomic_system(
+            mcp_bridge=mcp_gemini_bridge,
+            internal_tools=aura_internal_tools,
+            provider_runtime=provider_runtime,
+        )
+
+        async def close_autonomic() -> None:
+            global autonomic_system
+            try:
+                await stack.aclose()
+            finally:
+                autonomic_system = None
+
+        return StartedResource(value=autonomic_system, close=close_autonomic)
+    except BaseException:
+        await stack.aclose()
+        autonomic_system = None
+        raise
+
+
+def _composition_environment() -> dict[str, str]:
+    """Load the local dotenv once at composition and return an explicit mapping."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    return dict(os.environ)
+
+
 def _build_application_runtime() -> Any:
     """Build the pure lifecycle owner; concrete resources start later."""
     global thinking_budget, provider, thinking_processor, client
-
-    from dotenv import load_dotenv
 
     from aura_backend.mcp_system import (
         get_provider_tool_catalog,
@@ -1001,18 +1113,43 @@ def _build_application_runtime() -> Any:
     )
     from aura_backend.providers.factory import ModelProviderFactory
     from aura_backend.providers.runtime import ProviderRuntime
-    from aura_backend.runtime import ApplicationRuntime, ResourceFactory, RuntimeSettings
+    from aura_backend.runtime import (
+        ApplicationRuntime,
+        ResourceFactory,
+        RuntimeSettings,
+    )
 
-    load_dotenv()
-    settings = RuntimeSettings.from_mapping(dict(os.environ))
+    settings = RuntimeSettings.from_mapping(_composition_environment())
     thinking_budget = settings.provider.thinking_budget
     tool_executor: Any = None
+    base_resources: _LegacyRuntimeResources | None = None
+    deferred_provider = _DeferredProviderRuntime()
 
-    async def start_legacy_services() -> Any:
-        """Start legacy resources and attach their neutral provider tool catalog."""
+    async def start_base_services() -> Any:
+        """Start base services and build an internal-only neutral tool surface."""
+        nonlocal base_resources, tool_executor
+
+        started = await _start_base_resources()
+        try:
+            catalog = await get_provider_tool_catalog(
+                internal_tools=aura_internal_tools,
+            )
+            tool_executor = get_provider_tool_executor(
+                catalog,
+                internal_tools=aura_internal_tools,
+            )
+            started.value.tool_catalog = catalog
+            base_resources = started.value
+            return started
+        except BaseException:
+            await started.close()
+            raise
+
+    async def start_mcp() -> Any:
         nonlocal tool_executor
-
-        started = await _start_legacy_resources()
+        if not settings.mcp_enabled:
+            return None
+        started = await _start_mcp_resource()
         try:
             catalog = await get_provider_tool_catalog(
                 mcp_client=_mcp_provider_client,
@@ -1023,11 +1160,31 @@ def _build_application_runtime() -> Any:
                 mcp_client=_mcp_provider_client,
                 internal_tools=aura_internal_tools,
             )
-            started.value.tool_catalog = catalog
+            if base_resources is not None:
+                base_resources.mcp_router = started.value
+                base_resources.tool_catalog = catalog
             return started
         except BaseException:
             await started.close()
             raise
+
+    async def start_gemini_bridge() -> Any:
+        if (
+            not settings.mcp_enabled
+            or settings.provider.kind is not ProviderKind.GEMINI
+        ):
+            return None
+        return await _start_gemini_bridge_resource()
+
+    async def start_memvid() -> Any:
+        if not settings.memvid_enabled:
+            return None
+        return await _start_memvid_resource()
+
+    async def start_autonomic() -> Any:
+        if not settings.autonomic_enabled:
+            return None
+        return await _start_autonomic_resource(deferred_provider)
 
     async def start_provider() -> ProviderRuntime:
         global provider, thinking_processor, client
@@ -1042,6 +1199,7 @@ def _build_application_runtime() -> Any:
             selected,
             timeout_seconds=settings.provider.request_timeout_seconds,
         )
+        deferred_provider.bind(runtime)
         provider = selected  # type: ignore[assignment]
         thinking_processor = getattr(selected, "thinking_processor", None)
         client = getattr(selected, "client", None)
@@ -1052,8 +1210,20 @@ def _build_application_runtime() -> Any:
         resources=(
             ResourceFactory(
                 name="legacy_services",
-                start=start_legacy_services,
+                start=start_base_services,
                 required=True,
+            ),
+            ResourceFactory(name="mcp", start=start_mcp, required=False),
+            ResourceFactory(
+                name="gemini_bridge",
+                start=start_gemini_bridge,
+                required=False,
+            ),
+            ResourceFactory(name="memvid", start=start_memvid, required=False),
+            ResourceFactory(
+                name="autonomic",
+                start=start_autonomic,
+                required=False,
             ),
         ),
         provider_factory=start_provider,
@@ -1184,6 +1354,7 @@ def create_app(runtime_builder: Any = _build_application_runtime) -> FastAPI:
     )
     created.include_router(api_router)
     return created
+
 
 @api_router.get("/")
 async def root() -> Dict[str, Any]:
@@ -1500,7 +1671,9 @@ async def _legacy_process_conversation(
         # Debug thinking result
         if thinking_result:
             logger.info("🧠 Thinking result debug for %s:", request.user_id)
-            logger.info("   - has_thinking: %s", getattr(thinking_result, "has_thinking", False))
+            logger.info(
+                "   - has_thinking: %s", getattr(thinking_result, "has_thinking", False)
+            )
             logger.info(
                 f"   - thoughts length: {len(getattr(thinking_result, 'thoughts', '')) if hasattr(thinking_result, 'thoughts') else 0}"
             )
@@ -1767,14 +1940,24 @@ async def _legacy_process_conversation(
             thinking_metrics=(
                 {
                     "total_chunks": getattr(thinking_result, "total_chunks", 1),
-                    "thinking_chunks": getattr(thinking_result, "thinking_chunks", 1 if provider_response.thoughts else 0),
+                    "thinking_chunks": getattr(
+                        thinking_result,
+                        "thinking_chunks",
+                        1 if provider_response.thoughts else 0,
+                    ),
                     "answer_chunks": getattr(thinking_result, "answer_chunks", 1),
-                    "processing_time_ms": getattr(thinking_result, "processing_time_ms", 0.0),
+                    "processing_time_ms": getattr(
+                        thinking_result, "processing_time_ms", 0.0
+                    ),
                 }
                 if thinking_result
                 else None
             ),
-            has_thinking=getattr(thinking_result, "has_thinking", bool(provider_response.thoughts)) if thinking_result else False,
+            has_thinking=getattr(
+                thinking_result, "has_thinking", bool(provider_response.thoughts)
+            )
+            if thinking_result
+            else False,
         )
 
         # Debug the final response thinking data
@@ -1874,7 +2057,9 @@ async def _persist_conversation_exchange(
             logger.error("Immediate conversation persistence failed")
     elif conversation_persistence:
         try:
-            result = await conversation_persistence.persist_conversation_exchange(exchange)
+            result = await conversation_persistence.persist_conversation_exchange(
+                exchange
+            )
             persistence_success = bool(result.get("success"))
             if persistence_success:
                 logger.info("Conversation persisted")
@@ -1956,9 +2141,7 @@ async def process_conversation(
     """Run one provider-neutral conversation while preserving public behavior."""
     session_id = request.session_id or str(uuid.uuid4())
     session_key = f"{request.user_id}_{session_id}"
-    recovery_enabled = (
-        os.getenv("SESSION_RECOVERY_ENABLED", "true").lower() == "true"
-    )
+    recovery_enabled = os.getenv("SESSION_RECOVERY_ENABLED", "true").lower() == "true"
     provider_runtime: Any = None
     stage = "runtime"
 

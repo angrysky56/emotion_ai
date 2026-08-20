@@ -113,6 +113,22 @@ def _bounded_float(
     return value
 
 
+def _strict_boolean(
+    mapping: Mapping[str, str | None],
+    key: str,
+    default: bool = False,
+) -> bool:
+    """Parse one exact lower-case boolean without permissive coercion."""
+    if key not in mapping:
+        return default
+    value = mapping[key]
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise RuntimeConfigurationError(key)
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeSettings:
     """Validated application settings with local-only defaults."""
@@ -123,6 +139,9 @@ class RuntimeSettings:
     storage_root: Path
     preflight_timeout_seconds: float
     provider: ProviderSettings
+    mcp_enabled: bool
+    memvid_enabled: bool
+    autonomic_enabled: bool
 
     @classmethod
     def from_mapping(
@@ -178,4 +197,7 @@ class RuntimeSettings:
                 maximum=_MAX_PREFLIGHT_TIMEOUT_SECONDS,
             ),
             provider=provider,
+            mcp_enabled=_strict_boolean(mapping, "AURA_MCP_ENABLED"),
+            memvid_enabled=_strict_boolean(mapping, "AURA_MEMVID_ENABLED"),
+            autonomic_enabled=_strict_boolean(mapping, "AUTONOMIC_ENABLED"),
         )

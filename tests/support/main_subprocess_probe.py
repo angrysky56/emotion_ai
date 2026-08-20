@@ -129,7 +129,9 @@ def run_probe(scenario: str, *, timeout: float = 8.0) -> dict[str, Any]:
 
     result["repository_data_roots_unchanged"] = before == _data_root_snapshot()
     if not result["repository_data_roots_unchanged"]:
-        raise ProbeFailure(f"Probe scenario {scenario!r} modified repository data roots")
+        raise ProbeFailure(
+            f"Probe scenario {scenario!r} modified repository data roots"
+        )
     return result
 
 
@@ -223,7 +225,9 @@ def _install_import_fakes(
         shutdown_mcp_system=no_op_async,
     )
     _fake_module("aura_backend.mcp_to_gemini_bridge", MCPGeminiBridge=PassiveObject)
-    _fake_module("aura_backend.memvid_archival_service", MemvidArchivalService=PassiveObject)
+    _fake_module(
+        "aura_backend.memvid_archival_service", MemvidArchivalService=PassiveObject
+    )
     if fake_provider_factory:
         _fake_module("aura_backend.providers.factory", ModelProviderFactory=FakeFactory)
     _fake_module("aura_backend.robust_vector_db", RobustAuraVectorDB=PassiveObject)
@@ -462,9 +466,7 @@ def _install_route_fakes(main: Any, scenario: str) -> dict[str, Any]:
             result = {
                 "duration_ms": 0.0,
                 "errors": ["synthetic persistence failure"] if failed else [],
-                "method": (
-                    "fake_immediate_failure" if failed else "fake_immediate"
-                ),
+                "method": ("fake_immediate_failure" if failed else "fake_immediate"),
                 "stored_components": [] if failed else ["synthetic"],
                 "success": not failed,
             }
@@ -562,7 +564,11 @@ def _install_route_fakes(main: Any, scenario: str) -> dict[str, Any]:
 
 def _request_result(response: Any, calls: dict[str, Any]) -> dict[str, Any]:
     content_type = response.headers.get("content-type", "")
-    body = response.json() if content_type.startswith("application/json") else response.text
+    body = (
+        response.json()
+        if content_type.startswith("application/json")
+        else response.text
+    )
     return {
         "body": _normalize(body),
         "headers": {
@@ -593,6 +599,258 @@ def _stable_type_name(value: Any) -> str:
     if isinstance(value, float):
         return "float"
     return "other"
+
+
+def _run_base_only_startup_scenario(
+    initializer_calls: list[str],
+) -> dict[str, Any]:
+    """Exercise preflight, serve delegation, and lifespan with extras absent."""
+    from fastapi.testclient import TestClient
+
+    blocked_roots = {"mcp", "fastmcp", "google", "memvid_sdk"}
+    attempted_optional_imports: list[str] = []
+    forbidden_effects: list[str] = []
+    cleanup_events: list[str] = []
+
+    class FakeProtection:
+        def stop_protection(self) -> None:
+            return None
+
+    class FakeVectorDB:
+        async def close(self) -> None:
+            cleanup_events.append("legacy_services")
+
+    class FakeFileSystem:
+        pass
+
+    class FakeInternalTools:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            return None
+
+        def get_tool_list(self) -> list[dict[str, Any]]:
+            return []
+
+        async def execute_tool(self, *_args: Any, **_kwargs: Any) -> object:
+            raise AssertionError("base startup must not execute a tool")
+
+    class FakePersistence:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            return None
+
+    class FakeProvider:
+        async def generate(self, _request: Any) -> Any:
+            raise AssertionError("startup must not generate")
+
+        async def stream(self, _request: Any) -> Any:
+            raise AssertionError("startup must not stream")
+
+        async def clear_session(self, _session_id: str) -> None:
+            return None
+
+        async def health(self) -> Any:
+            from aura_backend.providers.base import ProviderHealth, ProviderHealthStatus
+
+            return ProviderHealth(
+                provider="ollama",
+                model="synthetic-model",
+                status=ProviderHealthStatus.READY,
+            )
+
+        async def aclose(self) -> None:
+            cleanup_events.append("provider")
+
+    _fake_module(
+        "aura_backend.aura_internal_tools", AuraInternalTools=FakeInternalTools
+    )
+    _fake_module(
+        "aura_backend.conversation_persistence_service",
+        ConversationExchange=type("ConversationExchange", (), {}),
+        ConversationPersistenceService=FakePersistence,
+        PersistenceHealthCheck=type("PersistenceHealthCheck", (), {}),
+    )
+    _fake_module(
+        "aura_backend.database_protection",
+        get_protection_service=lambda: FakeProtection(),
+    )
+    _fake_module("aura_backend.robust_vector_db", RobustAuraVectorDB=FakeVectorDB)
+    _fake_module(
+        "aura_backend.shared_embedding_service",
+        get_embedding_service=lambda: object(),
+    )
+
+    original_import = builtins.__import__
+    original_socket_connect = socket.socket.connect
+    original_socket_connect_ex = socket.socket.connect_ex
+    original_socket_create = socket.create_connection
+    original_sqlite_connect = sqlite3.connect
+    original_popen = subprocess.Popen
+    original_async_exec = __import__("asyncio").create_subprocess_exec
+    original_async_shell = __import__("asyncio").create_subprocess_shell
+
+    def guarded_import(
+        name: str,
+        globals: dict[str, Any] | None = None,
+        locals: dict[str, Any] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> Any:
+        root = name.split(".", 1)[0]
+        if root in blocked_roots:
+            attempted_optional_imports.append(name)
+            raise ModuleNotFoundError(f"blocked optional root: {root}")
+        return original_import(name, globals, locals, fromlist, level)
+
+    def forbidden(name: str):
+        def trap(*_args: Any, **_kwargs: Any) -> Any:
+            forbidden_effects.append(name)
+            raise AssertionError(f"forbidden base startup effect: {name}")
+
+        return trap
+
+    builtins.__import__ = guarded_import
+    socket.socket.connect = forbidden("network_connect")
+    socket.socket.connect_ex = forbidden("network_connect_ex")
+    socket.create_connection = forbidden("network_create_connection")
+    sqlite3.connect = forbidden("sqlite_connect")
+    subprocess.Popen = forbidden("subprocess_popen")
+    __import__("asyncio").create_subprocess_exec = forbidden("async_subprocess_exec")
+    __import__("asyncio").create_subprocess_shell = forbidden("async_subprocess_shell")
+
+    try:
+        import aura_backend.main as main
+        from aura_backend.providers.base import ProviderHealth, ProviderHealthStatus
+        from aura_backend.providers.factory import ModelProviderFactory
+        from aura_backend.runtime.cli import (
+            CommandResult,
+            PreflightProbes,
+            ServeProbes,
+            StorageObservation,
+            main as cli_main,
+        )
+
+        main.AuraFileSystem = FakeFileSystem
+        main._composition_environment = lambda: {
+            "ALLOWED_ORIGINS": DEFAULT_ORIGIN,
+            "AURA_DEFAULT_PROVIDER": "ollama",
+        }
+        ModelProviderFactory.create_provider = staticmethod(
+            lambda *_args, **_kwargs: FakeProvider()
+        )
+
+        def command_probe(command: tuple[str, ...], _timeout: float) -> CommandResult:
+            version = "Python 3.12.0" if command[-1] == "--version" else "ok"
+            if command[:2] == ("uv", "lock"):
+                version = ""
+            return CommandResult(returncode=0, stdout=version or "uv 0.11.21")
+
+        preflight_probes = PreflightProbes(
+            command=command_probe,
+            port_available=lambda _host, _port: True,
+            storage=lambda _path: StorageObservation(exists=True, writable=True),
+            provider=lambda settings: ProviderHealth(
+                provider=settings.provider.kind.value,
+                model=settings.provider.model,
+                status=ProviderHealthStatus.READY,
+            ),
+            app_factory=lambda: True,
+        )
+        preflight_stdout = io.StringIO()
+        preflight_exit = cli_main(
+            ["preflight"],
+            environment=main._composition_environment(),
+            repository_root=REPOSITORY_ROOT,
+            probes=preflight_probes,
+            stdout=preflight_stdout,
+        )
+        preflight_payload = json.loads(preflight_stdout.getvalue())
+
+        process_commands: list[tuple[str, ...]] = []
+
+        class FakeProcess:
+            def __init__(self) -> None:
+                self.running = True
+
+            def poll(self) -> int | None:
+                return None if self.running else 0
+
+            def terminate(self) -> None:
+                self.running = False
+
+            def wait(self, timeout: float | None = None) -> int:
+                del timeout
+                self.running = False
+                return 0
+
+            def kill(self) -> None:
+                self.running = False
+
+        def start_process(command: tuple[str, ...], _cwd: Path) -> FakeProcess:
+            process_commands.append(command)
+            return FakeProcess()
+
+        def stop_serve(_seconds: float) -> None:
+            raise KeyboardInterrupt
+
+        serve_stdout = io.StringIO()
+        serve_exit = cli_main(
+            ["serve", "--backend-only"],
+            environment=main._composition_environment(),
+            repository_root=REPOSITORY_ROOT,
+            probes=preflight_probes,
+            serve_probes=ServeProbes(
+                start=start_process,
+                readiness=lambda _host, _port, _timeout: True,
+                sleep=stop_serve,
+            ),
+            stdout=serve_stdout,
+        )
+        serve_payload = json.loads(serve_stdout.getvalue())
+
+        application = main.create_app()
+        with TestClient(application):
+            runtime = application.state.runtime
+            snapshot = runtime.snapshot()
+            resource_states = {
+                item.name: item.state.value for item in snapshot.resources
+            }
+            ready = snapshot.ready
+
+        command = process_commands[0]
+        return {
+            "attempted_optional_imports": attempted_optional_imports,
+            "blocked_optional_roots": sorted(blocked_roots),
+            "complete": True,
+            "forbidden_effects": forbidden_effects,
+            "host": "127.0.0.1",
+            "lifespan": {
+                "cleanup_events": cleanup_events,
+                "ready": ready,
+                "resource_states": resource_states,
+            },
+            "preflight": {
+                "check_count": len(preflight_payload["checks"]),
+                "exit_code": preflight_exit,
+                "status": preflight_payload["status"],
+            },
+            "scenario": "base_only_startup",
+            "selected_provider": "ollama",
+            "serve": {
+                "argv_contains_factory": "--factory" in command,
+                "exit_code": serve_exit,
+                "host": command[command.index("--host") + 1],
+                "status": serve_payload["status"],
+            },
+            "status": "ok",
+        }
+    finally:
+        builtins.__import__ = original_import
+        socket.socket.connect = original_socket_connect
+        socket.socket.connect_ex = original_socket_connect_ex
+        socket.create_connection = original_socket_create
+        sqlite3.connect = original_sqlite_connect
+        subprocess.Popen = original_popen
+        __import__("asyncio").create_subprocess_exec = original_async_exec
+        __import__("asyncio").create_subprocess_shell = original_async_shell
 
 
 def _execute_scenario(scenario: str) -> dict[str, Any]:
@@ -704,10 +962,10 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
             response_body = scenario_result.pop("body")
             persistence_evidence = calls["persistence_evidence"]
             if persistence_evidence is None:
-                raise AssertionError("persistence scenario did not reach the fake service")
-            scenario_result["filesystem_write_attempts"] = calls[
-                "filesystem_writes"
-            ]
+                raise AssertionError(
+                    "persistence scenario did not reach the fake service"
+                )
+            scenario_result["filesystem_write_attempts"] = calls["filesystem_writes"]
             scenario_result["persistence"] = {
                 "background_calls": calls["background"],
                 "immediate_calls": calls["persistence"],
@@ -720,7 +978,9 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
         elif scenario in {"companion_success", "provider_empty", "provider_error"}:
             response_body = scenario_result.pop("body")
             if not isinstance(response_body, dict):
-                raise AssertionError("companion scenario returned a non-object response")
+                raise AssertionError(
+                    "companion scenario returned a non-object response"
+                )
             response_text = response_body.get("response")
             scenario_result["hidden_reasoning_present"] = bool(
                 response_body.get("has_thinking")
@@ -751,10 +1011,10 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
                 key: _stable_type_name(value)
                 for key, value in sorted(response_body.items())
             }
-            scenario_result["returned_fallback_response"] = (
-                scenario in {"provider_empty", "provider_error"}
-                and bool(response_text)
-            )
+            scenario_result["returned_fallback_response"] = scenario in {
+                "provider_empty",
+                "provider_error",
+            } and bool(response_text)
             scenario_result["visible_answer_nonempty"] = bool(response_text)
 
     return {
