@@ -1,22 +1,27 @@
-#!/bin/bash
-echo "🎨 Starting Aura Frontend..."
+#!/bin/sh
 
-# Go to parent directory where the frontend is located
-cd .. || exit 1
+# Explicit frontend-only delegate; dependency state is never changed here.
+case $0 in
+    /*) script_path=$0 ;;
+    *) script_path=$PWD/$0 ;;
+esac
+backend_dir=${script_path%/*}
 
-# Check if we're in the right place
-if [ ! -f "package.json" ]; then
-    echo "❌ Error: package.json not found in parent directory"
-    echo "Current directory: $(pwd)"
+if ! repository_root=$(CDPATH= cd -- "$backend_dir/.." 2>/dev/null && pwd -P); then
+    printf '%s\n' "Aura: repository root could not be resolved." >&2
     exit 1
 fi
 
-# Check if node_modules exists
-if [ ! -d "node_modules" ]; then
-    echo "📦 Installing frontend dependencies..."
-    npm install
+if ! command -v uv >/dev/null 2>&1; then
+    printf '%s\n' \
+        "Aura: uv is required. See https://docs.astral.sh/uv/getting-started/installation/" \
+        >&2
+    exit 127
 fi
 
-# Start the frontend dev server
-echo "🌐 Starting frontend dev server at http://localhost:5173..."
-npm run dev
+if ! cd -- "$repository_root"; then
+    printf '%s\n' "Aura: repository root is unavailable." >&2
+    exit 1
+fi
+
+exec uv run --locked --no-sync python -m aura_backend.runtime serve --frontend-only "$@"

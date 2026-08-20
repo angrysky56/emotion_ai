@@ -240,8 +240,8 @@ def test_specialized_launchers_delegate_without_installing_or_claiming_success(
     assert completed.returncode == 31
     assert invocation == [str(REPOSITORY_ROOT), *expected, "--example"]
     executable = _executable_text(launcher).lower()
-    assert "ready" not in executable
-    assert "started" not in executable
+    user_facing_text = re.sub(r"https?://\S+", "", executable)
+    assert re.search(r"\b(?:ready|started|successful(?:ly)?)\b", user_facing_text) is None
 
 
 def test_mcp_launcher_names_the_supported_module_not_missing_script() -> None:
