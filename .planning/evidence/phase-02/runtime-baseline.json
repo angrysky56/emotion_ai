@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "phase": "02-provider-and-runtime-core",
+  "status": "baseline_only",
+  "captured_at": "2026-08-20T21:35:47Z",
+  "environment": {
+    "python": "3.12.9",
+    "platform": "linux",
+    "architecture": "x86_64"
+  },
+  "measurements": [
+    {
+      "name": "cold_import_aura_backend_main",
+      "kind": "cold_import",
+      "command": "uv run --locked --no-sync python -c import-time:aura_backend.main",
+      "outcome": "pass",
+      "sample_count": 3,
+      "samples_ms": [
+        471.638,
+        438.241,
+        431.288
+      ]
+    },
+    {
+      "name": "warm_import_aura_backend_main",
+      "kind": "warm_import",
+      "command": "uv run --locked --no-sync python -c cached-import-time:aura_backend.main",
+      "outcome": "pass",
+      "sample_count": 3,
+      "samples_ms": [
+        0.004,
+        0.001,
+        0.001
+      ]
+    },
+    {
+      "name": "provider_call_ornith",
+      "kind": "provider_call",
+      "command": "AURA_RUN_LIVE=1 AURA_DEFAULT_PROVIDER=ollama OLLAMA_MODEL=ornith:latest uv run --locked --no-sync python -m pytest tests/live/test_ollama_ornith.py -q -m \"live and ollama\"",
+      "outcome": "not_run",
+      "reason": "optional_live_lane_not_requested_for_required_offline_gate",
+      "sample_count": 0,
+      "samples_ms": []
+    }
+  ],
+  "comparison": {
+    "status": "not_run",
+    "reason": "baseline_only_no_comparable_before_after_samples",
+    "optimization_claim": null
+  }
+}
