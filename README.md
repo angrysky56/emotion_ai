@@ -60,7 +60,7 @@
 
 1. **User Input** → Frontend → FastAPI
 2. **Processing** → Vector DB Search → Context Retrieval
-3. **AI Processing** → Gemini API → Response Generation
+3. **AI Processing** → Explicitly Selected Provider → Response Generation
 4. **State Updates** → Emotional/Cognitive Analysis → Pattern Storage
 5. **Memory Storage** → Vector DB → Persistent Learning
 6. **External Access** → MCP Server → Tool Integration
@@ -450,45 +450,11 @@ results = await vector_db.search_conversations(
 
 ## 🐛 Troubleshooting
 
-Claude has started Aura services and the stop script still doesn't work:
-
-```python
-fuser -k 8000/tcp
-```
-
-### Common Issues
-
-1. **Installation Errors**:
-
-   ```bash
-   # Ensure Python 3.12+
-   python3 --version
-
-   # Clean installation
-   rm -rf venv/
-   ./setup.sh
-   ```
-
-2. **API Key Issues**:
-
-   ```bash
-   # Check environment
-   source venv/bin/activate
-   echo $GOOGLE_API_KEY
-   ```
-
-3. **Vector DB Issues**: This is asshole AI- you will lose your db
-
-   ```bash
-   # Reset database
-   rm -rf aura_chroma_db/
-   ./test_setup.py
-   ```
-
-4. **Memory Issues**:
-   - Increase system memory allocation
-   - Reduce vector embedding batch sizes
-   - Use lightweight embedding models
+Use the safe remediation codes in the
+[startup guide](aura_backend/STARTUP_GUIDE.md#troubleshooting-boundaries).
+Aura never kills an unknown process, deletes a database, prints a credential, or
+rebuilds an environment as part of troubleshooting. Storage diagnosis and repair
+remain preservation-gated work; make a verified backup before any manual change.
 
 ### Logs
 
@@ -503,13 +469,14 @@ Check logs in:
 ### Data Protection
 
 - All user data stored locally
-- No external data transmission (except Google API)
+- Local Ollama keeps model traffic local; explicitly selected cloud providers
+  transmit requests under their own terms
 - Vector embeddings are anonymized
 - Session data encrypted in transit
 
 ### Access Control
 
-- API key authentication
+- No sign-in or API authentication; keep the default loopback boundary
 - Rate limiting enabled
 - CORS configuration
 - Input validation and sanitization

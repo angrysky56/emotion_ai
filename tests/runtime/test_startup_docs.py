@@ -124,6 +124,22 @@ def test_supported_guides_describe_wrappers_as_delegates() -> None:
             assert wrapper in section
 
 
+def test_readme_has_no_contradictory_provider_auth_or_destructive_help() -> None:
+    text = README.read_text(encoding="utf-8")
+    forbidden = (
+        "AI Processing** → Gemini API",
+        "No external data transmission (except Google API)",
+        "API key authentication",
+        "fuser -k",
+        "rm -rf aura_chroma_db",
+    )
+    for claim in forbidden:
+        assert claim not in text
+
+    assert "Explicitly Selected Provider" in text
+    assert "No sign-in or API authentication" in text
+
+
 def test_env_example_has_no_duplicate_keys_or_active_cloud_credentials() -> None:
     assignments = _example_assignments(include_commented=True)
     keys = [key for key, _value in assignments]
