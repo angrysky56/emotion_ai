@@ -7,7 +7,6 @@ tests describe the post-change authority consumed by CI.
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import os
@@ -141,10 +140,20 @@ def validate_prechange_authority(
         not isinstance(package, dict) for package in packages
     ):
         raise NodeAuthorityError("package evidence is malformed")
-    verdicts = {package.get("candidate_id"): package.get("verdict") for package in packages}
-    ok_rows = {candidate_id for candidate_id, verdict in verdicts.items() if verdict == "OK"}
-    sus_rows = {candidate_id for candidate_id, verdict in verdicts.items() if verdict == "SUS"}
-    if len(verdicts) != 20 or ok_rows != APPROVED_CANDIDATES or sus_rows != REJECTED_CANDIDATES:
+    verdicts = {
+        package.get("candidate_id"): package.get("verdict") for package in packages
+    }
+    ok_rows = {
+        candidate_id for candidate_id, verdict in verdicts.items() if verdict == "OK"
+    }
+    sus_rows = {
+        candidate_id for candidate_id, verdict in verdicts.items() if verdict == "SUS"
+    }
+    if (
+        len(verdicts) != 20
+        or ok_rows != APPROVED_CANDIDATES
+        or sus_rows != REJECTED_CANDIDATES
+    ):
         raise NodeAuthorityError("evidence must retain the exact 16 OK / 4 SUS partition")
     if any(package.get("manifest_change_authorized") is not False for package in packages):
         raise NodeAuthorityError("row-level evidence may not authorize a manifest change")
@@ -156,7 +165,10 @@ def validate_prechange_authority(
         raise NodeAuthorityError("human decision text mismatch")
     if approval.get("reviewer") != "Ty":
         raise NodeAuthorityError("human reviewer mismatch")
-    if set(approval.get("conditionally_approved_candidate_ids", [])) != APPROVED_CANDIDATES:
+    if (
+        set(approval.get("conditionally_approved_candidate_ids", []))
+        != APPROVED_CANDIDATES
+    ):
         raise NodeAuthorityError("conditional approval set mismatch")
     if set(approval.get("rejected_candidate_ids", [])) != REJECTED_CANDIDATES:
         raise NodeAuthorityError("rejected set mismatch")
@@ -293,15 +305,26 @@ def test_named_scripts_resolve_only_project_local_locked_tools() -> None:
 def test_active_typescript_imports_keep_marked_and_exclude_google_sdk() -> None:
     """Scan supported source while excluding archived, generated, and vendor trees."""
 
-    excluded_parts = {".git", ".trunk", "node_modules", "dist", "archive", "archive_unused"}
+    excluded_parts = {
+        ".git",
+        ".trunk",
+        "node_modules",
+        "dist",
+        "archive",
+        "archive_unused",
+    }
     sources = [
         path
         for path in ROOT.rglob("*")
         if path.suffix in {".ts", ".tsx"}
-        and not any(part in excluded_parts or part.startswith("archive") for part in path.parts)
+        and not any(
+            part in excluded_parts or part.startswith("archive") for part in path.parts
+        )
     ]
     imports: dict[Path, set[str]] = {}
-    pattern = re.compile(r"(?:from\s+|import\s*\(|require\s*\()\s*['\"]([^'\"]+)['\"]")
+    pattern = re.compile(
+        r"(?:from\s+|import\s*\(|require\s*\()\s*['\"]([^'\"]+)['\"]"
+    )
     for path in sources:
         imports[path.relative_to(ROOT)] = set(pattern.findall(path.read_text(encoding="utf-8")))
 

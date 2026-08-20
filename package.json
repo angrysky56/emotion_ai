@@ -5,15 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "typecheck:python": "pyright --project pyproject.toml",
+    "typecheck:frontend": "tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^1.51.0",
     "marked": "^18.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "pyright": "1.1.413",
     "typescript": "~5.7.2",
     "vite": "^8.0.0"
   }
