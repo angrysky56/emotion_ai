@@ -444,6 +444,10 @@ def test_provider_probe_failure_is_redacted_from_responses_and_logs(
             bodies = " ".join(
                 response.text
                 for response in (
+                    client.get(
+                        "/live",
+                        headers={"X-Request-ID": sentinels[0]},
+                    ),
                     client.get("/ready"),
                     client.get("/health/providers"),
                     client.get("/health"),
