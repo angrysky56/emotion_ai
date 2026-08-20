@@ -1,65 +1,50 @@
 ---
 phase: 02-provider-and-runtime-core
-verified: 2026-08-20T22:03:03Z
+verified: 2026-08-20T23:38:45Z
 status: gaps_found
-score: 13/16 must-haves verified
+score: 15/16 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
+re_verification:
+  previous_status: gaps_found
+  previous_score: 13/16
+  gaps_closed:
+    - "A fresh documented base installation can start the default loopback Ollama runtime without optional cloud or MCP dependency groups."
+    - "Every executable Phase 2 pytest contract is import-safe and the earlier bare-pytest false-success defect cannot recur through a plan command."
+  gaps_remaining:
+    - "The current Phase 2 revision has completed green required GitHub CI, including typing-python after npm ci."
+  regressions: []
 gaps:
-  - truth: "A fresh documented base installation can start the default loopback Ollama runtime without optional cloud or MCP dependency groups."
-    status: failed
-    reason: "README.md and STARTUP_GUIDE.md prescribe `uv sync --locked`, whose dry run removes mcp, fastmcp, google-genai, and memvid-sdk. The required lifespan resource then unconditionally imports mcp_integration and mcp_system; mcp_system unconditionally imports the Google Gemini bridge. Missing-extra probes reproduce ModuleNotFoundError before default startup can complete."
-    artifacts:
-      - path: "README.md"
-        issue: "The supported one-time setup installs only the base group."
-      - path: "aura_backend/STARTUP_GUIDE.md"
-        issue: "The same base-only setup is documented as sufficient for normal local startup."
-      - path: "aura_backend/main.py"
-        issue: "_start_legacy_resources unconditionally imports optional MCP modules in a required resource stage."
-      - path: "aura_backend/mcp_system.py"
-        issue: "Top-level import of mcp_to_gemini_bridge makes the provider-gemini group mandatory even when Ollama is selected."
-    missing:
-      - "Make optional MCP/Gemini integrations truly lazy and degradable so the default Ollama path starts from the documented base installation."
-      - "Add a clean base-install startup/lifespan test that excludes all optional groups."
   - truth: "The current Phase 2 revision has completed green required GitHub CI, including typing-python after npm ci."
     status: failed
-    reason: "HEAD 670856ed8936c260f4ca1621d8d3d90326d61ecc is 159 commits ahead of origin/main, GitHub reports no workflow run for that SHA, and the project-local Pyright executable is absent. The required clean-CI typing result remains not_run/pending."
+    reason: "HEAD d47e4021839ee2bc63a95e04394c491b94ead6dc is 169 commits ahead of origin/main. GitHub reports no workflow run for that SHA, and the project-local Pyright executable is absent. Workflow structure, a lock entry, and local non-Pyright gates are not execution evidence; required clean-CI typing remains not_run/pending."
     artifacts:
       - path: ".github/workflows/ci.yml"
-        issue: "The static workflow contract is present, but there is no execution record for the current revision."
+        issue: "The fail-closed static contract is present, but there is no completed current-revision run."
       - path: "package-lock.json"
-        issue: "It locks pyright@1.1.413, but a lock entry is not execution evidence."
+        issue: "It locks pyright@1.1.413, but a lock record does not prove that typing-python ran after npm ci."
     missing:
       - "Publish the reviewed revision through an authorized push or PR."
-      - "Obtain a completed green GitHub typing-python job that runs npm ci before npm run typecheck:python, plus green required CI lanes for the same revision."
-  - truth: "Every executable Phase 2 pytest contract is import-safe and the earlier bare-pytest false-success defect cannot recur through a plan command."
-    status: failed
-    reason: "02-17-PLAN.md still contains three bare `uv run --locked --no-sync pytest ...` command occurrences. tests/test_ci_contract.py scans only 02-18-PLAN.md, 02-VALIDATION.md, and workflow commands, so it passes while leaving 02-17 uncovered."
-    artifacts:
-      - path: ".planning/phases/02-provider-and-runtime-core/02-17-PLAN.md"
-        issue: "Bare pytest remains at lines 120, 150, and 177; this repository requires `python -m pytest` for import-safe execution."
-      - path: "tests/test_ci_contract.py"
-        issue: "PLAN_PATH is fixed to 02-18-PLAN.md and the regression test does not scan every Phase 2 plan."
-    missing:
-      - "Revise all three 02-17 command occurrences to `uv run --locked --no-sync python -m pytest ...`."
-      - "Generalize the regression contract to reject bare pytest in every executable Phase 2 plan/validation command."
+      - "Obtain completed green required GitHub CI for the same revision, specifically including typing-python after npm ci."
 ---
 
 # Phase 2: Provider and Runtime Core Verification Report
 
 **Phase Goal:** Deliver one reliable conversation path through Ollama and the existing cloud providers behind a typed, testable runtime boundary.
 
-**Verified:** 2026-08-20T22:03:03Z  
-**Status:** gaps_found  
-**Re-verification:** No — initial verification
+**Verified:** 2026-08-20T23:38:45Z
+**Status:** gaps_found
+**Re-verification:** Yes — after Plans 02-19 and 02-20 closed two locally reproducible gaps
 
 ## Verdict
 
 ## GAPS FOUND
 
-The provider/runtime implementation and every named locally available gate are green, but Phase 2 cannot be called complete. A fresh installation following the supported base-only setup cannot start the default Ollama runtime because required lifespan composition imports optional MCP and Gemini dependencies. Its own final-gate contract also requires a completed green clean GitHub `typing-python` job, and no GitHub run exists for the current local revision. A third independently observed gap leaves three known-bad bare-pytest commands in Plan 02-17 outside the regression test's scan.
+Phase 2's required local behavior is now verified. Plans 02-19 and 02-20 close the base-install startup defect and the executable-command false-success defect without changing dependency authority, data, authentication, or the local-first boundary. The exact full offline suite and every locally available required gate pass.
 
-The optional Ornith lane is truthfully `not_run`; it is not counted as a failure or as evidence. The current npm lock also reports three high-severity audit findings. Those findings are an unresolved warning, not silently treated as clean, but they do not map to a Phase 2 security requirement and repairing them would exceed the exact dependency-change authorization used by this phase.
+Phase 2 still cannot be called complete because no GitHub Actions run exists for current HEAD. In particular, the required clean `typing-python` job after `npm ci` is still `not_run`/pending. Optional Ornith is also `not_run`, but remains a separate optional lane and is not counted as a failure or as evidence.
+
+The npm lock continues to report three high-severity audit findings. They remain an explicit warning rather than a hidden success, but they are confined to the frontend development toolchain, do not map to a Phase 2 security requirement, and were outside the narrowly authorized dependency changes.
 
 ## Goal Achievement
 
@@ -67,137 +52,138 @@ The optional Ornith lane is truthfully `not_run`; it is not counted as a failure
 
 | # | Truth | Status | Evidence |
 |---|---|---|---|
-| 1 | One immutable typed provider boundary represents messages, tools, results, stream events, health, and safe failures for Ollama, Gemini, and OpenRouter. | VERIFIED | `providers/base.py`, `errors.py`, and `config.py` are substantive; contract/factory tests pass. |
-| 2 | Ollama uses the supported OpenAI-compatible path with finite timeouts, zero hidden retries, real incremental streaming, cancellation, and normalized errors. | VERIFIED | Shared transport and Ollama implementation inspected; focused provider suite passed 81/81. |
-| 3 | OpenRouter is explicit-cloud only, while Gemini is lazily imported, asynchronous, stateless per request, and closes resources safely. | VERIFIED | Adapter/factory code is wired; OpenRouter/Gemini behavioral tests are included in the 81 passing focused tests. |
-| 4 | Deterministic provider fakes exercise normal, streaming, malformed, timeout, unavailable-model, and bounded-work behavior without network access. | VERIFIED | Exact offline suite passed 457 tests; provider runtime tests exercise all named terminal paths. |
-| 5 | Partial, cancelled, malformed, unavailable, or resource-limited work cannot be exposed or counted as `Completed`. | VERIFIED | `ProviderRuntime` withholds terminal completion until iterator exhaustion; named cancellation, mid-stream failure, timeout, post-terminal-delta, and cleanup tests passed. |
-| 6 | Tool discovery/execution and emotional/cognitive analyses use provider-neutral boundaries and the one selected runtime. | VERIFIED | Neutral tool catalog/executor and analysis transport are wired; the complete offline suite passes. |
-| 7 | `/conversation` uses `app.state.runtime.provider_runtime` and preserves Phase 1's seven fields, HTTP-200 fallback, one session clear, persistence, and degraded-storage behavior. | VERIFIED | Decorated route at `main.py:1950`; 38 focused compatibility/persistence/import/local-boundary tests passed. |
-| 8 | Aura remains a private local app: no sign-in was added, loopback is the default, wildcard CORS is rejected, and LAN exposure is explicit. | VERIFIED | No added auth surface was found; runtime defaults to `127.0.0.1`; local-boundary tests pass, including unsigned conversation access. |
-| 9 | Importing the app constructs no provider/client/database/process resources; lifespan owns exactly one runtime and unwinds partial startup in reverse order. | VERIFIED | Import-safety and lifecycle source inspected; focused lifecycle/import tests pass. |
-| 10 | The documented one-command path starts the default local Ollama runtime from a fresh base install; health/preflight/serve remain bounded and non-mutating. | FAILED | Health/CLI/wrapper tests pass in the existing expanded environment, but `uv sync --locked --dry-run` removes all optional groups while required startup imports `mcp` and `google.genai`; missing-extra probes fail. |
-| 11 | Phase 1 data roots and public compatibility remain invariant; Phase 2 performs no storage migration or deletion. | VERIFIED | No Phase 2 diff touches protected data roots; pre/post full-suite snapshot SHA-256 remained `45e61336fac9120f145b74be4e9b7db0b2150f1b13f6a9c1e731db3921e70e71`. |
-| 12 | Only the 16 approved package rows affect the exact authorized action sets; all four SUS rows remain rejected and untouched, after Plans 02-16/02-17 were revised. | VERIFIED | Evidence has exactly 16 OK/4 SUS rows; `deceaa7` precedes manifest commits `cc7e922` and `57ca161`; 46 focused authority tests pass with two expected pre-edit-gate skips. |
-| 13 | Python and Node each have one active lock authority, and every locally available deterministic/lint/frontend/build/lock gate is green. | VERIFIED | `uv lock --check`, exact 457-test gate, active-code Ruff, frontend typecheck/build, contract tests, and Docker check all pass. |
-| 14 | CI is statically split into seven honest lanes, with pinned actions, `npm ci` before Pyright, module-mode pytest in CI, and adversarial rejection of swallowed failure/reordered setup. | VERIFIED | `tests/test_ci_contract.py` passes 9 tests as part of the 14-test CI/baseline run; workflow inspected directly. This verifies structure, not execution. |
-| 15 | The current revision has completed green required GitHub CI, including clean-CI Python typing. | FAILED | `gh run list --commit 670856e...` returned `[]`; origin/main is 159 commits behind; local `node_modules/.bin/pyright` is absent. |
-| 16 | The bare-pytest false-success defect cannot recur through any Phase 2 plan contract. | FAILED | Plan 02-17 retains bare commands at lines 120, 150, 177; the regression test scans only Plan 02-18, validation, and CI. |
+| 1 | One immutable typed provider boundary represents messages, tools, results, stream events, health, and safe failures for Ollama, Gemini, and OpenRouter. | VERIFIED | `providers/base.py`, `errors.py`, and `config.py` are substantive and wired; contract/factory tests pass in the 508-test offline run. |
+| 2 | Ollama uses the supported OpenAI-compatible path with finite timeouts, zero hidden retries, real incremental streaming, cancellation, and normalized errors. | VERIFIED | Transport/adapter code remains wired; streaming, timeout, cancellation, malformed-response, and error-normalization tests pass. |
+| 3 | OpenRouter is explicit-cloud only, while Gemini is lazily imported, asynchronous, stateless per request, and closes resources safely. | VERIFIED | Adapter/factory and lifecycle tests pass; Plan 02-19 further removes Gemini imports from the base Ollama path. |
+| 4 | Deterministic provider fakes exercise normal, streaming, malformed, timeout, unavailable-model, and bounded-work behavior without network access. | VERIFIED | Exact non-live suite passed 508 tests with 2 explicit skips and 1 live deselection. |
+| 5 | Partial, cancelled, malformed, unavailable, or resource-limited work cannot be exposed or counted as `Completed`. | VERIFIED | Named runtime tests cover iterator exhaustion, mid-stream failure, cancellation, timeout, post-terminal deltas, cleanup, and false-success rejection. |
+| 6 | Tool discovery/execution and emotional/cognitive analyses use provider-neutral boundaries and the one selected runtime. | VERIFIED | Neutral catalog/executor and analysis transport remain wired; complete offline regression passes. |
+| 7 | `/conversation` uses `app.state.runtime.provider_runtime` and preserves Phase 1's seven fields, HTTP-200 fallback, one session clear, persistence, and degraded-storage behavior. | VERIFIED | Active route and compatibility tests pass; no Phase 1 response/storage contract changed in Plans 02-19/20. |
+| 8 | Aura remains a private local app: no sign-in was added, loopback is the default, wildcard CORS is rejected, and LAN exposure is explicit. | VERIFIED | No added auth/sign-in surface was found; default host is `127.0.0.1`; local-boundary and unsigned-conversation tests pass. |
+| 9 | Importing the app constructs no provider/client/database/process resources; lifespan owns exactly one runtime and unwinds partial startup in reverse order. | VERIFIED | Import-safety and lifecycle tests pass, including Plan 02-19 optional partial-start and exactly-once reverse cleanup cases. |
+| 10 | A documented base-only installation starts default loopback Ollama preflight, serve delegation, production application lifespan, and shutdown with optional extras absent. | VERIFIED | The subprocess contract blocks `mcp`, `fastmcp`, `google.genai`, and `memvid_sdk`; with no-I/O injected collaborators it exercises the real builder, preflight, serve delegation, FastAPI lifespan readiness, reverse cleanup, and unchanged data digest. Focused Plan 02-19 tests passed 148/148. |
+| 11 | Phase 1 data roots and public compatibility remain invariant; Phase 2 performs no storage migration or deletion. | VERIFIED | No protected data-root diff exists; pre/post full-suite SHA-256 stayed `45e61336fac9120f145b74be4e9b7db0b2150f1b13f6a9c1e731db3921e70e71`. |
+| 12 | Only the 16 approved package rows affect the authorized action sets; all four SUS rows remain rejected and untouched, after Plans 02-16/02-17 were revised. | VERIFIED | The 16 OK/4 SUS evidence and chronology remain intact; Plans 02-19/20 did not modify manifests, locks, package evidence, or rejected declarations. |
+| 13 | Python and Node each have one active lock authority, and every locally available deterministic/lint/frontend/build/lock gate is green. | VERIFIED | `uv lock --check`, exact offline pytest, active-code Ruff, frontend typecheck/build, and `git diff --check` all pass. |
+| 14 | CI is statically split into seven honest lanes, with pinned actions, `npm ci` before Pyright, module-mode pytest, and adversarial rejection of swallowed failure/reordered setup. | VERIFIED | Current CI contract passes 15/15 and directly checks lane/setup ordering and failure propagation. This verifies structure, not remote execution. |
+| 15 | The current revision has completed green required GitHub CI, including clean-CI Python typing. | FAILED | `gh run list --commit d47e402...` returned `[]`; local HEAD is 169 commits ahead of origin/main; local Pyright is absent. |
+| 16 | The bare-pytest false-success defect cannot recur through any executable Phase 2 plan, validation, or CI command. | VERIFIED | Plan 02-17's three commands now use `python -m pytest`; the parser inventories all Plans 01-20, all validation task commands, and every CI run block, then rejects standalone, uv-wrapped, chained, piped, semicolon, and multiline adversarial forms. Contract tests passed 15/15. |
 
-**Score:** 13/16 truths verified (0 present-but-behavior-unverified)
+**Score:** 15/16 truths verified (0 present-but-behavior-unverified)
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `aura_backend/providers/{base,errors,config,runtime}.py` | Typed domain, safe failures/settings, deadlines, cancellation, completion ownership | VERIFIED | Substantive, imported, used, and behavior-tested. |
-| `aura_backend/providers/{openai_compatible,ollama,openrouter,gemini,factory}.py` | Three complete adapters behind one lazy selection boundary | VERIFIED | Real data reaches normalized results/events; no provider-specific branch exists in the active conversation route. |
-| `aura_backend/providers/tools.py`, `aura_backend/mcp_system.py` | Neutral tool catalog/executor seam | VERIFIED | Wired into application composition and the conversation request. |
-| `aura_backend/runtime/{app,config,health,cli}.py` | Lifecycle, local-first settings, cached health, preflight/serve | VERIFIED | Substantive and covered by passing runtime tests. |
-| `aura_backend/main.py` | Import-safe composition plus one provider-neutral `/conversation` route | PARTIAL | Import and route behavior are correct, but lifespan startup makes optional MCP/Gemini modules mandatory for default Ollama. |
-| Startup wrappers, `README.md`, `STARTUP_GUIDE.md`, `.env.example` | Thin non-installing delegates and accurate local-first operator contract | FAILED | Delegation and loopback claims pass, but the documented base setup does not install dependencies unconditionally required by lifespan. |
-| `pyproject.toml`, `uv.lock`, `package.json`, `package-lock.json`, `Dockerfile` | Exact approved dependency authority and one lock per ecosystem | VERIFIED | Static desired-state and adversarial dependency tests pass; lock check passes. |
-| `.planning/evidence/phase-02/package-legitimacy.json` | Exact scoped 16 OK/4 SUS decision | VERIFIED | SHA-256 `e3efba...24bdb`; decision and candidate sets match Ty's instruction. |
-| `.planning/evidence/phase-02/runtime-baseline.json` | Honest baseline-only evidence | VERIFIED | Import samples recorded; optimization and Ornith call remain explicitly `not_run`. |
-| `.github/workflows/ci.yml`, `tests/test_ci_contract.py` | Seven independent fail-closed CI lanes | VERIFIED (static) | Workflow structure and adversarial mutations pass. No current-revision execution exists. |
-| `.planning/phases/02-provider-and-runtime-core/02-17-PLAN.md` | Import-safe executable verification commands | FAILED | Three bare-pytest occurrences remain. |
-| GitHub Actions run for `670856ed8936c260f4ca1621d8d3d90326d61ecc` | Completed green required lanes and clean Python typing | MISSING | GitHub query returned no runs for this SHA. |
+| `aura_backend/providers/{base,errors,config,runtime}.py` | Typed domain, failures/settings, deadlines, cancellation, and completion ownership | VERIFIED | Substantive, imported, used, and behavior-tested. |
+| `aura_backend/providers/{openai_compatible,ollama,openrouter,gemini,factory}.py` | Three complete adapters behind one lazy selection boundary | VERIFIED | Results/events flow through the selected provider without provider-specific branches in the conversation route. |
+| `aura_backend/providers/tools.py`, `aura_backend/mcp_system.py` | Provider-neutral tools and optional MCP lifecycle | VERIFIED | MCP client and Gemini bridge imports now occur only inside their enabled owning stages; cleanup is stage-specific and idempotent. |
+| `aura_backend/runtime/{app,config,health,cli}.py` | Lifecycle, strict local-first settings, cached health, preflight/serve | VERIFIED | Strict false-default optional flags and optional resource status are covered by runtime tests. |
+| `aura_backend/main.py` | Import-safe base composition plus four independent optional stages | VERIFIED | Required base composition does not import optional package roots; MCP, Gemini bridge, Memvid, and autonomic factories are `required=False` and conditionally selected. |
+| `tests/runtime/test_base_install_startup.py`, `tests/support/main_subprocess_probe.py` | Base-only public import, preflight, serve, lifespan, cleanup, and no-effect proof | VERIFIED | Complete bounded subprocess evidence passes with optional roots synthetically absent. |
+| `tests/runtime/test_optional_integrations.py` | Four-stage disabled/success/failure/partial-cleanup and installed-extra proof | VERIFIED | Focused run passes; installed declared extras exercise bounded no-network/no-user-data integration seams. |
+| `README.md`, `aura_backend/STARTUP_GUIDE.md`, `.env.example` | Accurate base setup and explicit optional activation | VERIFIED | Startup guide and tests prove base-only setup plus exact optional extras/flags, loopback, no sign-in, and selected-provider autonomic configuration. Fresh startup documentation tests passed 13/13 at `d47e402`. |
+| `pyproject.toml`, `uv.lock`, `package.json`, `package-lock.json` | Exact approved dependency authority and one lock per ecosystem | VERIFIED | No Plan 02-19/20 changes; lock and dependency contracts pass. |
+| `.planning/evidence/phase-02/package-legitimacy.json` | Exact scoped 16 OK/4 SUS decision | VERIFIED | Decision and candidate sets remain unchanged and enforced. |
+| `.planning/evidence/phase-02/runtime-baseline.json` | Honest baseline-only evidence | VERIFIED | Optimization and optional Ornith remain explicitly unclaimed. |
+| `02-17-PLAN.md`, `02-VALIDATION.md`, `tests/test_ci_contract.py` | Import-safe executable pytest contract across every declared surface | VERIFIED | Three Plan 02-17 commands repaired; complete 20-plan/42-task/CI inventory is fail-closed and adversarially tested. |
+| `.github/workflows/ci.yml` | Seven required fail-closed CI lanes | VERIFIED (static) | Workflow contract is green locally; current-revision remote execution is absent. |
+| GitHub Actions run for `d47e4021839ee2bc63a95e04394c491b94ead6dc` | Completed required lanes and clean Python typing | MISSING | GitHub returned no run for this SHA. |
 
 ### Exact Package Decision Trace
 
 | Decision set | Exact rows | Observed result |
 |---|---|---|
-| 16 conditionally approved OK rows | `ruff@0.12.7`; `pyright@1.1.413`; `google-genai@1.75.0`; `mcp@1.27.0`; `fastmcp@3.2.4`; `memvid-sdk@2.0.159`; `beautifulsoup4@4.13.4`; `ebooklib@0.19`; `opencv-python@4.11.0.86`; `pandas@2.2.3`; `pillow@12.2.0`; `pypdf@6.10.2`; `qrcode@8.2`; `anthropic@0.54.0`; `websockets@15.0.1`; `@google/genai@1.51.0` | The exact 14 Python actions and two Node actions are enforced by desired-state tests. No row-level evidence was treated as direct edit authority. |
-| 4 rejected SUS rows | `pyzbar@0.1.9`; `faiss-cpu@1.11.0`; `faiss-gpu-cu12@1.14.1.post1`; `asyncio-mqtt@0.16.2` | Their direct Python declarations remain unchanged and their resolved lock records pass immutable-digest checks. No rejected row appears in an action set. |
-| Required chronology | Revise Plans 02-16 and 02-17 before dependency edits | Revision commit `deceaa7` precedes Python manifest/lock commit `cc7e922` and Node manifest/lock commit `57ca161`. |
+| 16 conditionally approved OK rows | `ruff@0.12.7`; `pyright@1.1.413`; `google-genai@1.75.0`; `mcp@1.27.0`; `fastmcp@3.2.4`; `memvid-sdk@2.0.159`; `beautifulsoup4@4.13.4`; `ebooklib@0.19`; `opencv-python@4.11.0.86`; `pandas@2.2.3`; `pillow@12.2.0`; `pypdf@6.10.2`; `qrcode@8.2`; `anthropic@0.54.0`; `websockets@15.0.1`; `@google/genai@1.51.0` | Exact 14 Python and 2 Node actions remain enforced. No later plan changed a manifest or lock. |
+| 4 rejected SUS rows | `pyzbar@0.1.9`; `faiss-cpu@1.11.0`; `faiss-gpu-cu12@1.14.1.post1`; `asyncio-mqtt@0.16.2` | Direct declarations and resolved lock records remain unchanged; none appears in an authorized action set. |
+| Required chronology | Revise Plans 02-16 and 02-17 before dependency edits | Revision commit `deceaa7` precedes authorized manifest/lock commits `cc7e922` and `57ca161`. Plans 02-19/20 add no dependency edits. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |---|---|---|---|---|
-| `main.py:/conversation` | `ApplicationRuntime.provider_runtime` | `http_request.app.state.runtime` then typed `ProviderRequest` | WIRED | Result feeds response, analysis, exchange, and persistence. |
-| `ApplicationRuntime` | `ProviderRuntime` | required provider factory starts last and closes first | WIRED | Partial-start and shutdown-order tests pass. |
-| `ProviderRuntime` | selected adapter | bounded `generate`/`stream` delegation | WIRED | Registry, deadline, terminal, and cancellation invariants are tested. |
-| `ModelProviderFactory` | Ollama/Gemini/OpenRouter | one validated lazy branch | WIRED | Default selects only Ollama; cloud credentials are required only when explicitly selected. |
-| MCP/tool discovery | adapter requests | neutral `ToolCatalog` and `ToolExecutor` | WIRED | Tool schemas/results cross no provider-specific route seam. |
-| `package.json` | `package-lock.json` and CI | named local scripts after lock-faithful `npm ci` | WIRED (static) | Frontend scripts pass locally; clean Pyright execution remains absent. |
-| Phase 2 plan commands | pytest import mode regression | `tests/test_ci_contract.py` | PARTIAL | CI/Plan 18/validation are covered; Plan 17 is omitted. |
-| Documented `uv sync --locked` | default Ollama lifespan | base dependency group into `_start_legacy_resources` | NOT WIRED | Base sync excludes optional MCP/Gemini groups that the required startup stage imports unconditionally. |
+| `main.py:/conversation` | `ApplicationRuntime.provider_runtime` | request app state then typed `ProviderRequest` | WIRED | Provider result feeds response, analysis, exchange, and persistence. |
+| `ApplicationRuntime` | `ProviderRuntime` | selected provider starts last and closes first | WIRED | Partial-start, ordering, and cleanup tests pass. |
+| Required base builder | default Ollama lifespan | internal neutral tools plus selected provider, with optional roots blocked | WIRED | Complete production-builder subprocess scenario passes. |
+| Runtime settings | four optional resource stages | strict false-default flags and explicit Gemini selection | WIRED | Disabled stages are `not_configured`; unavailable enabled stages become safe `optional_resource_failed` without blocking base readiness. |
+| `mcp_system.py` | MCP and Gemini bridge | separate local imports and lifecycle functions | WIRED | Ollama+MCP never imports Google; bridge needs MCP plus selected Gemini. |
+| Optional integration stages | real installed extras | injected bounded no-I/O start/close seams | WIRED | MCP/FastMCP, Google types/bridge, Memvid facade, and autonomic provider-neutral paths pass locally. |
+| Phase 2 executable documents | command validator | schema-defined extraction, quote-aware shell segmentation, `shlex`, uv-option resolution | WIRED | Every executable plan/validation/CI surface is nonempty and checked; adversarial mutations fail. |
+| `package.json` | CI `typing-python` | `npm ci` then `npm run typecheck:python` | WIRED (static) | Correct workflow connection exists, but no remote execution record exists for HEAD. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data | Source | Produces Real Data | Status |
 |---|---|---|---|---|
-| Active conversation route | `ProviderResult.content` and reflection summary | selected provider through `ProviderRuntime.generate` | Yes | FLOWING |
-| Conversation analyses | user message + provider answer | selected runtime injected into analysis functions | Yes | FLOWING |
-| Persistence exchange | normalized user/AI memories and session | completed conversation pipeline | Yes | FLOWING |
-| Provider streaming | upstream text/tool deltas and terminal result | OpenAI-compatible or Gemini async iterator | Yes; terminal is gated | FLOWING |
-| Health endpoints | cached runtime/provider/resource snapshot | lifespan startup capture | Yes; no health-time generation | FLOWING |
+| Active conversation route | provider content and reflection summary | selected provider through `ProviderRuntime.generate` | Yes | FLOWING |
+| Conversation analyses | user message and provider answer | selected runtime injected into analysis functions | Yes | FLOWING |
+| Persistence exchange | normalized memories and session | completed conversation pipeline | Yes | FLOWING |
+| Provider streaming | upstream text/tool deltas and terminal result | OpenAI-compatible or Gemini async iterator | Yes; terminal result is gated | FLOWING |
+| Health/readiness | cached provider/resource snapshots | completed lifespan startup | Yes; no health-time generation | FLOWING |
+| Optional resource status | fixed stage name and safe code | `ApplicationRuntime` optional factory outcome | Yes; raw failure detail is excluded | FLOWING |
 
 ## Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| Complete required offline suite | `uv run --locked --no-sync python -m pytest tests -q -m 'not live'` | 457 passed, 2 skipped, 1 deselected in 25.70s | PASS |
-| CI and baseline contracts | `... python -m pytest tests/test_ci_contract.py tests/runtime/test_baseline_evidence.py -q` | 14 passed | PASS |
-| Streaming/cancellation/no-false-completion/lifecycle | focused provider + lifecycle command | 81 passed | PASS |
-| Phase 1 conversation/persistence/local/import compatibility | focused compatibility command | 38 passed | PASS |
-| Exact package/lock decision contracts | focused authority command | 46 passed, 2 intentional pre-edit-gate skips | PASS |
+| Complete required offline suite | `uv run --locked --no-sync python -m pytest tests -q -m 'not live'` | 508 passed, 2 skipped, 1 deselected in 27.80s | PASS |
+| Base-only and optional lifecycle contract | Plan 02-19 Task 1 exact command | 54 passed, 1 intentional authorization-history skip | PASS |
+| Base/provider/optional/Phase 1 focused integration | Plan 02-19 Task 2 exact command | 148 passed | PASS |
+| Complete executable-command contract | `... python -m pytest tests/test_ci_contract.py -q` | 15 passed | PASS |
+| Startup documentation contract | `... python -m pytest -q tests/runtime/test_startup_docs.py` | 13 passed | PASS |
 | Python lock | `uv lock --check` | resolved 180 packages; exit 0 | PASS |
-| Active-code lint | Plan 02-18 Ruff command with three legacy exclusions | all checks passed | PASS |
+| Active-code lint | exact Plan 02-18 Ruff command with three legacy exclusions | all checks passed | PASS |
 | Frontend typing | `npm run typecheck:frontend` | exit 0 | PASS |
 | Frontend build | `npm run build` | Vite 8.0.10 build succeeded | PASS |
-| Docker authority | `docker build --check -f aura_backend/Dockerfile .` | check complete, no warnings | PASS |
-| Data-root invariance | snapshot digest before/after full suite | same SHA-256 both times | PASS |
-| Documented base dependency result | `uv sync --locked --dry-run` | would uninstall 47 packages, including `mcp`, `fastmcp`, `google-genai`, and `memvid-sdk` | FAIL |
-| Default startup without optional MCP/Gemini | import-blocked `_start_legacy_resources` / `mcp_system` probes | reproducible `ModuleNotFoundError` for `mcp` and `google.genai` | FAIL |
-| Current-revision GitHub CI | `gh run list --commit 670856ed...` | `[]` | FAIL |
-| Python typing | required clean `typing-python` job | not run; local executable absent | FAIL |
-| Optional Ornith | evidence artifact / optional live lane | `not_run` by design | OPTIONAL / NOT COUNTED |
+| Data-root invariance | snapshot digest before and after full suite | identical SHA-256 | PASS |
+| Worktree whitespace | `git diff --check` | exit 0 | PASS |
+| Current-revision GitHub CI | `gh run list --repo angrysky56/emotion_ai --commit d47e402...` | `[]` | FAIL |
+| Required Python typing | completed clean `typing-python` after `npm ci` | no current-SHA job; local executable absent | NOT RUN / BLOCKER |
+| Optional Ornith | optional live lane | `not_run` | OPTIONAL / NOT COUNTED |
 
 ### Probe Execution
 
-No Phase 2 `probe-*.sh` file is declared or present. Runnable behavior is covered by the exact pytest, CLI, wrapper, lock, build, and Docker checks above; no substitute probe result is claimed.
+No Phase 2 shell `probe-*.sh` is declared or present. Plan 02-19's Python subprocess probe is not treated as a shell-probe substitute; it ran through the owning pytest contract and passed as reported above.
 
 ## Requirements Coverage
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| TEST-03 | SATISFIED | Provider translation/failure, API, persistence, filesystem, import, and runtime behaviors are exercised by the 457-test offline suite and focused reruns. |
-| TEST-05 | BLOCKED | Seven separate workflow lanes exist statically, but required CI has not run for the current revision and clean-CI Pyright is pending. |
-| AI-01 | SATISFIED | One typed contract supports Ollama, Gemini, and OpenRouter without provider branches in conversation orchestration. |
-| AI-02 | SATISFIED | Ollama compatible transport has explicit timeouts, real deltas, cancellation, health/error mapping, and passing behavioral tests. |
-| AI-03 | SATISFIED | Deterministic fakes cover all required outcomes; optional live Ornith remains correctly marked and unclaimed. |
-| OPS-01 | BLOCKED | Commands and wrappers are non-mutating and loopback-first, but the documented base setup cannot satisfy the default lifespan's imports. |
-| OPS-02 | BLOCKED | Lock authority is singular and optional lanes are declared, but optional MCP/Gemini dependencies are mandatory in the default runtime composition. |
+| TEST-03 | SATISFIED | Provider, API, persistence, filesystem, import, startup, optional-lifecycle, and command-parser behaviors pass in the 508-test offline suite and focused reruns. |
+| TEST-05 | BLOCKED | Seven independent workflow lanes and adversarial contracts exist, but required CI has not run for current HEAD and clean-CI Pyright is pending. |
+| AI-01 | SATISFIED | One typed provider contract supports Ollama, Gemini, and OpenRouter without provider branches in active conversation orchestration. |
+| AI-02 | SATISFIED | Ollama transport has explicit timeouts, real deltas, cancellation, health/error mapping, and passing behavioral tests. |
+| AI-03 | SATISFIED | Deterministic fakes cover required outcomes; optional live Ornith remains truthfully unclaimed. |
+| OPS-01 | SATISFIED | Import-safe locked commands, bounded startup, loopback, no sign-in, and non-mutating base-path behavior are tested. |
+| OPS-02 | SATISFIED | Dependency/lock authority is singular; optional groups remain optional and exact; Plans 02-19/20 changed neither manifests nor locks. |
 
-No additional Phase 2 requirement is orphaned from the plan frontmatter.
+No additional Phase 2 requirement is orphaned from plan frontmatter.
 
 ## Anti-Patterns and Risks
 
 | File / Evidence | Pattern | Severity | Impact |
 |---|---|---|---|
-| `02-17-PLAN.md:120,150,177` | Bare pytest executable | BLOCKER | Reintroduces the known import/false-success defect when the plan command is replayed. |
-| `tests/test_ci_contract.py:16-29,151-161` | Regression scan fixed to Plan 02-18 and validation | BLOCKER | The test is green despite the Plan 02-17 defect. |
-| `README.md:163-170`, `STARTUP_GUIDE.md:15-23`, `main.py:903-915`, `mcp_system.py:16-18` | Base-only setup wired to unconditional optional imports | BLOCKER | A fresh user following the supported setup cannot start default local Ollama. Existing-environment tests conceal the missing clean-base integration case. |
-| npm lock audit | Vite 8.0.10 (direct dev), PostCSS 8.5.14 and Nano ID 3.3.12 (transitive) | WARNING | `npm audit --json --package-lock-only` exits 1 with 3 high package findings and 0 critical. All are in the frontend development tool chain; the exact Phase 2 authorization did not permit a broad upgrade. |
-| `_legacy_process_conversation` in `main.py` | Retained unregistered transitional implementation | INFO | It is not decorated or used by the active route; later architecture cleanup may remove it after compatibility remains pinned. |
+| npm lock audit | Vite 8.0.10 (direct dev), PostCSS 8.5.14 and Nano ID 3.3.12 (transitive) | WARNING | `npm audit --json --package-lock-only` exits 1 with 3 high package findings and 0 critical. They are in the frontend development toolchain; remediation needs a separately authorized, narrow dependency review. |
+| `_legacy_process_conversation` in `main.py` | Retained unregistered transitional implementation | INFO | It is neither decorated nor used by the active route; later architecture cleanup may remove it after compatibility remains pinned. |
 
-No unreferenced `TBD`, `FIXME`, or `XXX` debt marker was found in the Phase 2 modified implementation/test files. Empty collections found by broad scans were initial state, test fixtures, or deliberate optional absence, not rendered or runtime stubs.
+No unreferenced `TBD`, `FIXME`, or `XXX` debt marker was found in the Plan 02-19/20 implementation, tests, plans, summaries, validation, or startup artifacts. Broad empty-value matches were test fixtures, initial state, or deliberate optional absence rather than runtime/user-visible stubs.
 
 ## Human Verification Required
 
-None for the required Phase 2 truths: the state-transition, cancellation, cleanup, ordering, fallback, and persistence invariants have passing automated tests. The real Ornith scenario remains an optional external-service lane and is accurately recorded as `not_run`; it is not promoted to a human gate or success claim.
+None for the required Phase 2 truths. Streaming, cancellation, cleanup, ordering, fallback, persistence, base-only startup, optional failure, and command parsing all have passing behavioral tests. Optional Ornith remains an external live check accurately recorded as `not_run`; it is not promoted to a human completion gate.
 
 ## Gaps Summary
 
-1. **The supported fresh local setup does not start default Ollama.** This is locally fixable in source/tests/docs, but this verification was explicitly read-only except for this report. Decouple required lifespan composition from optional MCP/Gemini modules and prove startup in a clean base-only environment.
-2. **Required clean CI/Pyright evidence is absent.** This is not locally fixable within this verification's authority: HEAD must first be published through an authorized push/PR, then the required GitHub lanes—especially `typing-python` after `npm ci`—must complete green for that same SHA. Workflow text and a lock entry cannot substitute for execution.
-3. **Plan 02-17 still carries the known bare-pytest defect.** This is locally fixable, but this verification was explicitly read-only except for this report. Correct the three commands and expand the regression test to scan every Phase 2 executable plan contract before rerunning the local and CI gates.
+One blocker remains: **required GitHub CI and clean-CI Pyright have not run for current HEAD**. This cannot be closed locally or inferred from workflow text. The revision must be published through an authorized push or PR, then all required lanes—especially `typing-python` after `npm ci`—must complete green for the same SHA.
 
-The npm audit warning also needs an explicitly authorized, narrow follow-up dependency review; it should not be hidden, but it is not the reason this phase is marked `gaps_found`.
+The two previous local blockers are closed:
+
+1. Base-only Ollama now imports, preflights, delegates serve, enters/exits the production lifespan, and remains ready with optional dependency roots blocked and data untouched.
+2. Every executable pytest surface in Plans 01-20, the 42-task validation matrix, and CI uses module mode; the parser rejects adversarial variants and fails closed on incomplete inventory.
+
+No later roadmap phase clearly owns the missing current-revision CI evidence, so it is not deferred. The npm audit remains a warning, not a reason for the `gaps_found` status.
 
 ---
 
-_Verified: 2026-08-20T22:03:03Z_  
+_Verified: 2026-08-20T23:38:45Z_
 _Verifier: Codex (gsd-verifier)_
