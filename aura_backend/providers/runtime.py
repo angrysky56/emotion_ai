@@ -221,13 +221,14 @@ class ProviderRuntime:
         request: ProviderRequest,
         queue: asyncio.Queue[QueueItem],
     ) -> None:
-        iterator = self._provider.stream(request)
+        iterator: AsyncIterator[StreamEvent] | None = None
         partial_count = 0
         terminal: Completed | None = None
         failure: ProviderFailure | None = None
         cancelled = False
         try:
             try:
+                iterator = self._provider.stream(request)
                 async with asyncio.timeout(self._timeout_seconds):
                     async for event in iterator:
                         if terminal is not None:
@@ -268,7 +269,8 @@ class ProviderRuntime:
                 failure = self._runtime_failure(code, partial_event_count=partial_count)
         finally:
             try:
-                await self._close_iterator(iterator)
+                if iterator is not None:
+                    await self._close_iterator(iterator)
             except asyncio.CancelledError:
                 cancelled = True
             except Exception:
