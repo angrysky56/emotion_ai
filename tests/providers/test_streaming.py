@@ -102,6 +102,26 @@ async def test_terminal_followed_by_delta_is_malformed_and_never_exposed_as_comp
 
 
 @pytest.mark.asyncio
+async def test_synchronous_stream_start_failure_is_normalized_and_deregistered() -> None:
+    provider = ScriptedProvider((ScriptedComplete("unused private response"),))
+
+    def fail_before_iterator(_request: ProviderRequest) -> object:
+        raise RuntimeError("private adapter startup detail")
+
+    provider.stream = fail_before_iterator  # type: ignore[method-assign,assignment]
+    runtime = ProviderRuntime(provider, timeout_seconds=1.0)
+
+    with pytest.raises(ProviderFailure) as raised:
+        async with asyncio.timeout(0.1):
+            async for _event in runtime.stream(_request()):
+                pass
+
+    assert raised.value.code is ProviderErrorCode.MALFORMED_RESPONSE
+    assert runtime.snapshot().in_flight_count == 0
+    assert "private adapter startup detail" not in repr(runtime.snapshot())
+
+
+@pytest.mark.asyncio
 async def test_absolute_deadline_closes_stream_without_completion() -> None:
     completion_gate = asyncio.Event()
     provider = ScriptedProvider(
