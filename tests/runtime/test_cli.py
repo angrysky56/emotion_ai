@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import signal
 import subprocess
 import sys
 import threading
@@ -25,6 +26,7 @@ from aura_backend.runtime.cli import (
     main,
     run_serve,
 )
+from aura_backend.runtime.cli import _SignalHandlers
 from aura_backend.runtime.config import RuntimeSettings
 
 
@@ -534,3 +536,18 @@ def test_explicit_lan_binding_warns_without_adding_auth_or_leaking_host(
     assert "no sign-in" in warning.getvalue()
     assert "192.168.50.25" not in warning.getvalue()
     assert not any("auth" in token.lower() for token in commands[0])
+
+
+def test_signal_handlers_request_owned_shutdown_and_restore_process_state() -> None:
+    stop_event = threading.Event()
+    previous_int = signal.getsignal(signal.SIGINT)
+    previous_term = signal.getsignal(signal.SIGTERM)
+
+    with _SignalHandlers(stop_event):
+        handler = signal.getsignal(signal.SIGTERM)
+        assert callable(handler)
+        handler(signal.SIGTERM, None)
+        assert stop_event.is_set()
+
+    assert signal.getsignal(signal.SIGINT) == previous_int
+    assert signal.getsignal(signal.SIGTERM) == previous_term

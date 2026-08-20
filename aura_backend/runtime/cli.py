@@ -10,17 +10,24 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import ipaddress
 import json
 import os
 import re
+import signal
 import socket
 import subprocess
 import sys
+import threading
+import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import IO
+from typing import IO, Protocol
 
 from aura_backend.providers.base import ProviderHealth, ProviderHealthStatus
 
@@ -32,6 +39,7 @@ EXIT_FAILED = 3
 EXIT_BLOCKED = 4
 EXIT_NOT_RUN = 5
 EXIT_NOT_APPLICABLE = 6
+EXIT_SERVE_FAILED = 7
 EXIT_USAGE = 64
 
 REQUIRED_CHECK_NAMES = (
@@ -116,6 +124,59 @@ class PreflightProbes:
     storage: StorageProbe
     provider: ProviderProbe
     app_factory: AppFactoryProbe
+
+
+class OwnedProcess(Protocol):
+    """Minimal cross-platform process surface required for owned cleanup."""
+
+    def poll(self) -> int | None: ...
+
+    def terminate(self) -> None: ...
+
+    def wait(self, timeout: float | None = None) -> int: ...
+
+    def kill(self) -> None: ...
+
+
+ProcessStart = Callable[[tuple[str, ...], Path], OwnedProcess]
+ReadinessProbe = Callable[[str, int, float], bool]
+Sleep = Callable[[float], None]
+
+
+@dataclass(frozen=True, slots=True)
+class ServeProbes:
+    """Injected service/process seams for deterministic ownership tests."""
+
+    start: ProcessStart
+    readiness: ReadinessProbe
+    sleep: Sleep
+
+
+@dataclass(frozen=True, slots=True)
+class ServeResult:
+    """Content-free terminal state for the canonical serve command."""
+
+    status: CheckStatus
+    exit_code: int
+    code: str
+
+    def __post_init__(self) -> None:
+        if _SAFE_TOKEN.fullmatch(self.code) is None:
+            raise ValueError("serve code must be a safe token")
+        if self.status is CheckStatus.PASS and self.exit_code != EXIT_OK:
+            raise ValueError("successful serve result must use exit zero")
+        if self.status is not CheckStatus.PASS and self.exit_code == EXIT_OK:
+            raise ValueError("non-success serve result must use a nonzero exit")
+
+    def to_public_dict(self) -> dict[str, object]:
+        """Return fixed, non-sensitive serve diagnostics."""
+        return {
+            "schema_version": 1,
+            "command": "serve",
+            "status": self.status.value,
+            "exit_code": self.exit_code,
+            "code": self.code,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +358,251 @@ def default_preflight_probes() -> PreflightProbes:
         provider=_default_provider_probe,
         app_factory=_default_app_factory_probe,
     )
+
+
+def _default_process_start(command: tuple[str, ...], cwd: Path) -> OwnedProcess:
+    """Start exactly one declared child without a shell or detached ownership."""
+    return subprocess.Popen(command, cwd=cwd)  # noqa: S603
+
+
+def _readiness_host(host: str) -> str:
+    if host in {"0.0.0.0", "::"}:
+        return "127.0.0.1" if host == "0.0.0.0" else "::1"
+    return host
+
+
+def _default_readiness_probe(host: str, port: int, timeout: float) -> bool:
+    """Wait for one bounded, truthful `/ready` response without exposing its body."""
+    probe_host = _readiness_host(host)
+    rendered_host = f"[{probe_host}]" if ":" in probe_host else probe_host
+    url = f"http://{rendered_host}:{port}/ready"
+    deadline = time.monotonic() + timeout
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        try:
+            with opener.open(url, timeout=max(0.05, min(0.5, remaining))) as response:
+                if response.status != 200:
+                    continue
+                payload = json.loads(response.read(65_536))
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("ready") is True
+                    and payload.get("status") == "ready"
+                ):
+                    return True
+        except (
+            OSError,
+            TimeoutError,
+            ValueError,
+            json.JSONDecodeError,
+            urllib.error.URLError,
+        ):
+            pass
+        time.sleep(min(0.1, max(0.0, remaining)))
+    return False
+
+
+def default_serve_probes() -> ServeProbes:
+    """Return real process/readiness seams without dependency mutation."""
+    return ServeProbes(
+        start=_default_process_start,
+        readiness=_default_readiness_probe,
+        sleep=time.sleep,
+    )
+
+
+class _SignalHandlers:
+    """Translate SIGINT/SIGTERM into an owned cooperative shutdown request."""
+
+    def __init__(self, stop_event: threading.Event) -> None:
+        self._stop_event = stop_event
+        self._previous: dict[int, object] = {}
+
+    def __enter__(self) -> _SignalHandlers:
+        if threading.current_thread() is not threading.main_thread():
+            return self
+
+        def request_stop(_signum: int, _frame: object) -> None:
+            self._stop_event.set()
+
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            self._previous[signum] = signal.getsignal(signum)
+            signal.signal(signum, request_stop)
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            return
+        for signum, previous in self._previous.items():
+            signal.signal(signum, previous)
+
+
+def _loopback_host(host: str) -> bool:
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _backend_command(settings: RuntimeSettings) -> tuple[str, ...]:
+    return (
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "aura_backend.main:create_app",
+        "--factory",
+        "--host",
+        settings.host,
+        "--port",
+        str(settings.port),
+        "--lifespan",
+        "on",
+        "--no-access-log",
+    )
+
+
+def _frontend_command() -> tuple[str, ...]:
+    return ("npm", "run", "dev", "--", "--host", "127.0.0.1")
+
+
+def _stop_owned(owned: list[tuple[str, OwnedProcess]]) -> None:
+    """Stop only children started here, in strict reverse dependency order."""
+    for _name, process in reversed(owned):
+        try:
+            if process.poll() is None:
+                process.terminate()
+            process.wait(timeout=10.0)
+        except subprocess.TimeoutExpired:
+            # This force-stop is restricted to the exact Popen handle Aura owns.
+            process.kill()
+            try:
+                process.wait(timeout=5.0)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        except OSError:
+            # The child may have exited between poll and terminate/wait.
+            continue
+
+
+def run_serve(
+    *,
+    settings: RuntimeSettings,
+    repository_root: Path,
+    preflight: PreflightReport,
+    probes: ServeProbes | None = None,
+    backend_only: bool = False,
+    frontend_only: bool = False,
+    stop_event: threading.Event | None = None,
+    stderr: IO[str] | None = None,
+) -> ServeResult:
+    """Run preflight-gated owned services until signal or child termination."""
+    if backend_only and frontend_only:
+        return ServeResult(
+            status=CheckStatus.BLOCKED,
+            exit_code=EXIT_USAGE,
+            code="invalid_serve_mode",
+        )
+    if preflight.status is not CheckStatus.PASS:
+        return ServeResult(
+            status=preflight.status,
+            exit_code=preflight.exit_code,
+            code="preflight_failed",
+        )
+
+    selected_probes = probes or default_serve_probes()
+    errors = stderr or sys.stderr
+    if not _loopback_host(settings.host):
+        print(
+            "warning: explicit LAN binding exposes Aura; Aura has no sign-in",
+            file=errors,
+        )
+
+    owned: list[tuple[str, OwnedProcess]] = []
+    requested_stop = stop_event or threading.Event()
+    signal_scope = (
+        _SignalHandlers(requested_stop)
+        if stop_event is None
+        else contextlib.nullcontext()
+    )
+    result = ServeResult(
+        status=CheckStatus.FAILED,
+        exit_code=EXIT_SERVE_FAILED,
+        code="service_start_failed",
+    )
+    try:
+        with signal_scope:
+            if not frontend_only:
+                backend = selected_probes.start(
+                    _backend_command(settings),
+                    repository_root,
+                )
+                owned.append(("backend", backend))
+                if backend.poll() is not None:
+                    return ServeResult(
+                        status=CheckStatus.FAILED,
+                        exit_code=EXIT_SERVE_FAILED,
+                        code="backend_exited",
+                    )
+                if not selected_probes.readiness(
+                    settings.host,
+                    settings.port,
+                    settings.preflight_timeout_seconds,
+                ):
+                    return ServeResult(
+                        status=CheckStatus.BLOCKED,
+                        exit_code=EXIT_SERVE_FAILED,
+                        code="backend_not_ready",
+                    )
+
+            if not backend_only:
+                frontend = selected_probes.start(
+                    _frontend_command(),
+                    repository_root,
+                )
+                owned.append(("frontend", frontend))
+
+            while not requested_stop.is_set():
+                exited = next(
+                    (
+                        name
+                        for name, process in owned
+                        if process.poll() is not None
+                    ),
+                    None,
+                )
+                if exited is not None:
+                    result = ServeResult(
+                        status=CheckStatus.FAILED,
+                        exit_code=EXIT_SERVE_FAILED,
+                        code=f"{exited}_exited",
+                    )
+                    break
+                selected_probes.sleep(0.1)
+            else:
+                result = ServeResult(
+                    status=CheckStatus.PASS,
+                    exit_code=EXIT_OK,
+                    code="stopped",
+                )
+    except KeyboardInterrupt:
+        requested_stop.set()
+        result = ServeResult(
+            status=CheckStatus.PASS,
+            exit_code=EXIT_OK,
+            code="stopped",
+        )
+    except Exception:
+        result = ServeResult(
+            status=CheckStatus.FAILED,
+            exit_code=EXIT_SERVE_FAILED,
+            code="service_start_failed",
+        )
+    finally:
+        _stop_owned(owned)
+    return result
 
 
 def _pass(name: str, *, safe_value: str | None = None) -> PreflightCheck:
@@ -694,14 +1000,14 @@ def main(
     environment: Mapping[str, str | None] | None = None,
     repository_root: Path | None = None,
     probes: PreflightProbes | None = None,
+    serve_probes: ServeProbes | None = None,
     stdout: IO[str] | None = None,
+    stderr: IO[str] | None = None,
 ) -> int:
     """Run one runtime command and return its documented integer status."""
     arguments = build_parser().parse_args(argv)
     output = stdout or sys.stdout
-    selected_environment: Mapping[str, str | None] = (
-        dict(os.environ) if environment is None else environment
-    )
+    selected_environment = dict(os.environ) if environment is None else dict(environment)
     root = repository_root or Path(__file__).resolve().parents[2]
     if arguments.command == "preflight":
         report = build_preflight_report(
@@ -711,20 +1017,39 @@ def main(
         )
         print(json.dumps(report.to_public_dict(), sort_keys=True), file=output)
         return report.exit_code
-    # Implemented by the serve TDD cycle below.  Keeping the parser complete now
-    # makes the public module entry point testable without starting any service.
-    print(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "command": "serve",
-                "status": "not_run",
-                "exit_code": EXIT_NOT_RUN,
-                "code": "serve_not_implemented",
-            },
-            sort_keys=True,
-        ),
-        file=output,
+    if arguments.host is not None:
+        selected_environment["AURA_HOST"] = arguments.host
+    if arguments.port is not None:
+        selected_environment["PORT"] = str(arguments.port)
+    report = build_preflight_report(
+        environment=selected_environment,
+        repository_root=root,
+        probes=probes,
     )
-    return EXIT_NOT_RUN
-
+    if report.status is CheckStatus.PASS:
+        try:
+            settings = RuntimeSettings.from_mapping(selected_environment)
+        except (RuntimeConfigurationError, TypeError, ValueError):
+            result = ServeResult(
+                status=CheckStatus.BLOCKED,
+                exit_code=EXIT_BLOCKED,
+                code="runtime_configuration_invalid",
+            )
+        else:
+            result = run_serve(
+                settings=settings,
+                repository_root=root,
+                preflight=report,
+                probes=serve_probes,
+                backend_only=arguments.backend_only,
+                frontend_only=arguments.frontend_only,
+                stderr=stderr,
+            )
+    else:
+        result = ServeResult(
+            status=report.status,
+            exit_code=report.exit_code,
+            code="preflight_failed",
+        )
+    print(json.dumps(result.to_public_dict(), sort_keys=True), file=output)
+    return result.exit_code
