@@ -1,35 +1,27 @@
-#!/bin/bash
-echo "🌟 Starting Aura Complete Backend System..."
+#!/bin/sh
 
-# Function to cleanup background processes
-cleanup() {
-    echo "Stopping all Aura services..."
-    kill $(jobs -p) 2>/dev/null
-    exit
-}
+# Compatibility delegate for Aura's canonical full runtime.
+case $0 in
+    /*) script_path=$0 ;;
+    *) script_path=$PWD/$0 ;;
+esac
+backend_dir=${script_path%/*}
 
-# Set trap to cleanup on script exit
-trap cleanup SIGINT SIGTERM
+if ! repository_root=$(CDPATH= cd -- "$backend_dir/.." 2>/dev/null && pwd -P); then
+    printf '%s\n' "Aura: repository root could not be resolved." >&2
+    exit 1
+fi
 
-# Start API server in background
-echo "🚀 Starting API Server..."
-./start_api.sh &
-API_PID=$!
+if ! command -v uv >/dev/null 2>&1; then
+    printf '%s\n' \
+        "Aura: uv is required. See https://docs.astral.sh/uv/getting-started/installation/" \
+        >&2
+    exit 127
+fi
 
-# Wait a moment for API server to start
-sleep 3
+if ! cd -- "$repository_root"; then
+    printf '%s\n' "Aura: repository root is unavailable." >&2
+    exit 1
+fi
 
-# Start MCP server in background
-echo "🔗 Starting MCP Server..."
-./start_mcp.sh &
-MCP_PID=$!
-
-echo "✅ All services started!"
-echo "📡 API Server: http://localhost:8000"
-echo "🔗 MCP Server: Available for external connections"
-echo "📖 API Documentation: http://localhost:8000/docs"
-echo ""
-echo "Press Ctrl+C to stop all services"
-
-# Wait for all background processes
-wait
+exec uv run --locked --no-sync python -m aura_backend.runtime serve "$@"
