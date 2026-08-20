@@ -11,6 +11,8 @@ Core backend system for Aura (Adaptive Reflective Companion) featuring:
 - MCP client integration for extended capabilities
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -29,10 +31,8 @@ from typing import Annotated, Any, Dict, List, Optional, Tuple
 import aiofiles
 import numpy as np
 import uvicorn
-from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from google import genai
 from pydantic import BaseModel, Field
 
 # Add the parent directory to sys.path to support absolute imports from aura_backend package
@@ -44,41 +44,14 @@ if _current_dir.name == "aura_backend":
         sys.path.insert(0, str(_parent_dir))
 
 
-# Local package imports
-from aura_backend.aura_autonomic_system import (  # noqa: E402
-    AutonomicNervousSystem,
-    initialize_autonomic_system,
-    shutdown_autonomic_system,
-)
-from aura_backend.aura_internal_tools import AuraInternalTools  # noqa: E402
+# Import-light domain and request types only. Resource-owning integrations are
+# imported by the lifespan composition path, never while importing this module.
 from aura_backend.conversation_persistence_service import (  # noqa: E402
     ConversationExchange,
     ConversationPersistenceService,
     PersistenceHealthCheck,
 )
-from aura_backend.database_protection import (  # noqa: E402
-    DatabaseProtectionService,
-    get_protection_service,
-)
-from aura_backend.mcp_integration import (  # noqa: E402
-    execute_mcp_tool,
-    mcp_router,
-)
-from aura_backend.mcp_system import (  # noqa: E402
-    get_all_available_tools,
-    get_mcp_bridge,
-    get_mcp_client,
-    get_mcp_status,
-    initialize_mcp_system,
-    shutdown_mcp_system,
-)
-from aura_backend.mcp_to_gemini_bridge import MCPGeminiBridge  # noqa: E402
-from aura_backend.memvid_archival_service import MemvidArchivalService  # noqa: E402
 from aura_backend.providers.base import BaseProvider, Message  # noqa: E402
-from aura_backend.providers.factory import ModelProviderFactory  # noqa: E402
-from aura_backend.robust_vector_db import (  # noqa: E402
-    RobustAuraVectorDB as AuraVectorDB,
-)
 from aura_backend.runtime_security import (  # noqa: E402
     StoragePathError,
     allowed_browser_origins,
@@ -86,33 +59,27 @@ from aura_backend.runtime_security import (  # noqa: E402
     safe_profile_path,
     server_host,
 )
-from aura_backend.shared_embedding_service import get_embedding_service  # noqa: E402
-from aura_backend.thinking_processor import ThinkingProcessor  # noqa: E402
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
-
-budget = int(os.getenv("THINKING_BUDGET", "-1"))  # Default to adaptive thinking
-# Use adaptive thinking (-1) as intended by Google, don't impose artificial limits
-thinking_budget = budget
-if budget == -1:
-    logger.info("🧠 Thinking budget configured: %s tokens (adaptive)", thinking_budget)
-else:
-    logger.info("🧠 Thinking budget configured: %s tokens", thinking_budget)
+# The configured value is applied by the lifespan-owned runtime builder. Keeping
+# the compatibility default here lets route definitions remain importable without
+# reading process configuration or logging environment-derived values.
+thinking_budget = -1
 
 # The client and provider will be initialized in the lifespan
 provider: Optional[BaseProvider] = None
-thinking_processor: Optional[ThinkingProcessor] = None
-mcp_gemini_bridge: Optional[MCPGeminiBridge] = None
-client: Optional[genai.Client] = None
-model_provider_factory = ModelProviderFactory()
+thinking_processor: Any = None
+mcp_gemini_bridge: Any = None
+client: Any = None
+embedding_service: Any = None
 
-# Initialize shared embedding service (replaces individual SentenceTransformer instances)
-embedding_service = get_embedding_service()
+# Transitional integration callables are populated only by lifespan startup.
+execute_mcp_tool: Any = None
+get_all_available_tools: Any = None
+get_mcp_status: Any = None
 
 
 def ensure_json_serializable(data: Any) -> Any:
@@ -1367,10 +1334,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Request-ID", "X-Attempt"],
 )
-
-# Include MCP router
-app.include_router(mcp_router)
-
 
 @app.get("/")
 async def root() -> Dict[str, Any]:
