@@ -9,11 +9,14 @@ collaborators installed.
 from __future__ import annotations
 
 import contextlib
+import builtins
+import importlib
 import io
 import json
 import os
 import re
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -147,7 +150,11 @@ def _forbid_network_calls() -> None:
     socket.socket.connect_ex = forbidden_connect
 
 
-def _install_import_fakes(initializer_calls: list[str]) -> None:
+def _install_import_fakes(
+    initializer_calls: list[str],
+    *,
+    fake_provider_factory: bool = True,
+) -> None:
     """Replace stateful composition-root dependencies before importing main."""
     from fastapi import APIRouter
 
@@ -160,6 +167,10 @@ def _install_import_fakes(initializer_calls: list[str]) -> None:
             return [0.0]
 
     class FakeFactory:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            initializer_calls.append("provider_factory")
+            raise AssertionError("provider factory construction is forbidden")
+
         @staticmethod
         def get_provider(*_args: Any, **_kwargs: Any) -> Any:
             initializer_calls.append("provider")
@@ -213,13 +224,134 @@ def _install_import_fakes(initializer_calls: list[str]) -> None:
     )
     _fake_module("aura_backend.mcp_to_gemini_bridge", MCPGeminiBridge=PassiveObject)
     _fake_module("aura_backend.memvid_archival_service", MemvidArchivalService=PassiveObject)
-    _fake_module("aura_backend.providers.factory", ModelProviderFactory=FakeFactory)
+    if fake_provider_factory:
+        _fake_module("aura_backend.providers.factory", ModelProviderFactory=FakeFactory)
     _fake_module("aura_backend.robust_vector_db", RobustAuraVectorDB=PassiveObject)
+
+    def forbidden_embedding_service() -> Any:
+        initializer_calls.append("embedding")
+        raise AssertionError("embedding service construction is forbidden")
+
     _fake_module(
         "aura_backend.shared_embedding_service",
-        get_embedding_service=lambda: FakeEmbedding(),
+        get_embedding_service=forbidden_embedding_service,
     )
     _fake_module("aura_backend.thinking_processor", ThinkingProcessor=PassiveObject)
+
+
+def _install_import_side_effect_traps(effects: list[str]) -> None:
+    """Fail immediately if an import tries to perform runtime work."""
+
+    original_open = builtins.open
+    original_path_open = Path.open
+
+    def forbidden_effect(name: str):
+        def trap(*_args: Any, **_kwargs: Any) -> Any:
+            effects.append(name)
+            raise AssertionError(f"import attempted forbidden effect: {name}")
+
+        return trap
+
+    def guarded_open(file: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if any(flag in mode for flag in ("w", "a", "x", "+")):
+            return forbidden_effect("file_write")(file, mode, *args, **kwargs)
+        return original_open(file, mode, *args, **kwargs)
+
+    def guarded_path_open(
+        path: Path,
+        mode: str = "r",
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if any(flag in mode for flag in ("w", "a", "x", "+")):
+            return forbidden_effect("path_write")(path, mode, *args, **kwargs)
+        return original_path_open(path, mode, *args, **kwargs)
+
+    builtins.open = guarded_open
+    Path.open = guarded_path_open
+    Path.mkdir = forbidden_effect("mkdir")
+    Path.touch = forbidden_effect("touch")
+    Path.write_bytes = forbidden_effect("path_write_bytes")
+    Path.write_text = forbidden_effect("path_write_text")
+    socket.create_connection = forbidden_effect("socket_create_connection")
+    socket.socket.connect = forbidden_effect("socket_connect")
+    socket.socket.connect_ex = forbidden_effect("socket_connect_ex")
+    sqlite3.connect = forbidden_effect("sqlite_connect")
+    subprocess.Popen = forbidden_effect("subprocess_popen")
+
+    import asyncio
+
+    asyncio.create_subprocess_exec = forbidden_effect("async_subprocess_exec")
+    asyncio.create_subprocess_shell = forbidden_effect("async_subprocess_shell")
+
+
+def _run_import_safety_scenario(
+    initializer_calls: list[str],
+    *,
+    optional_google_absent: bool,
+) -> dict[str, Any]:
+    """Import Aura's public composition modules under fail-closed traps."""
+
+    effects: list[str] = []
+    _install_import_side_effect_traps(effects)
+    _install_import_fakes(initializer_calls, fake_provider_factory=False)
+
+    from aura_backend.providers.factory import ModelProviderFactory
+
+    def forbidden_factory_new(cls: type[Any], *_args: Any, **_kwargs: Any) -> Any:
+        initializer_calls.append("provider_factory")
+        raise AssertionError("provider factory construction is forbidden")
+
+    ModelProviderFactory.__new__ = staticmethod(forbidden_factory_new)  # type: ignore[method-assign]
+
+    original_import = builtins.__import__
+
+    def guarded_import(
+        name: str,
+        globals: dict[str, Any] | None = None,
+        locals: dict[str, Any] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> Any:
+        if optional_google_absent and (name == "google" or name.startswith("google.")):
+            raise ModuleNotFoundError("optional Google provider SDK is unavailable")
+        return original_import(name, globals, locals, fromlist, level)
+
+    if optional_google_absent:
+        builtins.__import__ = guarded_import
+
+    modules = [
+        "aura_backend.providers.factory",
+        "aura_backend.providers.openai_compatible",
+        "aura_backend.providers.ollama",
+        "aura_backend.providers.openrouter",
+        "aura_backend.providers.gemini",
+        "aura_backend.providers.runtime",
+        "aura_backend.runtime.config",
+        "aura_backend.runtime.app",
+    ]
+    if optional_google_absent:
+        modules = ["aura_backend.providers.factory", "aura_backend.runtime.app"]
+
+    try:
+        imported = [importlib.import_module(name).__name__ for name in modules]
+        imported.append(importlib.import_module("aura_backend.main").__name__)
+    finally:
+        builtins.__import__ = original_import
+
+    return {
+        "complete": True,
+        "effects": effects,
+        "imported_modules": imported,
+        "optional_google_absent": optional_google_absent,
+        "production_initializers_called": initializer_calls,
+        "scenario": (
+            "import_without_optional_provider"
+            if optional_google_absent
+            else "import_safety"
+        ),
+        "status": "ok",
+    }
 
 
 def _normalize(value: Any) -> Any:
@@ -444,6 +576,11 @@ def _execute_scenario(scenario: str) -> dict[str, Any]:
         return {"scenario": scenario, "status": "ok"}
 
     initializer_calls: list[str] = []
+    if scenario in {"import_safety", "import_without_optional_provider"}:
+        return _run_import_safety_scenario(
+            initializer_calls,
+            optional_google_absent=scenario == "import_without_optional_provider",
+        )
     if scenario == "wildcard_origin":
         os.environ["ALLOWED_ORIGINS"] = "*"
     _forbid_network_calls()
