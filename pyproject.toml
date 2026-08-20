@@ -4,38 +4,33 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "aiofiles>=24.1.0",
-    "anthropic>=0.54.0",
     "asyncio-mqtt>=0.16.2",
-    "beautifulsoup4>=4.13.4",
     "chromadb>=1.5.8",
-    "ebooklib>=0.19",
     "faiss-cpu>=1.11.0",
     "faiss-gpu-cu12>=1.11.0",
     "fastapi>=0.136.1",
-    "fastmcp>=3.1.0",
-    "google-genai>=1.75.0",
     "httpx>=0.28.1",
-    "mcp>=1.1.0",
-    "memvid-sdk>=2.0.159",
     "numpy>=2.0.0",
     "openai>=1.86.0",
-    "opencv-python>=4.11.0.86",
-    "pandas>=2.2.3",
-    "pillow>=12.2.0",
     "pydantic>=2.13.3",
-    "pypdf>=6.10.2",
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24.0",
     "python-dateutil>=2.9.0",
     "python-dotenv>=1.2.2",
     "python-multipart>=0.0.26",
     "pyzbar>=0.1.9",
-    "qrcode[pil]>=8.2",
     "sentence-transformers>=3.3.1",
     "torch==2.11.0",
     "uvicorn>=0.34.0",
-    "websockets>=14.1",
 ]
+
+[project.optional-dependencies]
+provider-gemini = ["google-genai==1.75.0"]
+mcp = ["mcp==1.27.0", "fastmcp==3.2.4"]
+memvid = ["memvid-sdk==2.0.159"]
+
+[dependency-groups]
+dev = ["ruff==0.12.7"]
 
 [tool.pyright]
 include = ["aura_backend"]

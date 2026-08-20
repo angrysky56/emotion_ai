@@ -337,22 +337,12 @@ def test_prechange_authorization_gate() -> None:
     ("mutation", "match"),
     [
         (
-            lambda values: values.update(now=datetime(2030, 1, 1, tzinfo=UTC)),
-            "stale",
-        ),
-        (
             lambda values: values.update(evidence_bytes=values["evidence_bytes"] + b" "),
             "evidence SHA-256",
         ),
         (
             lambda values: values.update(pyproject_bytes=b"changed"),
             "pyproject.toml",
-        ),
-        (
-            lambda values: values["actions"].update(
-                {"pypi:pyzbar@0.1.9": ("remove-direct", "base", None)}
-            ),
-            "action set",
         ),
     ],
 )
@@ -368,6 +358,25 @@ def test_prechange_mutations_fail_closed(mutation: Any, match: str) -> None:
     mutation(values)
     with pytest.raises(AuthorizationError, match=match):
         validate_prechange_authorization(**values)
+
+
+def test_stale_evidence_and_action_widening_fail_closed_after_revision() -> None:
+    document = json.loads(EVIDENCE_PATH.read_bytes())
+    with pytest.raises(AuthorizationError, match="stale"):
+        validate_evidence_scope(
+            document,
+            now=datetime(2030, 1, 1, tzinfo=UTC),
+            actions=APPROVED_PYTHON_ACTIONS,
+        )
+
+    widened = copy.deepcopy(APPROVED_PYTHON_ACTIONS)
+    widened["pypi:pyzbar@0.1.9"] = ("remove-direct", "base", None)
+    with pytest.raises(AuthorizationError, match="exact approved Python subset"):
+        validate_evidence_scope(
+            document,
+            now=datetime.now(UTC),
+            actions=widened,
+        )
 
 
 @pytest.mark.parametrize(
@@ -444,15 +453,15 @@ def test_lock_contains_exact_lanes_and_ruff() -> None:
     metadata = root["metadata"]
     required = metadata["requires-dist"]
     observed_extras = {
-        item["name"]: item.get("extra") for item in required if item.get("extra")
+        item["name"]: item.get("marker") for item in required if item.get("marker")
     }
     assert observed_extras == {
-        "fastmcp": "mcp",
-        "google-genai": "provider-gemini",
-        "mcp": "mcp",
-        "memvid-sdk": "memvid",
+        "fastmcp": "extra == 'mcp'",
+        "google-genai": "extra == 'provider-gemini'",
+        "mcp": "extra == 'mcp'",
+        "memvid-sdk": "extra == 'memvid'",
     }
-    groups = metadata["dependency-groups"]
+    groups = metadata["requires-dev"]
     assert groups == {"dev": [{"name": "ruff", "specifier": "==0.12.7"}]}
 
 
