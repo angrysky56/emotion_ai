@@ -263,6 +263,10 @@ def validate_dependency_inventory(document: dict[str, Any]) -> None:
         _require_string_list(entrypoint.get("source_paths"), f"{entrypoint.get('id')}.source_paths")
         _require_string_list(entrypoint.get("dependency_lanes"), f"{entrypoint.get('id')}.dependency_lanes")
         lanes_by_entrypoint[entrypoint["id"]] = set(entrypoint["dependency_lanes"])
+        if entrypoint["status"] == "blocked":
+            _require_string_list(
+                entrypoint.get("blockers"), f"{entrypoint.get('id')}.blockers"
+            )
 
     for dependency in inventory:
         dependency_id = dependency["dependency_id"]
@@ -273,6 +277,8 @@ def validate_dependency_inventory(document: dict[str, Any]) -> None:
         consumers = dependency.get("consumers")
         if not isinstance(consumers, list):
             raise EvidenceError(f"{dependency_id}: consumers must be a list")
+        if dependency.get("consumer_count") != len(consumers):
+            raise EvidenceError(f"{dependency_id}: consumer count does not match paths")
         for consumer in consumers:
             if not isinstance(consumer, dict):
                 raise EvidenceError(f"{dependency_id}: consumer must be an object")
@@ -362,6 +368,20 @@ def test_dependency_inventory_covers_every_manifest_and_entrypoint() -> None:
     validate_dependency_inventory(document)
 
 
+def test_frontend_google_sdk_has_no_active_typescript_consumer() -> None:
+    document = load_evidence()
+    dependency = next(
+        item
+        for item in document["dependency_inventory"]
+        if item["dependency_id"] == "npm:@google/genai"
+    )
+    assert dependency["disposition"] == "remove-direct"
+    assert dependency["consumer_count"] == 0
+    assert dependency["consumers"] == []
+    for path in (ROOT / "index.tsx", ROOT / "src/services/auraApi.ts", ROOT / "vite.config.ts"):
+        assert "@google/genai" not in path.read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -370,11 +390,14 @@ def test_dependency_inventory_covers_every_manifest_and_entrypoint() -> None:
         lambda doc: doc["supported_entrypoints"].append(
             copy.deepcopy(doc["supported_entrypoints"][0])
         ),
-        lambda doc: doc["dependency_inventory"][0].update(
+        lambda doc: doc["dependency_inventory"][1].update(
             uncovered_supported_consumers=["api-runtime"]
         ),
         lambda doc: doc["dependency_inventory"][0].update(
             manifest_change_authorized=True
+        ),
+        lambda doc: doc["supported_entrypoints"][0]["dependency_lanes"].remove(
+            "base"
         ),
     ],
 )
