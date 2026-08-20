@@ -3,6 +3,7 @@
 from .app import (
     ApplicationRuntime,
     ApplicationRuntimeSnapshot,
+    ProviderFactory,
     ResourceFactory,
     ResourceState,
     ResourceStatus,
@@ -15,6 +16,7 @@ from .config import RuntimeConfigurationError, RuntimeSettings
 __all__ = [
     "ApplicationRuntime",
     "ApplicationRuntimeSnapshot",
+    "ProviderFactory",
     "ResourceFactory",
     "ResourceState",
     "ResourceStatus",

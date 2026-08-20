@@ -15,11 +15,15 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from aura_backend.providers.runtime import ProviderRuntime
+
 from .config import RuntimeSettings
 
 AsyncClose = Callable[[], Awaitable[None]]
 AsyncStart = Callable[[], Awaitable["StartedResource | None"]]
+ProviderFactory = Callable[[], Awaitable[ProviderRuntime]]
 _RESOURCE_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+_SELECTED_PROVIDER = "selected_provider"
 
 
 class ResourceState(str, Enum):
@@ -108,6 +112,7 @@ class ApplicationRuntime:
         *,
         settings: RuntimeSettings,
         resources: Sequence[ResourceFactory],
+        provider_factory: ProviderFactory | None,
     ) -> None:
         if not isinstance(settings, RuntimeSettings):
             raise TypeError("settings must be RuntimeSettings")
@@ -115,15 +120,29 @@ class ApplicationRuntime:
         names = tuple(resource.name for resource in resource_tuple)
         if len(set(names)) != len(names):
             raise ValueError("resource names must be unique")
+        if _SELECTED_PROVIDER in names:
+            raise ValueError("selected_provider is reserved for the provider runtime")
+        if provider_factory is not None and not callable(provider_factory):
+            raise TypeError("provider_factory must be callable or None")
         self.settings = settings
-        self._resources = resource_tuple
+        self._provider_factory = provider_factory
+        self._provider_runtime: ProviderRuntime | None = None
+        provider_resource = ResourceFactory(
+            name=_SELECTED_PROVIDER,
+            start=self._start_provider,
+            required=True,
+        )
+        # The selected provider is deliberately last in dependency order.  The
+        # reverse stack therefore closes it first, which rejects/cancels model
+        # work before storage and tool resources begin shutting down.
+        self._resources = (*resource_tuple, provider_resource)
         self._statuses = {
             resource.name: ResourceStatus(
                 name=resource.name,
                 required=resource.required,
                 state=ResourceState.NOT_STARTED,
             )
-            for resource in resource_tuple
+            for resource in self._resources
         }
         self._values: dict[str, object] = {}
         self._exit_stack = AsyncExitStack()
@@ -164,6 +183,38 @@ class ApplicationRuntime:
         if not self._accepting_work or name not in self._values:
             raise RuntimeStartupError(code="runtime_unavailable", resource=name)
         return self._values[name]
+
+    @property
+    def provider_runtime(self) -> ProviderRuntime:
+        """Return the ready selected provider without exposing a partial startup."""
+        if not self._accepting_work or self._provider_runtime is None:
+            raise RuntimeStartupError(
+                code="runtime_unavailable",
+                resource=_SELECTED_PROVIDER,
+            )
+        return self._provider_runtime
+
+    async def _start_provider(self) -> StartedResource:
+        if self._provider_factory is None:
+            raise RuntimeStartupError(
+                code="required_provider_missing",
+                resource=_SELECTED_PROVIDER,
+            )
+        provider_runtime = await self._provider_factory()
+        if not isinstance(provider_runtime, ProviderRuntime):
+            raise RuntimeStartupError(
+                code="invalid_provider_runtime",
+                resource=_SELECTED_PROVIDER,
+            )
+        self._provider_runtime = provider_runtime
+
+        async def close_provider() -> None:
+            try:
+                await provider_runtime.aclose()
+            finally:
+                self._provider_runtime = None
+
+        return StartedResource(value=provider_runtime, close=close_provider)
 
     async def _close_resource(
         self,

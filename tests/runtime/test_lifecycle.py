@@ -223,7 +223,8 @@ async def test_every_partial_start_boundary_unwinds_once_in_reverse_order(
     expected_closes = [f"close:{name}" for name in reversed(names[:failure_index])]
     assert events == expected_starts + expected_closes
     assert captured.value.code == "required_resource_failed"
-    assert captured.value.resource == names[failure_index]
+    expected_resource = names[failure_index] if failure_index < 2 else "selected_provider"
+    assert captured.value.resource == expected_resource
     assert "private failure" not in str(captured.value)
     assert runtime.snapshot().ready is False
 
