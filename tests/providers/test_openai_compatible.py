@@ -345,3 +345,13 @@ async def test_stream_cancellation_closes_upstream_and_provider_close_is_idempot
     await provider.aclose()
     await provider.aclose()
     assert client.closed
+
+
+@pytest.mark.asyncio
+async def test_process_control_base_exceptions_are_never_normalized() -> None:
+    class ProcessControl(BaseException):
+        pass
+
+    provider = _provider(FakeClient([ProcessControl()]))
+    with pytest.raises(ProcessControl):
+        await provider.generate(_request())

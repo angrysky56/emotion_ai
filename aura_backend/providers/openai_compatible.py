@@ -399,7 +399,7 @@ class OpenAICompatibleProvider:
             raise
         except ProviderFailure:
             raise
-        except BaseException as error:
+        except Exception as error:
             raise self._map_error(error, request) from error
 
     @staticmethod
@@ -537,7 +537,7 @@ class OpenAICompatibleProvider:
             raise
         except ProviderFailure:
             raise
-        except BaseException as error:
+        except Exception as error:
             raise self._map_error(
                 error,
                 request,
