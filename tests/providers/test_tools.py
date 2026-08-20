@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Mapping
 from dataclasses import FrozenInstanceError
 from typing import Any
@@ -256,3 +257,180 @@ async def test_result_default_diagnostics_hide_tool_content() -> None:
     assert result.value == {"content": raw_secret}
     assert raw_secret not in repr(result)
     assert raw_secret not in str(result)
+
+
+class RecordingInternalTools:
+    """Internal registry fake that records only calls crossing its public seam."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get_tool_list(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": "aura.reflect",
+                "description": "Reflect on synthetic text",
+                "server": "aura-internal",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                    "additionalProperties": False,
+                },
+            }
+        ]
+
+    async def execute_tool(self, name: str, arguments: dict[str, Any]) -> object:
+        self.calls.append((name, arguments))
+        return {"source": "internal", "ok": True}
+
+
+class RecordingMCPClient:
+    """MCP fake that never starts a process or reads an active tool result."""
+
+    def __init__(self, *, fail_listing: bool = False) -> None:
+        self.fail_listing = fail_listing
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def list_all_tools(self) -> dict[str, dict[str, Any]]:
+        if self.fail_listing:
+            raise RuntimeError("SYNTHETIC_MCP_LIST_SECRET")
+        return {
+            "weather.current": {
+                "name": "current",
+                "description": "Read synthetic weather",
+                "server": "weather-server",
+                "connected": True,
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                    "required": ["city"],
+                    "additionalProperties": False,
+                },
+            }
+        }
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> object:
+        self.calls.append((name, arguments))
+        return {"source": "mcp", "ok": True}
+
+
+@pytest.mark.asyncio
+async def test_mcp_system_builds_and_dispatches_internal_only_neutral_tools() -> None:
+    from aura_backend.mcp_system import (
+        get_provider_tool_catalog,
+        get_provider_tool_executor,
+    )
+
+    internal = RecordingInternalTools()
+    catalog = await get_provider_tool_catalog(internal_tools=internal)
+    executor = get_provider_tool_executor(catalog, internal_tools=internal)
+
+    assert catalog.definitions == (
+        ToolDefinition(
+            name="aura_reflect",
+            description="Reflect on synthetic text",
+            input_schema=internal.get_tool_list()[0]["parameters"],
+        ),
+    )
+    result = await executor.execute("aura_reflect", {"text": "synthetic"})
+    assert result.value == {"source": "internal", "ok": True}
+    assert internal.calls == [("aura.reflect", {"text": "synthetic"})]
+
+
+@pytest.mark.asyncio
+async def test_mcp_system_builds_and_dispatches_mcp_only_neutral_tools() -> None:
+    from aura_backend.mcp_system import (
+        get_provider_tool_catalog,
+        get_provider_tool_executor,
+    )
+
+    mcp = RecordingMCPClient()
+    catalog = await get_provider_tool_catalog(mcp_client=mcp)
+    executor = get_provider_tool_executor(catalog, mcp_client=mcp)
+
+    assert tuple(item.name for item in catalog.definitions) == ("weather_current",)
+    route = catalog.resolve("weather_current")
+    assert route.source is ToolSource.MCP
+    assert route.original_name == "weather.current"
+    assert route.server == "weather-server"
+
+    result = await executor.execute("weather_current", {"city": "synthetic"})
+    assert result.value == {"source": "mcp", "ok": True}
+    assert mcp.calls == [("weather.current", {"city": "synthetic"})]
+
+
+@pytest.mark.asyncio
+async def test_mcp_system_combines_both_sources_with_the_same_catalog_shape() -> None:
+    from aura_backend.mcp_system import (
+        get_provider_tool_catalog,
+        get_provider_tool_executor,
+    )
+
+    internal = RecordingInternalTools()
+    mcp = RecordingMCPClient()
+    catalog = await get_provider_tool_catalog(
+        mcp_client=mcp,
+        internal_tools=internal,
+    )
+    executor = get_provider_tool_executor(
+        catalog,
+        mcp_client=mcp,
+        internal_tools=internal,
+    )
+
+    assert tuple(item.name for item in catalog.definitions) == (
+        "aura_reflect",
+        "weather_current",
+    )
+    internal_result = await executor.execute(
+        "aura_reflect", {"text": "synthetic"}
+    )
+    mcp_result = await executor.execute(
+        "weather_current", {"city": "synthetic"}
+    )
+    assert isinstance(internal_result, ToolExecutionResult)
+    assert isinstance(mcp_result, ToolExecutionResult)
+
+
+@pytest.mark.asyncio
+async def test_unavailable_optional_mcp_is_empty_and_execution_fails_typed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from aura_backend.mcp_system import (
+        get_mcp_bridge,
+        get_provider_tool_catalog,
+        get_provider_tool_executor,
+    )
+
+    catalog = await get_provider_tool_catalog(
+        mcp_client=RecordingMCPClient(fail_listing=True)
+    )
+
+    assert len(catalog) == 0
+    assert catalog.definitions == ()
+    assert callable(get_mcp_bridge)
+    assert "SYNTHETIC_MCP_LIST_SECRET" not in caplog.text
+
+    executor = get_provider_tool_executor(catalog)
+    with pytest.raises(ProviderFailure) as failure:
+        await executor.execute("missing_tool", {})
+    assert failure.value.code is ProviderErrorCode.UNAVAILABLE
+
+
+def test_new_mcp_system_surface_has_no_gemini_types_or_bridge_mapping() -> None:
+    from aura_backend import mcp_system
+
+    public_objects = (
+        mcp_system.get_provider_tool_catalog,
+        mcp_system.get_provider_tool_executor,
+    )
+    annotations = " ".join(
+        str(inspect.get_annotations(item, eval_str=False)) for item in public_objects
+    ).lower()
+
+    assert "google" not in annotations
+    assert "gemini" not in annotations
+    assert "_tool_mapping" not in inspect.getsource(
+        mcp_system.get_provider_tool_executor
+    )
