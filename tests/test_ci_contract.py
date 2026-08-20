@@ -125,6 +125,12 @@ def test_required_python_lanes_install_and_run_from_the_uv_lock() -> None:
     lint = _joined_runs(jobs["lint"])
     assert "uv sync --locked" in lint
     assert "uv run --locked --no-sync ruff check aura_backend tests" in lint
+    for legacy_root in (
+        "aura_backend/archive_unused",
+        "aura_backend/scratch",
+        "aura_backend/tests",
+    ):
+        assert f"--exclude {legacy_root}" in lint
     assert _false_success_violations(workflow) == []
 
 
@@ -183,7 +189,7 @@ def test_live_lane_is_manual_self_hosted_strict_and_non_authoritative() -> None:
     assert '-m "live and ollama"' in commands
     assert "--junitxml" in commands
     assert "skipped" in commands
-    assert "SystemExit(4" in commands
+    assert "else 4 if skipped" in commands
     assert job.get("needs") is None
 
 

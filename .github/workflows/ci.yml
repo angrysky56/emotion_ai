@@ -1,0 +1,177 @@
+name: Aura truth lanes
+
+"on":
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-backend:
+    name: deterministic-backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: "0.11.21"
+      - name: Synchronize the Python lock
+        run: uv sync --locked --dev
+      - name: Run all deterministic Phase 1 and Phase 2 tests
+        run: uv run --locked --no-sync python -m pytest tests -q -m "not live"
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: "0.11.21"
+      - name: Synchronize the Python lock
+        run: uv sync --locked --dev
+      - name: Run Ruff on active code and deterministic tests
+        run: >-
+          uv run --locked --no-sync ruff check aura_backend tests
+          --exclude aura_backend/archive_unused
+          --exclude aura_backend/scratch
+          --exclude aura_backend/tests
+
+  typing-python:
+    name: typing-python
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.14.0"
+          cache: npm
+      - name: Clean install the exact Node lock
+        run: npm ci
+      - name: Run project-local Pyright
+        run: npm run typecheck:python
+
+  typing-frontend:
+    name: typing-frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.14.0"
+          cache: npm
+      - name: Clean install the exact Node lock
+        run: npm ci
+      - name: Run the named frontend type check
+        run: npm run typecheck:frontend
+
+  frontend-build:
+    name: frontend-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.14.0"
+          cache: npm
+      - name: Clean install the exact Node lock
+        run: npm ci
+      - name: Build the frontend from the named script
+        run: npm run build
+
+  provider-live-ollama:
+    name: provider-live-ollama (optional; blocked is non-green)
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted, linux, x64, aura-ollama]
+    timeout-minutes: 10
+    env:
+      AURA_RUN_LIVE: "1"
+      AURA_DEFAULT_PROVIDER: ollama
+      OLLAMA_MODEL: ornith:latest
+      AURA_LIVE_STRICT_AFTER_PREFLIGHT: "1"
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: "0.11.21"
+      - name: Synchronize the Python lock
+        run: uv sync --locked --dev
+      - name: Run non-mutating provider preflight first
+        run: |
+          mkdir -p .artifacts
+          uv run --locked --no-sync python -m aura_backend.runtime preflight > .artifacts/ollama-preflight.json
+      - name: Run bounded synthetic Ornith evidence
+        run: uv run --locked --no-sync python -m pytest tests/live/test_ollama_ornith.py -q -m "live and ollama" -rs --junitxml=.artifacts/ollama-live.xml
+      - name: Reject skipped or incomplete live evidence
+        if: always()
+        run: >-
+          uv run --locked --no-sync python -c "from pathlib import Path; import sys; import xml.etree.ElementTree as ET; p=Path('.artifacts/ollama-live.xml'); sys.exit(5) if not p.is_file() else None; r=ET.parse(p).getroot(); suites=[r] if r.tag=='testsuite' else list(r); failed=sum(int(s.attrib.get('failures',0))+int(s.attrib.get('errors',0)) for s in suites); skipped=sum(int(s.attrib.get('skipped',0)) for s in suites); sys.exit(3 if failed else 4 if skipped else 0)"
+      - name: Upload live classification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: provider-live-ollama-evidence
+          path: .artifacts/
+          if-no-files-found: error
+
+  environment-blocked:
+    name: environment-blocked (classification evidence; never a test pass)
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: "0.11.21"
+      - name: Synchronize the Python lock
+        run: uv sync --locked --dev
+      - name: Verify the legacy classification contract
+        run: uv run --locked --no-sync python -m pytest tests/test_legacy_classification.py -q
+      - name: Upload the blocked-environment classification
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: environment-blocked-classification
+          path: .planning/evidence/phase-01/legacy-test-classification.json
+          if-no-files-found: error
+      - name: Preserve blocked status rather than reporting a test pass
+        if: always()
+        run: |
+          echo "::notice::Legacy environment probes remain classified and blocked."
+          exit 4
