@@ -195,6 +195,7 @@ def test_startup_guide_keeps_base_setup_sufficient_and_optional_extras_explicit(
 
 def test_startup_guide_names_exact_optional_activation_paths() -> None:
     section = _startup_section(STARTUP_GUIDE)
+    compact = re.sub(r"\s+", " ", section)
     required = (
         "AURA_MCP_ENABLED=true",
         "AURA_MEMVID_ENABLED=true",
@@ -204,7 +205,7 @@ def test_startup_guide_names_exact_optional_activation_paths() -> None:
         "preserves the explicitly selected provider",
     )
     for value in required:
-        assert value in section
+        assert value in compact
 
     assert "Autonomic has no separate dependency extra" in section
     assert "no sign-in" in section
@@ -213,6 +214,7 @@ def test_startup_guide_names_exact_optional_activation_paths() -> None:
 
 def test_optional_failure_guidance_is_redacted_and_extra_specific() -> None:
     section = _startup_section(STARTUP_GUIDE)
+    compact = re.sub(r"\s+", " ", section)
 
     assert "optional_resource_failed" in section
     for resource, extra in (
@@ -224,7 +226,7 @@ def test_optional_failure_guidance_is_redacted_and_extra_specific() -> None:
         assert f"`{resource}`" in section
         assert extra in section
 
-    assert "never includes raw exception text, credentials, endpoints, prompts, tool payloads, or response bodies" in section
+    assert "never includes raw exception text, credentials, endpoints, prompts, tool payloads, or response bodies" in compact
 
 
 def test_env_example_contains_only_obvious_non_secret_key_sentinels() -> None:

@@ -22,14 +22,77 @@ uv sync --locked
 npm ci
 ```
 
+The base `uv sync --locked` is sufficient for the default local Ollama
+preflight, serve, application lifespan, and shutdown path. `npm ci` prepares the
+separate frontend. Optional integrations are not required for base readiness.
+
 Neither the runtime nor its wrapper scripts installs, synchronizes, downloads,
 changes permissions, edits configuration, or kills an existing process.
+Preflight and serve never install or synchronize dependencies.
 
 `.env.example` selects local Ollama without a credential. Copy it to `.env` only
 to customize settings. Gemini and OpenRouter are optional cloud providers: select
 one explicitly and supply its credential privately. There is no silent cloud
 fallback. The configured selected model must already exist at the selected
 provider; Aura does not download it.
+
+### Optional runtime stages
+
+Optional stages are disabled by default. Prepare and select only the stages you
+intend to use; these commands are explicit setup operations, never startup side
+effects.
+
+For MCP tools, prepare the locked MCP extra:
+
+<!-- aura-optional-setup-command:mcp -->
+```bash
+uv sync --locked --extra mcp
+```
+
+Then set `AURA_MCP_ENABLED=true`. MCP remains optional and works with the
+explicitly selected provider; enabling it does not select a cloud provider.
+
+The Gemini tool bridge requires MCP plus an explicitly selected Gemini provider.
+Prepare the MCP extra above and the locked Gemini provider extra:
+
+<!-- aura-optional-setup-command:gemini -->
+```bash
+uv sync --locked --extra provider-gemini
+```
+
+Set `AURA_MCP_ENABLED=true`, `AURA_DEFAULT_PROVIDER=gemini`, choose `AURA_MODEL`,
+and provide `GEMINI_API_KEY` only in your private environment. This is an
+explicit cloud selection; it is never a fallback from Ollama.
+
+For optional Memvid archival, prepare its locked extra:
+
+<!-- aura-optional-setup-command:memvid -->
+```bash
+uv sync --locked --extra memvid
+```
+
+Then set `AURA_MEMVID_ENABLED=true`. Its embedding provider remains a separate,
+explicit choice.
+
+Autonomic processing has no separate dependency extra. Set
+`AUTONOMIC_ENABLED=true` only when wanted. It preserves the explicitly selected
+provider instead of selecting Gemini or another cloud provider implicitly; any
+extra and credential required by that provider must already be configured.
+
+If an enabled optional stage is unavailable, readiness reports the redacted code
+`optional_resource_failed` and the resource name. Remediate only the selected
+resource, then rerun preflight:
+
+| Resource | Safe remediation |
+|---|---|
+| `mcp` | Run `uv sync --locked --extra mcp`, verify `AURA_MCP_ENABLED=true`, and retry. |
+| `gemini_bridge` | Run `uv sync --locked --extra provider-gemini`, verify explicit Gemini selection and its private credential, and retry. |
+| `memvid` | Run `uv sync --locked --extra memvid`, verify `AURA_MEMVID_ENABLED=true`, and retry. |
+| `autonomic` | Autonomic has no separate dependency extra; verify `AUTONOMIC_ENABLED=true` and the selected provider's own configuration, then retry. |
+
+The status never includes raw exception text, credentials, endpoints, prompts,
+tool payloads, or response bodies. Disable the corresponding feature flag to
+return to the sufficient base path.
 
 ### Report-only preflight
 
