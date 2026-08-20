@@ -153,7 +153,19 @@ async def test_default_logs_and_status_exclude_content_and_source_exception(
             completed = await system.processor.execute_task(_task())
             status = system.get_system_status()
 
+            class ExplodingProvider(ScriptedProvider):
+                async def generate(self, request: object) -> object:
+                    del request
+                    raise RuntimeError("exception-SENTINEL private source detail")
+
+            exploding = ExplodingProvider((ScriptedComplete("never"),))
+            failed = await AutonomicProcessor(
+                provider_runtime=ProviderRuntime(exploding, timeout_seconds=1.0)
+            ).execute_task(_task())
+
         assert completed.status is TaskStatus.COMPLETED
+        assert failed.status is TaskStatus.FAILED
+        assert failed.error == ProviderErrorCode.MALFORMED_RESPONSE.value
         diagnostics = f"{caplog.text} {status!r}"
         for sentinel in (
             "prompt-SENTINEL",
@@ -162,6 +174,7 @@ async def test_default_logs_and_status_exclude_content_and_source_exception(
             "user-SENTINEL",
             "session-SENTINEL",
             "credential-SENTINEL",
+            "exception-SENTINEL",
         ):
             assert sentinel not in diagnostics
     finally:

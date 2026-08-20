@@ -10,6 +10,8 @@ This system acts as Aura's "autonomic nervous system" - handling background
 processing while the main consciousness focuses on user interaction.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -18,12 +20,15 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
-from google.genai import types
+from aura_backend.providers.base import ProviderMessage, ProviderRequest
+from aura_backend.providers.errors import ProviderErrorCode, ProviderFailure
+from aura_backend.providers.runtime import ProviderRuntime
 
-from aura_backend.aura_internal_tools import AuraInternalTools
-from aura_backend.mcp_to_gemini_bridge import MCPGeminiBridge
+if TYPE_CHECKING:
+    from aura_backend.aura_internal_tools import AuraInternalTools
+    from aura_backend.mcp_to_gemini_bridge import MCPGeminiBridge
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +190,22 @@ class TaskStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     TIMEOUT = "timeout"
+
+
+class AutonomicState(str, Enum):
+    """Stable availability states for the optional background subsystem."""
+
+    DISABLED = "disabled"
+    STOPPED = "stopped"
+    RUNNING = "running"
+
+
+@dataclass(frozen=True, slots=True)
+class _NeutralFunctionCall:
+    """Minimal structural input accepted by the legacy MCP execution bridge."""
+
+    name: str
+    args: Dict[str, Any]
 
 
 @dataclass
@@ -398,10 +419,17 @@ class AutonomicProcessor:
         timeout_seconds: int = 30,
         rpm_limit: int = 25,
         rpd_limit: int = 1200,
+        provider_runtime: ProviderRuntime | None = None,
     ):
-        self.autonomic_model = autonomic_model
+        # Keep the legacy argument callable without treating its unvalidated text
+        # as runtime ownership or safe diagnostic metadata.
+        del autonomic_model
+        self.autonomic_model = (
+            "selected_provider" if provider_runtime is not None else "not_configured"
+        )
         self.max_output_tokens = max_output_tokens
         self.timeout_seconds = timeout_seconds
+        self._provider_runtime = provider_runtime
 
         # Initialize rate limiter
         self.rate_limiter = RateLimiter(rpm_limit, rpd_limit)
@@ -429,8 +457,7 @@ class AutonomicProcessor:
 
         try:
             logger.info(
-                "🤖 Autonomic processor executing task: %s (%s)",
-                task.task_id,
+                "Autonomic processor executing task type=%s",
                 task.task_type.value,
             )
 
@@ -458,27 +485,43 @@ class AutonomicProcessor:
             task.execution_time_ms = execution_time
             self._update_execution_stats(execution_time, True)
 
-            logger.info(
-                "✅ Autonomic task completed: %s (%s.1fms)",
-                task.task_id,
-                execution_time,
-            )
+            logger.info("Autonomic task completed duration_ms=%.1f", execution_time)
             return task
 
-        except asyncio.TimeoutError:
-            task.status = TaskStatus.TIMEOUT
-            task.error = f"Task exceeded timeout of {self.timeout_seconds} seconds"
-            task.completed_at = datetime.now()
-            self._update_execution_stats((time.time() - start_time) * 1000, False)
-            logger.warning("⏰ Autonomic task timeout: %s", task.task_id)
-            return task
-
-        except Exception as e:
+        except asyncio.CancelledError:
             task.status = TaskStatus.FAILED
-            task.error = str(e)
+            task.error = ProviderErrorCode.CANCELLED.value
             task.completed_at = datetime.now()
             self._update_execution_stats((time.time() - start_time) * 1000, False)
-            logger.error("❌ Autonomic task failed: %s - %s", task.task_id, e)
+            logger.warning("Autonomic task ended code=cancelled")
+            raise
+
+        except TimeoutError:
+            task.status = TaskStatus.TIMEOUT
+            task.error = ProviderErrorCode.TIMEOUT.value
+            task.completed_at = datetime.now()
+            self._update_execution_stats((time.time() - start_time) * 1000, False)
+            logger.warning("Autonomic task ended code=timeout")
+            return task
+
+        except ProviderFailure as failure:
+            task.status = (
+                TaskStatus.TIMEOUT
+                if failure.code is ProviderErrorCode.TIMEOUT
+                else TaskStatus.FAILED
+            )
+            task.error = failure.code.value
+            task.completed_at = datetime.now()
+            self._update_execution_stats((time.time() - start_time) * 1000, False)
+            logger.warning("Autonomic task ended code=%s", failure.code.value)
+            return task
+
+        except Exception:
+            task.status = TaskStatus.FAILED
+            task.error = ProviderErrorCode.MALFORMED_RESPONSE.value
+            task.completed_at = datetime.now()
+            self._update_execution_stats((time.time() - start_time) * 1000, False)
+            logger.error("Autonomic task ended code=malformed_response")
             return task
 
     async def _execute_mcp_tool_task(
@@ -499,10 +542,9 @@ class AutonomicProcessor:
 
         # Use MCP bridge for external tools
         elif mcp_bridge and tool_name:
-            # Create a mock function call for the MCP bridge
-            from google.genai.types import FunctionCall
-
-            function_call = FunctionCall(name=tool_name, args=arguments)
+            # The legacy bridge consumes only ``name`` and ``args`` attributes;
+            # keep that boundary structural so this module never imports Google.
+            function_call = _NeutralFunctionCall(name=tool_name, args=arguments)
 
             execution_result = await mcp_bridge.execute_function_call(
                 function_call, task.user_id
@@ -600,18 +642,13 @@ class AutonomicProcessor:
         return {"general_result": result, "task_type": "general_processing"}
 
     async def _call_autonomic_model(self, prompt: str) -> str:
-        """Call the autonomic model with rate limiting and timeout handling"""
-
-        # Import client from main module
-        import os
-
-        from google import genai
-
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("Google API key not available")
-
-        client = genai.Client(api_key=api_key)
+        """Generate through the injected provider-neutral runtime."""
+        if self._provider_runtime is None:
+            raise ProviderFailure(
+                code=ProviderErrorCode.CONFIGURATION,
+                setting_name="AUTONOMIC_PROVIDER",
+                retryable=False,
+            )
 
         # Rate limiting: Wait for availability with timeout
         rate_limit_acquired = await self.rate_limiter.wait_for_availability(
@@ -620,43 +657,26 @@ class AutonomicProcessor:
 
         if not rate_limit_acquired:
             self.execution_stats["tasks_rate_limited"] += 1
-            raise RuntimeError(
-                "Rate limit exceeded - unable to acquire request slot within timeout"
+            raise ProviderFailure(
+                code=ProviderErrorCode.RATE_LIMITED,
+                retryable=True,
             )
 
-        # Create timeout wrapper
-        async def model_call():
-            # Get maximum remote calls for autonomic model from environment
-            autonomic_max_remote_calls = int(
-                os.getenv("AFC_AUTONOMIC_MAX_REMOTE_CALLS", "30")
-            )
-            logger.debug(
-                "🤖 Autonomic model configured with %s maximum function calls",
-                autonomic_max_remote_calls,
-            )
-
-            result = client.models.generate_content(
-                model=self.autonomic_model,
-                contents=[prompt],
-                config=types.GenerateContentConfig(
-                    temperature=0.3,  # Lower temperature for more focused processing
-                    max_output_tokens=self.max_output_tokens,
-                    # Configure automatic function calling for autonomic model (future-proofing)
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        maximum_remote_calls=autonomic_max_remote_calls
-                    ),
-                ),
-            )
-            return result.text if result.text else ""
-
-        # Execute with timeout
         try:
-            result = await asyncio.wait_for(model_call(), timeout=self.timeout_seconds)
-            return result
-        except asyncio.TimeoutError:
-            raise asyncio.TimeoutError(
-                f"Model call exceeded {self.timeout_seconds}s timeout"
-            ) from None
+            async with asyncio.timeout(self.timeout_seconds):
+                result = await self._provider_runtime.generate(
+                    ProviderRequest(
+                        messages=(ProviderMessage(role="user", content=prompt),),
+                        temperature=0.3,
+                        max_tokens=self.max_output_tokens,
+                    )
+                )
+        except TimeoutError as error:
+            raise ProviderFailure(
+                code=ProviderErrorCode.TIMEOUT,
+                retryable=True,
+            ) from error
+        return result.content
 
     def _update_execution_stats(self, execution_time: float, success: bool):
         """Update execution statistics"""
@@ -699,6 +719,7 @@ class AutonomicNervousSystem:
         rpm_limit: int = 30,
         rpd_limit: int = 1400,
         queue_max_size: int = 100,
+        provider_runtime: ProviderRuntime | None = None,
     ):
         self.classifier = TaskClassifier(threshold=task_threshold)
         self.processor = AutonomicProcessor(
@@ -707,6 +728,11 @@ class AutonomicNervousSystem:
             timeout_seconds=timeout_seconds,
             rpm_limit=rpm_limit,
             rpd_limit=rpd_limit,
+            provider_runtime=provider_runtime,
+        )
+        self._provider_runtime = provider_runtime
+        self._disabled_reason = (
+            "not_configured" if provider_runtime is None else None
         )
 
         self.max_concurrent_tasks = max_concurrent_tasks
@@ -723,8 +749,8 @@ class AutonomicNervousSystem:
         self.mcp_bridge: Optional[MCPGeminiBridge] = None
         self.internal_tools: Optional[AuraInternalTools] = None
 
-        logger.info("🧠 Autonomic Nervous System initialized")
-        logger.info("   Model: %s", autonomic_model)
+        logger.info("Autonomic nervous system initialized")
+        logger.info("   Model: %s", self.processor.autonomic_model)
         logger.info("   Max concurrent tasks: %s", max_concurrent_tasks)
         logger.info("   Task threshold: %s", task_threshold)
         logger.info("   Rate limits: %s RPM, %s RPD", rpm_limit, rpd_limit)
@@ -742,13 +768,16 @@ class AutonomicNervousSystem:
 
     async def start(self):
         """Start the autonomic system worker"""
+        if self._provider_runtime is None:
+            logger.info("Autonomic nervous system disabled reason=not_configured")
+            return
         if self._running:
             logger.warning("Autonomic system is already running")
             return
 
         self._running = True
         self._worker_task = asyncio.create_task(self._task_worker())
-        logger.info("🚀 Autonomic nervous system started")
+        logger.info("Autonomic nervous system started")
 
     async def stop(self):
         """Stop the autonomic system gracefully"""
@@ -819,13 +848,13 @@ class AutonomicNervousSystem:
         try:
             self.task_queue.put_nowait(task)
             logger.info(
-                f"📋 Queued autonomic task: {task_id} ({task_type.value}, {priority.value})"
+                "Queued autonomic task type=%s priority=%s",
+                task_type.value,
+                priority.value,
             )
             return True, task_id
         except asyncio.QueueFull:
-            logger.warning(
-                f"⚠️ Task queue full ({self.queue_max_size}), rejecting task: {task_id}"
-            )
+            logger.warning("Autonomic task queue full capacity=%s", self.queue_max_size)
             return False, None
 
     async def get_task_result(
@@ -864,8 +893,8 @@ class AutonomicNervousSystem:
             except asyncio.TimeoutError:
                 # No tasks in queue, continue
                 continue
-            except Exception as e:
-                logger.error("❌ Task worker error: %s", e)
+            except Exception:
+                logger.error("Autonomic task worker ended one iteration with an error")
                 await asyncio.sleep(1.0)
 
     async def _process_task(self, task: AutonomicTask):
@@ -896,8 +925,8 @@ class AutonomicNervousSystem:
                 for old_task_id in oldest_tasks:
                     del self.completed_tasks[old_task_id]
 
-        except Exception as e:
-            logger.error("❌ Error processing task %s: %s", task.task_id, e)
+        except Exception:
+            logger.error("Autonomic task processing ended unexpectedly")
             # Ensure task is moved to completed even on error
             if task.task_id in self.active_tasks:
                 del self.active_tasks[task.task_id]
@@ -905,8 +934,17 @@ class AutonomicNervousSystem:
     def get_system_status(self) -> Dict[str, Any]:
         """Get comprehensive system status including rate limiting metrics"""
         processor_stats = self.processor.get_stats()
+        state = (
+            AutonomicState.DISABLED
+            if self._provider_runtime is None
+            else AutonomicState.RUNNING
+            if self._running
+            else AutonomicState.STOPPED
+        )
 
         return {
+            "status": state.value,
+            "disabled_reason": self._disabled_reason,
             "running": self._running,
             "queued_tasks": self.task_queue.qsize(),
             "active_tasks": len(self.active_tasks),
@@ -928,8 +966,9 @@ _autonomic_system: Optional[AutonomicNervousSystem] = None
 async def initialize_autonomic_system(
     mcp_bridge: Optional[MCPGeminiBridge] = None,
     internal_tools: Optional[AuraInternalTools] = None,
+    provider_runtime: ProviderRuntime | None = None,
 ) -> AutonomicNervousSystem:
-    """Initialize the global autonomic nervous system with proper rate limiting"""
+    """Initialize with an explicit runtime or return a disabled subsystem."""
     global _autonomic_system
 
     import os
@@ -955,6 +994,7 @@ async def initialize_autonomic_system(
         rpm_limit=rpm_limit,
         rpd_limit=rpd_limit,
         queue_max_size=queue_max_size,
+        provider_runtime=provider_runtime,
     )
 
     # Set external system references
@@ -963,7 +1003,10 @@ async def initialize_autonomic_system(
     # Start the system
     await _autonomic_system.start()
 
-    logger.info("🧠 Global autonomic nervous system initialized and started")
+    logger.info(
+        "Global autonomic nervous system initialized status=%s",
+        _autonomic_system.get_system_status()["status"],
+    )
     logger.info(
         f"📊 Configuration: {max_concurrent} concurrent, {rpm_limit} RPM, {rpd_limit} RPD"
     )
