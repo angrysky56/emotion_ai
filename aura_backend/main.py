@@ -24,14 +24,13 @@ import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional, Tuple
 
 import aiofiles
 import numpy as np
 import uvicorn
-from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException
+from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -50,6 +49,15 @@ from aura_backend.conversation_persistence_service import (  # noqa: E402
     ConversationExchange,
     ConversationPersistenceService,
     PersistenceHealthCheck,
+)
+from aura_backend.conversation import (  # noqa: E402
+    AsekeComponent,
+    CognitiveState,
+    EmotionalIntensity as EmotionalIntensity,
+    EmotionalStateData,
+    detect_aura_cognitive_focus,
+    detect_aura_emotion,
+    detect_user_emotion,
 )
 from aura_backend.providers.base import BaseProvider, Message  # noqa: E402
 from aura_backend.runtime_security import (  # noqa: E402
@@ -105,53 +113,6 @@ def ensure_json_serializable(data: Any) -> Any:
             return obj
 
     return convert_numpy(data)
-
-
-class EmotionalIntensity(str, Enum):
-    LOW = "Low"
-    MEDIUM = "Medium"
-    HIGH = "High"
-
-
-class AsekeComponent(str, Enum):
-    KS = "KS"  # Knowledge Substrate
-    CE = "CE"  # Cognitive Energy
-    IS = "IS"  # Information Structures
-    KI = "KI"  # Knowledge Integration
-    KP = "KP"  # Knowledge Propagation
-    ESA = "ESA"  # Emotional State Algorithms
-    SDA = "SDA"  # Sociobiological Drives
-    LEARNING = "Learning"
-
-
-@dataclass
-class EmotionalStateData:
-    name: str
-    formula: str
-    components: Dict[str, str]
-    ntk_layer: str
-    brainwave: str
-    neurotransmitter: str
-    description: str
-    intensity: EmotionalIntensity = EmotionalIntensity.MEDIUM
-    primary_components: Optional[List[str]] = None
-    timestamp: Optional[datetime] = None
-
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = datetime.now()
-
-
-@dataclass
-class CognitiveState:
-    focus: AsekeComponent
-    description: str
-    context: str
-    timestamp: Optional[datetime] = None
-
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = datetime.now()
 
 
 @dataclass
@@ -870,319 +831,6 @@ You have access to advanced video-based memory compression technology:
     return instruction
 
 
-async def detect_user_emotion(
-    user_message: str, user_id: str
-) -> Optional[EmotionalStateData]:
-    """
-    Detect user's emotional state from their message using AI analysis.
-
-    Analyzes the user's message content, tone, and word choice to identify
-    the most prominent emotional state. Uses the Gemini model to perform
-    sentiment analysis and maps results to predefined emotional categories.
-
-    Args:
-        user_message: The user's input message to analyze
-        user_id: Unique identifier for the user (for logging/context)
-
-    Returns:
-        EmotionalStateData object containing:
-        - Emotional state name (e.g., "Happy", "Anxious", "Curious")
-        - Intensity level (Low, Medium, High)
-        - Associated brainwave pattern
-        - Neurotransmitter correlation
-        - Descriptive information
-
-        Returns None if emotion detection fails.
-
-    Raises:
-        Exception: If API call fails or response parsing encounters errors
-
-    Example:
-        >>> emotion = await detect_user_emotion("I'm so excited about this!", "user123")
-        >>> assert emotion.name == "Excited"
-        >>> assert emotion.intensity == EmotionalIntensity.HIGH
-    """
-
-    # Emotional states mapping (same as Aura's for consistency)
-    emotional_states = {
-        "Normal": ("Baseline state of calmness", "Alpha", "Serotonin"),
-        "Excited": ("Enthusiastic anticipation", "Beta", "Dopamine"),
-        "Happy": ("Pleased and content", "Beta", "Endorphin"),
-        "Sad": ("Sorrowful or unhappy", "Delta", "Serotonin"),
-        "Angry": ("Strong displeasure", "Theta", "Norepinephrine"),
-        "Joy": ("Intense happiness", "Gamma", "Oxytocin"),
-        "Peace": ("Tranquil and calm", "Theta", "GABA"),
-        "Curiosity": ("Strong desire to learn", "Beta", "Dopamine"),
-        "Friendliness": ("Kind and warm", "Alpha", "Endorphin"),
-        "Love": ("Deep affection", "Alpha", "Oxytocin"),
-        "Creativity": ("Inspired and inventive", "Gamma", "Dopamine"),
-        "Anxious": ("Worried or nervous", "Beta", "Cortisol"),
-        "Tired": ("Exhausted or fatigued", "Delta", "Melatonin"),
-    }
-
-    emotion_list = "\n".join(
-        [f"{name}: {desc}" for name, (desc, _, _) in emotional_states.items()]
-    )
-
-    prompt = f"""Analyze this user's message and identify their most prominent emotional state.
-Consider the tone, word choice, and context.
-
-Available emotions:
-{emotion_list}
-
-User message:
-{user_message}
-
-Output only the emotion name and intensity like: "Happy (Medium)" or "Curiosity (High)".
-If neutral, output "Normal (Medium)"."""
-
-    try:
-        result = client.models.generate_content(
-            model=os.getenv("AURA_MODEL", "gemini-2.5-flash"), contents=[prompt]
-        )
-
-        response_text = result.text.strip() if result.text is not None else ""
-
-        # Parse response like "Happy (Medium)"
-        match = re.match(r"^(.+?)\s*\((\w+)\)$", response_text)
-        if match:
-            emotion_name, intensity = match.groups()
-            emotion_name = emotion_name.strip()
-
-            if emotion_name in emotional_states:
-                desc, brainwave, neurotransmitter = emotional_states[emotion_name]
-                return EmotionalStateData(
-                    name=emotion_name,
-                    formula=f"{emotion_name}(x) = detected_from_user_input",
-                    components={
-                        "user_message": "Emotional state detected from user's message"
-                    },
-                    ntk_layer=f"{brainwave.lower()}-like_NTK",
-                    brainwave=brainwave,
-                    neurotransmitter=neurotransmitter,
-                    description=desc,
-                    intensity=(
-                        EmotionalIntensity(intensity.title())
-                        if intensity.title() in ["Low", "Medium", "High"]
-                        else EmotionalIntensity.MEDIUM
-                    ),
-                )
-
-        # Default fallback
-        desc, brainwave, neurotransmitter = emotional_states["Normal"]
-        return EmotionalStateData(
-            name="Normal",
-            formula="N(x) = baseline_state",
-            components={"routine": "No significant emotional triggers detected"},
-            ntk_layer="theta-like_NTK",
-            brainwave=brainwave,
-            neurotransmitter=neurotransmitter,
-            description=desc,
-            intensity=EmotionalIntensity.MEDIUM,
-        )
-
-    except Exception as e:
-        logger.error("❌ Failed to detect user emotion: %s", e)
-        return None
-
-
-async def detect_aura_emotion(
-    conversation_snippet: str, user_id: str
-) -> Optional[EmotionalStateData]:
-    """
-    Detect Aura's emotional state from conversation context using AI analysis.
-
-    Analyzes the conversational exchange to determine Aura's emotional response
-    and engagement level. This helps maintain emotional consistency and enables
-    adaptive emotional modeling throughout conversations.
-
-    Args:
-        conversation_snippet: The conversation context including user and Aura messages
-        user_id: Unique identifier for the user (for logging/context)
-
-    Returns:
-        EmotionalStateData object representing Aura's emotional state:
-        - Emotional state name (e.g., "Curious", "Supportive", "Analytical")
-        - Intensity level indicating engagement depth
-        - Neurological correlations for consistency
-        - Contextual description of emotional state
-
-        Returns None if emotion detection fails.
-
-    Raises:
-        Exception: If AI model call fails or response parsing errors occur
-
-    Note:
-        This function helps Aura maintain emotional continuity and provides
-        insights into AI emotional modeling for research and development.
-    """
-
-    # Emotional states mapping (condensed from frontend)
-    emotional_states = {
-        "Normal": ("Baseline state of calmness", "Alpha", "Serotonin"),
-        "Excited": ("Enthusiastic anticipation", "Beta", "Dopamine"),
-        "Happy": ("Pleased and content", "Beta", "Endorphin"),
-        "Sad": ("Sorrowful or unhappy", "Delta", "Serotonin"),
-        "Angry": ("Strong displeasure", "Theta", "Norepinephrine"),
-        "Joy": ("Intense happiness", "Gamma", "Oxytocin"),
-        "Peace": ("Tranquil and calm", "Theta", "GABA"),
-        "Curiosity": ("Strong desire to learn", "Beta", "Dopamine"),
-        "Friendliness": ("Kind and warm", "Alpha", "Endorphin"),
-        "Love": ("Deep affection", "Alpha", "Oxytocin"),
-        "Creativity": ("Inspired and inventive", "Gamma", "Dopamine"),
-    }
-
-    emotion_list = "\n".join(
-        [f"{name}: {desc}" for name, (desc, _, _) in emotional_states.items()]
-    )
-
-    prompt = f"""Analyze this conversation and identify Aura's most prominent emotional state.
-
-Available emotions:
-{emotion_list}
-
-Conversation:
-{conversation_snippet}
-
-Output only the emotion name and intensity like: "Happy (Medium)" or "Curiosity (High)".
-If neutral, output "Normal (Medium)"."""
-
-    try:
-        result = client.models.generate_content(
-            model=os.getenv("AURA_MODEL", "gemini-2.5-flash"), contents=[prompt]
-        )
-
-        response_text = result.text.strip() if result.text is not None else ""
-
-        # Parse response like "Happy (Medium)"
-        match = re.match(r"^(.+?)\s*\((\w+)\)$", response_text)
-        if match:
-            emotion_name, intensity = match.groups()
-            emotion_name = emotion_name.strip()
-
-            if emotion_name in emotional_states:
-                desc, brainwave, neurotransmitter = emotional_states[emotion_name]
-                return EmotionalStateData(
-                    name=emotion_name,
-                    formula=f"{emotion_name}(x) = detected_from_conversation",
-                    components={
-                        "conversation": "Emotional state detected from dialogue"
-                    },
-                    ntk_layer=f"{brainwave.lower()}-like_NTK",
-                    brainwave=brainwave,
-                    neurotransmitter=neurotransmitter,
-                    description=desc,
-                    intensity=(
-                        EmotionalIntensity(intensity.title())
-                        if intensity.title() in ["Low", "Medium", "High"]
-                        else EmotionalIntensity.MEDIUM
-                    ),
-                )
-
-        # Default fallback
-        desc, brainwave, neurotransmitter = emotional_states["Normal"]
-        return EmotionalStateData(
-            name="Normal",
-            formula="N(x) = baseline_state",
-            components={"routine": "No significant emotional triggers"},
-            ntk_layer="theta-like_NTK",
-            brainwave=brainwave,
-            neurotransmitter=neurotransmitter,
-            description=desc,
-            intensity=EmotionalIntensity.MEDIUM,
-        )
-
-    except Exception as e:
-        logger.error("❌ Failed to detect emotion: %s", e)
-        return None
-
-
-async def detect_aura_cognitive_focus(
-    conversation_snippet: str, user_id: str
-) -> Optional[CognitiveState]:
-    """
-    Detect Aura's cognitive focus using the ASEKE (Adaptive Socio-Emotional Knowledge Ecosystem) framework.
-
-    Analyzes conversation content to determine which ASEKE cognitive component
-    is most active during the interaction. This enables adaptive cognitive
-    resource allocation and provides insights into Aura's thinking patterns.
-
-    Args:
-        conversation_snippet: The conversation context for cognitive analysis
-        user_id: Unique identifier for the user (for logging/context)
-
-    Returns:
-        CognitiveState object containing:
-        - Primary ASEKE component focus (KS, CE, IS, KI, KP, ESA, SDA, Learning)
-        - Descriptive explanation of the cognitive focus
-        - Contextual information about the analysis
-        - Timestamp for temporal tracking
-
-        Returns None if cognitive focus detection fails.
-
-    ASEKE Components:
-        - KS: Knowledge Substrate (shared context)
-        - CE: Cognitive Energy (focus and effort)
-        - IS: Information Structures (ideas and concepts)
-        - KI: Knowledge Integration (learning connections)
-        - KP: Knowledge Propagation (information sharing)
-        - ESA: Emotional State Algorithms (emotional influence)
-        - SDA: Sociobiological Drives (social dynamics)
-
-    Raises:
-        Exception: If AI model analysis fails or component classification errors occur
-    """
-
-    aseke_components = {
-        "KS": "Knowledge Substrate - shared context and history",
-        "CE": "Cognitive Energy - focus and mental effort",
-        "IS": "Information Structures - ideas and concepts",
-        "KI": "Knowledge Integration - connecting new with existing understanding",
-        "KP": "Knowledge Propagation - sharing ideas and information",
-        "ESA": "Emotional State Algorithms - emotional influence on interaction",
-        "SDA": "Sociobiological Drives - social dynamics and trust",
-        "Learning": "General learning and information processing",
-    }
-
-    components_list = "\n".join(
-        [f"{code}: {desc}" for code, desc in aseke_components.items()]
-    )
-
-    prompt = f"""Analyze this conversation to identify Aura's primary cognitive focus using the ASEKE framework.
-
-ASEKE Components:
-{components_list}
-
-Conversation:
-{conversation_snippet}
-
-Output only the component code (e.g., "KI", "ESA", "Learning")."""
-
-    try:
-        result = client.models.generate_content(
-            model=os.getenv("AURA_MODEL", "gemini-2.5-flash"), contents=[prompt]
-        )
-
-        focus_code = result.text.strip() if result.text is not None else ""
-
-        if focus_code in aseke_components:
-            return CognitiveState(
-                focus=AsekeComponent(focus_code),
-                description=aseke_components[focus_code],
-                context="Detected from conversation analysis",
-            )
-        else:
-            return CognitiveState(
-                focus=AsekeComponent.LEARNING,
-                description=aseke_components["Learning"],
-                context="Default cognitive focus",
-            )
-
-    except Exception as e:
-        logger.error("❌ Failed to detect cognitive focus: %s", e)
-        return None
-
-
 # FastAPI application lifecycle and composition
 @dataclass(slots=True)
 class _LegacyRuntimeResources:
@@ -1591,7 +1239,9 @@ async def health_check(background_tasks: BackgroundTasks) -> Dict[str, Any]:
 
 @api_router.post("/conversation", response_model=ConversationResponse)
 async def process_conversation(
-    request: ConversationRequest, background_tasks: BackgroundTasks
+    request: ConversationRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
 ) -> ConversationResponse:
     """
     Process conversation with enhanced MCP function calling and robust error handling.
@@ -1814,20 +1464,27 @@ async def process_conversation(
                 logger.debug("⚠️ Autonomic analysis failed (non-critical): %s", e)
                 # Don't let autonomic system failures affect main conversation
 
+        application_runtime = http_request.app.state.runtime
+        analysis_generate = application_runtime.provider_runtime.generate
+
         # Process emotional state detection for both user and Aura
         user_emotional_state = await detect_user_emotion(
-            user_message=request.message, user_id=request.user_id
+            user_message=request.message,
+            user_id=request.user_id,
+            generate=analysis_generate,
         )
 
         emotional_state_data = await detect_aura_emotion(
             conversation_snippet=f"User: {request.message}\nAura: {aura_response}",
             user_id=request.user_id,
+            generate=analysis_generate,
         )
 
         # Process cognitive focus detection
         cognitive_state_data = await detect_aura_cognitive_focus(
             conversation_snippet=f"User: {request.message}\nAura: {aura_response}",
             user_id=request.user_id,
+            generate=analysis_generate,
         )
 
         # Create memory objects

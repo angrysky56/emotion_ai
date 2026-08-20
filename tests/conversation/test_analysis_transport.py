@@ -10,7 +10,6 @@ from collections.abc import Awaitable, Callable
 import pytest
 
 from aura_backend.providers.base import ProviderRequest, ProviderResult
-from aura_backend.providers.errors import ProviderErrorCode, ProviderFailure
 
 
 Generate = Callable[[ProviderRequest], Awaitable[ProviderResult]]
@@ -119,14 +118,7 @@ async def test_analysis_failure_returns_none_without_source_content_in_logs(
 
     source_sentinel = "raw-provider-error-SENTINEL"
     prompt_sentinel = "private-prompt-SENTINEL"
-    failure = ProviderFailure(
-        code=ProviderErrorCode.UNAVAILABLE,
-        provider="fake",
-        model="synthetic-model",
-        correlation_id="safe-correlation",
-    )
-    failure.__cause__ = RuntimeError(source_sentinel)
-    generate: Generate = _RecordingGenerate(failure)
+    generate: Generate = _RecordingGenerate(RuntimeError(source_sentinel))
     function = getattr(analysis, analysis_name)
 
     with caplog.at_level(logging.WARNING):
