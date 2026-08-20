@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import html
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -13,12 +15,11 @@ import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
-PLAN_PATH = (
+PHASE_DIRECTORY = (
     REPOSITORY_ROOT
     / ".planning"
     / "phases"
     / "02-provider-and-runtime-core"
-    / "02-18-PLAN.md"
 )
 VALIDATION_PATH = (
     REPOSITORY_ROOT
@@ -43,6 +44,61 @@ PINNED_ACTIONS = {
     "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
 }
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+EXPECTED_PLAN_NAMES = tuple(f"02-{number:02d}-PLAN.md" for number in range(1, 21))
+PLAN_TASK_ID = re.compile(r"<name>(?:Task )?(02-\d{2}-\d{2}):")
+AUTOMATED_BODY = re.compile(r"<automated>(.*?)</automated>", re.DOTALL)
+VERIFICATION_BODY = re.compile(r"<verification>(.*?)</verification>", re.DOTALL)
+BACKTICK_COMMAND = re.compile(r"`([^`\n]+)`")
+ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
+UV_RUN_OPTIONS_WITH_VALUES = {
+    "--allow-insecure-host",
+    "--cache-dir",
+    "--color",
+    "--config-file",
+    "--config-setting",
+    "--config-settings-package",
+    "--default-index",
+    "--directory",
+    "--env-file",
+    "--exclude-newer",
+    "--exclude-newer-package",
+    "--extra",
+    "--extra-index-url",
+    "--find-links",
+    "--group",
+    "--index",
+    "--index-strategy",
+    "--index-url",
+    "--keyring-provider",
+    "--link-mode",
+    "--no-binary-package",
+    "--no-build-isolation-package",
+    "--no-build-package",
+    "--no-editable-package",
+    "--no-extra",
+    "--no-group",
+    "--no-sources-package",
+    "--only-group",
+    "--package",
+    "--prerelease",
+    "--project",
+    "--python",
+    "--python-platform",
+    "--refresh-package",
+    "--reinstall-package",
+    "--resolution",
+    "--upgrade-group",
+    "--upgrade-package",
+    "--with",
+    "--with-editable",
+    "--with-requirements",
+    "-C",
+    "-P",
+    "-f",
+    "-i",
+    "-p",
+    "-w",
+}
 
 
 def _load_workflow() -> dict[str, Any]:
@@ -50,6 +106,235 @@ def _load_workflow() -> dict[str, Any]:
     document = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
     assert isinstance(document, dict)
     return document
+
+
+def _phase_plan_paths(directory: Path = PHASE_DIRECTORY) -> tuple[Path, ...]:
+    """Return the complete, unique Phase 2 plan inventory or fail closed."""
+    paths = tuple(sorted(directory.glob("02-*-PLAN.md")))
+    names = tuple(path.name for path in paths)
+    assert names == EXPECTED_PLAN_NAMES, (
+        f"Phase 2 plan inventory mismatch: expected {EXPECTED_PLAN_NAMES}, got {names}"
+    )
+    return paths
+
+
+def _plan_commands(document: str, *, source: str) -> tuple[str, ...]:
+    """Extract schema-defined executable fields, never ordinary plan prose."""
+    automated = tuple(
+        html.unescape(body).strip() for body in AUTOMATED_BODY.findall(document)
+    )
+    assert automated, f"{source}: no automated command surfaces"
+    assert all(automated), f"{source}: empty automated command surface"
+
+    verification_blocks = VERIFICATION_BODY.findall(document)
+    assert len(verification_blocks) == 1, (
+        f"{source}: expected one plan-level verification section"
+    )
+    commands = list(automated)
+    verification = verification_blocks[0]
+
+    for fenced in re.findall(
+        r"```(?:bash|sh|shell|powershell)?\s*\n(.*?)```",
+        verification,
+        re.DOTALL | re.IGNORECASE,
+    ):
+        command = html.unescape(fenced).strip()
+        assert command, f"{source}: empty verification code cell"
+        commands.append(command)
+
+    command_prefixes = ("", "red:", "green:", "docs green:", "run", "optional only:")
+    for line in verification.splitlines():
+        bullet = re.match(r"^\s*-\s*(.*?)`", line)
+        if bullet is None:
+            continue
+        prefix = bullet.group(1).strip().lower()
+        if not any(prefix == allowed or prefix.startswith(f"{allowed} ") for allowed in command_prefixes):
+            continue
+        for command in BACKTICK_COMMAND.findall(line):
+            decoded = html.unescape(command).strip()
+            assert decoded, f"{source}: empty verification list command"
+            commands.append(decoded)
+
+    return tuple(commands)
+
+
+def _validation_commands(document: str) -> tuple[tuple[str, str], ...]:
+    """Parse the task ID and command columns from the Phase 2 validation matrix."""
+    rows = [line for line in document.splitlines() if line.strip().startswith("|")]
+    header_index = next(
+        (
+            index
+            for index, row in enumerate(rows)
+            if "Task ID" in row and "Exact automated command" in row
+        ),
+        None,
+    )
+    assert header_index is not None, "validation matrix header is missing"
+    header = [cell.strip() for cell in rows[header_index].strip().strip("|").split("|")]
+    command_index = header.index("Exact automated command")
+    task_index = header.index("Task ID")
+
+    extracted: list[tuple[str, str]] = []
+    for row in rows[header_index + 2 :]:
+        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+        if len(cells) != len(header) or not re.fullmatch(r"02-\d{2}-\d{2}", cells[task_index]):
+            break
+        match = re.fullmatch(r"`(.+)`", cells[command_index])
+        assert match is not None, f"{cells[task_index]}: missing executable command"
+        extracted.append((cells[task_index], html.unescape(match.group(1)).strip()))
+
+    assert extracted, "validation matrix has no executable command rows"
+    task_ids = [task_id for task_id, _command in extracted]
+    assert len(task_ids) == len(set(task_ids)), "validation matrix has duplicate task IDs"
+    assert all(command for _task_id, command in extracted), (
+        "validation matrix contains an empty command"
+    )
+    return tuple(extracted)
+
+
+def _workflow_run_commands(workflow: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """Return every non-empty CI run scalar and require every job to own one."""
+    jobs = workflow.get("jobs")
+    assert isinstance(jobs, dict) and jobs, "workflow jobs are missing or empty"
+    extracted: list[tuple[str, str]] = []
+    for job_name, job in jobs.items():
+        assert isinstance(job, dict), f"{job_name}: job must be a mapping"
+        runs = _runs(job)
+        assert runs, f"{job_name}: job has no run blocks"
+        assert all(run.strip() for run in runs), f"{job_name}: empty run block"
+        extracted.extend((str(job_name), run) for run in runs)
+    assert extracted, "workflow has no executable run blocks"
+    return tuple(extracted)
+
+
+def _shell_segments(command: str) -> tuple[str, ...]:
+    """Split shell operators outside quotes after decoding stored representations."""
+    normalized = html.unescape(command)
+    normalized = re.sub(r"\\[ \t]*\r?\n", " ", normalized)
+    segments: list[str] = []
+    buffer: list[str] = []
+    quote: str | None = None
+    escaped = False
+    index = 0
+
+    def flush() -> None:
+        segment = "".join(buffer).strip()
+        buffer.clear()
+        if segment:
+            segments.append(segment)
+
+    while index < len(normalized):
+        character = normalized[index]
+        if escaped:
+            buffer.append(character)
+            escaped = False
+            index += 1
+            continue
+        if character == "\\" and quote != "'":
+            buffer.append(character)
+            escaped = True
+            index += 1
+            continue
+        if character in {"'", '"'}:
+            if quote is None:
+                quote = character
+            elif quote == character:
+                quote = None
+            buffer.append(character)
+            index += 1
+            continue
+        if quote is None and character in {";", "\n", "&", "|"}:
+            flush()
+            if character in {"&", "|"} and index + 1 < len(normalized):
+                if normalized[index + 1] == character:
+                    index += 1
+            index += 1
+            continue
+        buffer.append(character)
+        index += 1
+
+    assert quote is None and not escaped, "unbalanced shell quoting or escaping"
+    flush()
+    assert segments, "executable command contains no shell segments"
+    return tuple(segments)
+
+
+def _skip_assignments(tokens: list[str], index: int) -> int:
+    while index < len(tokens) and ASSIGNMENT.fullmatch(tokens[index]):
+        index += 1
+    return index
+
+
+def _uv_command_index(tokens: list[str], uv_index: int) -> int:
+    """Resolve the wrapped executable across uv global and run option variants."""
+    try:
+        run_index = tokens.index("run", uv_index + 1)
+    except ValueError as error:
+        raise AssertionError("uv executable surface is missing the run subcommand") from error
+
+    index = run_index + 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            index += 1
+            break
+        option_name = token.split("=", 1)[0]
+        if token.startswith("-"):
+            if option_name in UV_RUN_OPTIONS_WITH_VALUES and "=" not in token:
+                assert index + 1 < len(tokens), f"uv option {token} is missing its value"
+                index += 2
+            else:
+                index += 1
+            continue
+        break
+    assert index < len(tokens), "uv run surface is missing its executable"
+    return index
+
+
+def _resolved_command(segment: str) -> tuple[list[str], int]:
+    """Tokenize one shell segment and locate its actual executable token."""
+    try:
+        tokens = shlex.split(segment, comments=True, posix=True)
+    except ValueError as error:
+        raise AssertionError(f"unparseable shell segment: {segment!r}") from error
+    assert tokens, "empty shell segment"
+
+    index = 0
+    while index < len(tokens) and tokens[index] in {"!", "if", "then", "elif", "else", "do"}:
+        index += 1
+    index = _skip_assignments(tokens, index)
+    assert index < len(tokens), f"segment has no executable: {segment!r}"
+
+    if tokens[index] == "env":
+        index += 1
+        while index < len(tokens) and tokens[index].startswith("-"):
+            option = tokens[index]
+            index += 1
+            if option in {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}:
+                assert index < len(tokens), f"env option {option} is missing its value"
+                index += 1
+        index = _skip_assignments(tokens, index)
+        assert index < len(tokens), f"env surface has no executable: {segment!r}"
+
+    if tokens[index] == "uv" and "run" in tokens[index + 1 :]:
+        index = _uv_command_index(tokens, index)
+    return tokens, index
+
+
+def _pytest_console_violations(
+    surfaces: list[tuple[str, str]] | tuple[tuple[str, str], ...],
+) -> tuple[str, ...]:
+    """Return labels whose resolved executable is the pytest console script."""
+    violations: list[str] = []
+    for label, command in surfaces:
+        for segment in _shell_segments(command):
+            tokens, executable_index = _resolved_command(segment)
+            executable = tokens[executable_index]
+            if executable == "pytest":
+                violations.append(f"{label}: {segment}")
+            elif executable == "python" and tokens[executable_index + 1 : executable_index + 3] == ["-m", "pytest"]:
+                continue
+    return tuple(violations)
 
 
 def _steps(job: dict[str, Any]) -> list[dict[str, Any]]:
@@ -148,17 +433,144 @@ def test_required_python_lanes_install_and_run_from_the_uv_lock() -> None:
     assert _false_success_violations(workflow) == []
 
 
-def test_every_phase_18_pytest_command_uses_module_mode() -> None:
-    """Bare pytest cannot import Aura from this non-packaged repository."""
-    workflow = _load_workflow()
-    for job_name, job in workflow["jobs"].items():
-        for command in _runs(job):
-            if "pytest" in command:
-                assert "python -m pytest" in command, job_name
-
-    for path in (PLAN_PATH, VALIDATION_PATH):
+def test_phase2_pytest_commands_are_complete_parsed_and_module_safe() -> None:
+    """Every executable Phase 2 command surface is present and import-safe."""
+    plan_surfaces: list[tuple[str, str]] = []
+    planned_task_ids: list[str] = []
+    for path in _phase_plan_paths():
         document = path.read_text(encoding="utf-8")
-        assert "uv run --locked --no-sync pytest" not in document, path
+        commands = _plan_commands(document, source=path.name)
+        plan_surfaces.extend((path.name, command) for command in commands)
+        planned_task_ids.extend(PLAN_TASK_ID.findall(document))
+
+    validation_document = VALIDATION_PATH.read_text(encoding="utf-8")
+    validation_rows = _validation_commands(validation_document)
+    validation_task_ids = [task_id for task_id, _command in validation_rows]
+    assert len(planned_task_ids) == len(set(planned_task_ids))
+    assert set(validation_task_ids) == set(planned_task_ids)
+
+    workflow_surfaces = _workflow_run_commands(_load_workflow())
+    all_surfaces = (
+        plan_surfaces
+        + [("02-VALIDATION.md", command) for _task_id, command in validation_rows]
+        + [(f"ci.yml:{job}", command) for job, command in workflow_surfaces]
+    )
+    assert _pytest_console_violations(all_surfaces) == ()
+
+
+def test_plan_02_17_has_exactly_three_corrected_pytest_invocations() -> None:
+    document = (PHASE_DIRECTORY / "02-17-PLAN.md").read_text(encoding="utf-8")
+    decoded = html.unescape(document)
+    exact = (
+        "uv run --locked --no-sync python -m pytest "
+        "tests/test_node_dependency_contract.py -q"
+    )
+    automated = tuple(
+        html.unescape(body).strip() for body in AUTOMATED_BODY.findall(document)
+    )
+
+    assert decoded.count(exact) == 3
+    assert automated == (
+        exact,
+        f"{exact} && npm run typecheck:frontend && npm run build",
+    )
+    assert "uv run --locked --no-sync pytest" not in decoded
+
+
+def test_shell_parser_rejects_console_pytest_across_boundaries_and_uv_flags() -> None:
+    invalid = (
+        "pytest tests -q",
+        "uv run pytest tests -q",
+        "uv --quiet run --locked --no-sync pytest tests -q",
+        "python -m pytest tests -q && uv run --isolated pytest tests/other.py",
+        "python -m pytest tests -q &amp;&amp; pytest tests/other.py",
+        "python -m pytest tests -q; uv run -q pytest tests/other.py",
+        "python -m pytest tests -q\nuv run --offline pytest tests/other.py",
+        "python -m pytest tests -q | pytest tests/other.py",
+    )
+    for command in invalid:
+        assert _pytest_console_violations((("fixture", command),)), command
+
+
+def test_shell_parser_accepts_module_mode_and_ignores_pytest_arguments() -> None:
+    valid = (
+        "python -m pytest tests -q",
+        "AURA_TEST=1 python -m pytest tests -q",
+        "env -u TOKEN AURA_TEST=1 python -m pytest tests -q",
+        "uv run --locked --no-sync python -m pytest tests -q",
+        "uv --quiet run --python 3.12 --with pytest python -m pytest tests -q",
+        "echo pytest",
+        "python scripts/check_name.py pytest",
+        "touch pytest",
+        "echo pytest-results.xml",
+        "uv run --locked echo pytest",
+    )
+    for command in valid:
+        assert _pytest_console_violations((("fixture", command),)) == (), command
+
+
+def test_shell_parser_fails_closed_on_unbalanced_or_empty_commands() -> None:
+    for command in ("", "python -m pytest 'tests"):
+        try:
+            _pytest_console_violations((("fixture", command),))
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f"expected fail-closed parse for {command!r}")
+
+
+def test_plan_extraction_ignores_explanatory_pytest_prose() -> None:
+    document = """
+<task><name>02-99-01: fixture</name>
+<verify><automated>python -m pytest tests -q</automated></verify></task>
+<verification>
+This explanatory prose mentions pytest and `pytest` but is not a command-form
+code cell or list entry.
+</verification>
+"""
+    assert _plan_commands(document, source="fixture") == (
+        "python -m pytest tests -q",
+    )
+
+
+def test_command_surface_discovery_fails_closed(tmp_path: Path) -> None:
+    for number in range(1, 20):
+        (tmp_path / f"02-{number:02d}-PLAN.md").write_text(
+            "<automated>python -m pytest tests</automated>", encoding="utf-8"
+        )
+    try:
+        _phase_plan_paths(tmp_path)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("missing Phase 2 plan was accepted")
+
+    for document in (
+        "<verification></verification>",
+        "<automated> </automated><verification></verification>",
+    ):
+        try:
+            _plan_commands(document, source="fixture")
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("missing or empty plan command surface was accepted")
+
+    for document in ("", "| Task ID | Exact automated command |\n|---|---|"):
+        try:
+            _validation_commands(document)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("missing or empty validation matrix was accepted")
+
+    for workflow in ({}, {"jobs": {}}, {"jobs": {"empty": {"steps": []}}}):
+        try:
+            _workflow_run_commands(workflow)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("missing or empty CI executable surface was accepted")
 
 
 def test_node_lanes_use_clean_installs_before_named_local_scripts() -> None:
