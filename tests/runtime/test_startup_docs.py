@@ -24,6 +24,13 @@ CANONICAL_RUNTIME_COMMANDS = (
     "uv run --locked --no-sync python -m aura_backend.runtime serve",
 )
 CANONICAL_SETUP_COMMANDS = ("uv sync --locked", "npm ci")
+OPTIONAL_SETUP_COMMANDS = {
+    "aura-optional-setup-command:mcp": "uv sync --locked --extra mcp",
+    "aura-optional-setup-command:gemini": (
+        "uv sync --locked --extra provider-gemini"
+    ),
+    "aura-optional-setup-command:memvid": "uv sync --locked --extra memvid",
+}
 
 
 def _startup_section(path: Path) -> str:
@@ -160,6 +167,64 @@ def test_env_example_is_parsed_as_local_ollama_on_loopback() -> None:
     assert settings.provider.model == "llama3.1"
     assert settings.provider.api_key is None
     assert settings.provider.base_url == "http://127.0.0.1:11434/v1"
+
+
+def test_env_example_keeps_every_optional_runtime_stage_inactive() -> None:
+    assignments = _example_assignments(include_commented=False)
+    active = dict(assignments)
+
+    for key in ("AURA_MCP_ENABLED", "AURA_MEMVID_ENABLED", "AUTONOMIC_ENABLED"):
+        assert assignments.count((key, "false")) == 1
+        assert active[key] == "false"
+
+
+def test_startup_guide_keeps_base_setup_sufficient_and_optional_extras_explicit() -> None:
+    section = _startup_section(STARTUP_GUIDE)
+
+    assert _marked_commands(section, "aura-setup-command") == (
+        CANONICAL_SETUP_COMMANDS
+    )
+    for marker, command in OPTIONAL_SETUP_COMMANDS.items():
+        assert _marked_commands(section, marker) == (command,)
+
+    assert "base `uv sync --locked` is sufficient" in section
+    assert "Preflight and serve never install or synchronize dependencies" in section
+    for runtime_command in CANONICAL_RUNTIME_COMMANDS:
+        assert runtime_command in section
+
+
+def test_startup_guide_names_exact_optional_activation_paths() -> None:
+    section = _startup_section(STARTUP_GUIDE)
+    required = (
+        "AURA_MCP_ENABLED=true",
+        "AURA_MEMVID_ENABLED=true",
+        "AUTONOMIC_ENABLED=true",
+        "AURA_DEFAULT_PROVIDER=gemini",
+        "GEMINI_API_KEY",
+        "preserves the explicitly selected provider",
+    )
+    for value in required:
+        assert value in section
+
+    assert "Autonomic has no separate dependency extra" in section
+    assert "no sign-in" in section
+    assert "127.0.0.1" in section
+
+
+def test_optional_failure_guidance_is_redacted_and_extra_specific() -> None:
+    section = _startup_section(STARTUP_GUIDE)
+
+    assert "optional_resource_failed" in section
+    for resource, extra in (
+        ("mcp", "uv sync --locked --extra mcp"),
+        ("gemini_bridge", "uv sync --locked --extra provider-gemini"),
+        ("memvid", "uv sync --locked --extra memvid"),
+        ("autonomic", "no separate dependency extra"),
+    ):
+        assert f"`{resource}`" in section
+        assert extra in section
+
+    assert "never includes raw exception text, credentials, endpoints, prompts, tool payloads, or response bodies" in section
 
 
 def test_env_example_contains_only_obvious_non_secret_key_sentinels() -> None:
