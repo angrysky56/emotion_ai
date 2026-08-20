@@ -218,6 +218,9 @@ def _install_route_collaborators(
     monkeypatch: pytest.MonkeyPatch,
     persistence: _FakePersistence,
 ) -> None:
+    monkeypatch.setenv("IMMEDIATE_PERSISTENCE_ENABLED", "true")
+    monkeypatch.setenv("PERSISTENCE_TIMEOUT", "4.25")
+    monkeypatch.setenv("SESSION_RECOVERY_ENABLED", "true")
     monkeypatch.setattr(main, "provider", _ForbiddenLegacySurface())
     monkeypatch.setattr(main, "client", _ForbiddenLegacySurface())
     monkeypatch.setattr(main, "mcp_gemini_bridge", _ForbiddenLegacySurface())

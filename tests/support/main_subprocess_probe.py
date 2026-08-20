@@ -379,36 +379,58 @@ def _install_route_fakes(main: Any, scenario: str) -> dict[str, Any]:
     }
 
     class FakeProvider:
-        async def generate_response(
-            self,
-            *,
-            messages: list[Any],
-            system_instruction: str | None,
-            **_kwargs: Any,
-        ) -> Any:
-            from aura_backend.providers.base import ProviderResponse
+        async def generate(self, request: Any) -> Any:
+            from aura_backend.providers.base import ProviderResult
+            from aura_backend.providers.errors import (
+                ProviderErrorCode,
+                ProviderFailure,
+            )
 
             calls["provider"] += 1
             calls["provider_input"] = {
-                "message_count": len(messages),
-                "system_instruction_nonempty": bool(system_instruction),
+                "message_count": len(request.messages),
+                "system_instruction_nonempty": bool(request.system_instruction),
                 "user_message_present": any(
                     message.role == "user"
                     and message.content == "A deterministic local boundary probe"
-                    for message in messages
+                    for message in request.messages
                 ),
             }
             if scenario == "provider_error":
-                return ProviderResponse(
-                    content="", error="synthetic provider failure"
+                raise ProviderFailure(
+                    code=ProviderErrorCode.UNAVAILABLE,
+                    provider="fake",
+                    model="synthetic-model",
                 )
             if scenario == "provider_empty":
-                return ProviderResponse(content="")
-            return ProviderResponse(content="Synthetic local reply.")
+                return object()
+            return ProviderResult(content="Synthetic local reply.")
+
+        async def stream(self, _request: Any) -> Any:
+            raise AssertionError("non-streaming probe must not call stream")
 
         async def clear_session(self, _session_id: str) -> None:
             calls["provider_clear_session"] += 1
             return None
+
+        async def health(self) -> Any:
+            raise AssertionError("conversation probe must not call provider health")
+
+        async def aclose(self) -> None:
+            return None
+
+    class FakeApplicationRuntime:
+        def __init__(self, provider_runtime: Any, tool_catalog: Any) -> None:
+            self.provider_runtime = provider_runtime
+            self._resources = types.SimpleNamespace(
+                mcp_router=None,
+                tool_catalog=tool_catalog,
+            )
+
+        def resource(self, name: str) -> Any:
+            if name != "legacy_services":
+                raise LookupError(name)
+            return self._resources
 
     class FakeFileSystem:
         async def load_user_profile(self, _user_id: str) -> dict[str, str]:
@@ -513,7 +535,15 @@ def _install_route_fakes(main: Any, scenario: str) -> dict[str, Any]:
             context="ASGI probe",
         )
 
-    main.provider = FakeProvider()
+    from aura_backend.providers.runtime import ProviderRuntime
+    from aura_backend.providers.tools import ToolCatalog
+
+    selected_runtime = ProviderRuntime(FakeProvider(), timeout_seconds=1.0)
+    main.app.state.runtime = FakeApplicationRuntime(
+        selected_runtime,
+        ToolCatalog(()),
+    )
+    main.provider = None
     main.aura_file_system = FakeFileSystem()
     main.conversation_persistence = FakePersistence()
     main.vector_db = None

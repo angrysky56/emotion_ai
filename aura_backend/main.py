@@ -59,7 +59,18 @@ from aura_backend.conversation import (  # noqa: E402
     detect_aura_emotion,
     detect_user_emotion,
 )
-from aura_backend.providers.base import BaseProvider, Message  # noqa: E402
+from aura_backend.providers.base import (  # noqa: E402
+    BaseProvider,
+    Message,
+    ProviderMessage,
+    ProviderRequest,
+    ProviderResult,
+)
+from aura_backend.providers.errors import (  # noqa: E402
+    ProviderErrorCode,
+    ProviderFailure,
+)
+from aura_backend.providers.tools import ToolCatalog  # noqa: E402
 from aura_backend.runtime_security import (  # noqa: E402
     StoragePathError,
     allowed_browser_origins,
@@ -837,6 +848,7 @@ class _LegacyRuntimeResources:
     """Resources still consumed through compatibility globals during Phase 2."""
 
     mcp_router: Any
+    tool_catalog: ToolCatalog | None = None
 
 
 def _clear_runtime_aliases() -> None:
@@ -986,19 +998,34 @@ def _build_application_runtime() -> Any:
     load_dotenv()
     settings = RuntimeSettings.from_mapping(dict(os.environ))
     thinking_budget = settings.provider.thinking_budget
+    tool_executor: Any = None
+
+    async def start_legacy_services() -> Any:
+        """Start legacy resources and attach their neutral provider tool catalog."""
+        nonlocal tool_executor
+
+        started = await _start_legacy_resources()
+        try:
+            catalog = await get_provider_tool_catalog(
+                mcp_client=_mcp_provider_client,
+                internal_tools=aura_internal_tools,
+            )
+            tool_executor = get_provider_tool_executor(
+                catalog,
+                mcp_client=_mcp_provider_client,
+                internal_tools=aura_internal_tools,
+            )
+            started.value.tool_catalog = catalog
+            return started
+        except BaseException:
+            await started.close()
+            raise
 
     async def start_provider() -> ProviderRuntime:
         global provider, thinking_processor, client
 
-        catalog = await get_provider_tool_catalog(
-            mcp_client=_mcp_provider_client,
-            internal_tools=aura_internal_tools,
-        )
-        tool_executor = get_provider_tool_executor(
-            catalog,
-            mcp_client=_mcp_provider_client,
-            internal_tools=aura_internal_tools,
-        )
+        if tool_executor is None:
+            raise RuntimeError("provider tool executor is unavailable")
         selected = ModelProviderFactory.create_provider(
             settings.provider,
             tool_executor=tool_executor,
@@ -1017,7 +1044,7 @@ def _build_application_runtime() -> Any:
         resources=(
             ResourceFactory(
                 name="legacy_services",
-                start=_start_legacy_resources,
+                start=start_legacy_services,
                 required=True,
             ),
         ),
@@ -1237,8 +1264,7 @@ async def health_check(background_tasks: BackgroundTasks) -> Dict[str, Any]:
         }
 
 
-@api_router.post("/conversation", response_model=ConversationResponse)
-async def process_conversation(
+async def _legacy_process_conversation(
     request: ConversationRequest,
     background_tasks: BackgroundTasks,
     http_request: Request,
@@ -1741,6 +1767,334 @@ async def process_conversation(
                 )
             ),
         )
+
+
+def _provider_tool_info(catalog: ToolCatalog) -> list[dict[str, str]]:
+    """Return neutral tool descriptions without inspecting provider bridge state."""
+    return [
+        {
+            "name": registration.original_name,
+            "clean_name": registration.provider_name,
+            "description": registration.definition.description,
+            "server": registration.server,
+        }
+        for registration in catalog.registrations
+    ]
+
+
+async def _persist_conversation_exchange(
+    exchange: ConversationExchange,
+    background_tasks: BackgroundTasks,
+) -> None:
+    """Preserve the characterized immediate write and one degraded retry."""
+    persistence_success = False
+    immediate_enabled = (
+        os.getenv("IMMEDIATE_PERSISTENCE_ENABLED", "true").lower() == "true"
+    )
+    persistence_timeout = float(os.getenv("PERSISTENCE_TIMEOUT", "15.0"))
+
+    if conversation_persistence and immediate_enabled:
+        try:
+            result = (
+                await conversation_persistence.persist_conversation_exchange_immediate(
+                    exchange,
+                    update_profile=True,
+                    timeout=persistence_timeout,
+                )
+            )
+            persistence_success = bool(result.get("success"))
+            if persistence_success:
+                logger.info("Conversation persisted immediately")
+            else:
+                logger.warning("Immediate conversation persistence degraded")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error("Immediate conversation persistence failed")
+    elif conversation_persistence:
+        try:
+            result = await conversation_persistence.persist_conversation_exchange(exchange)
+            persistence_success = bool(result.get("success"))
+            if persistence_success:
+                logger.info("Conversation persisted")
+            else:
+                logger.warning("Conversation persistence degraded")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error("Conversation persistence failed")
+
+    async def retry_once() -> None:
+        if conversation_persistence is None:
+            return
+        try:
+            await asyncio.sleep(1.0)
+            await conversation_persistence.persist_conversation_exchange(exchange)
+            logger.info("Background conversation persistence attempted")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error("Background conversation persistence failed")
+
+    if not persistence_success:
+        background_tasks.add_task(retry_once)
+
+
+async def _conversation_fallback(
+    *,
+    provider_runtime: Any,
+    session_id: str,
+    session_key: str | None,
+    recovery_enabled: bool,
+) -> ConversationResponse:
+    """Return the Phase 1 fallback after one content-free session recovery."""
+    fallback_response = "I'm having a bit of trouble connecting to my reasoning modules right now, but I'm still here. Could you try your message again? I've cleared the session to help us get back on track."
+
+    if recovery_enabled and session_key:
+        try:
+            if provider_runtime is not None:
+                await provider_runtime.clear_session(session_key)
+            active_chat_sessions.pop(session_key, None)
+            logger.info("Failed conversation session cleared")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error("Failed conversation session recovery failed")
+            fallback_response = "I encountered a critical error and couldn't recover the session. Please try refreshing or starting a new conversation."
+
+    return ConversationResponse(
+        response=fallback_response,
+        session_id=session_id,
+        emotional_state=asdict(
+            EmotionalStateData(
+                name="Concerned",
+                formula="C(E) + I(S)",
+                components={"CE": "High", "IS": "Medium"},
+                ntk_layer="L3",
+                brainwave="Gamma",
+                neurotransmitter="Cortisol",
+                description="System encountered an error during processing",
+            )
+        ),
+        cognitive_state=asdict(
+            CognitiveState(
+                focus=AsekeComponent.CE,
+                description="Error recovery and session reset",
+                context="System failure",
+            )
+        ),
+    )
+
+
+@api_router.post("/conversation", response_model=ConversationResponse)
+async def process_conversation(
+    request: ConversationRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+) -> ConversationResponse:
+    """Run one provider-neutral conversation while preserving public behavior."""
+    session_id = request.session_id or str(uuid.uuid4())
+    session_key = f"{request.user_id}_{session_id}"
+    recovery_enabled = (
+        os.getenv("SESSION_RECOVERY_ENABLED", "true").lower() == "true"
+    )
+    provider_runtime: Any = None
+    stage = "runtime"
+
+    try:
+        application_runtime = http_request.app.state.runtime
+        if application_runtime is None:
+            raise RuntimeError("application runtime is unavailable")
+        provider_runtime = application_runtime.provider_runtime
+        runtime_resources = application_runtime.resource("legacy_services")
+        tool_catalog = getattr(runtime_resources, "tool_catalog", None)
+        if not isinstance(tool_catalog, ToolCatalog):
+            raise ProviderFailure(
+                code=ProviderErrorCode.UNAVAILABLE,
+                provider="tools",
+                retryable=False,
+            )
+
+        stage = "context"
+        user_profile = None
+        if aura_file_system:
+            user_profile = await aura_file_system.load_user_profile(request.user_id)
+
+        memory_context = ""
+        if len(request.message.split()) > 2 and conversation_persistence:
+            try:
+                relevant_memories = (
+                    await conversation_persistence.safe_search_conversations(
+                        query=request.message,
+                        user_id=request.user_id,
+                        n_results=5,
+                    )
+                )
+                memory_context = "\n".join(
+                    f"Previous context: {memory['content']}"
+                    for memory in relevant_memories[:3]
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.debug("Memory context retrieval unavailable")
+
+        stage = "prompt"
+        system_instruction = get_aura_system_instruction(
+            user_name=user_profile.get("name") if user_profile else request.user_id,
+            memory_context=memory_context,
+            available_tools=_provider_tool_info(tool_catalog),
+        )
+        correlation_id = uuid.uuid4().hex
+        stage = "provider"
+        provider_result = await provider_runtime.generate(
+            ProviderRequest(
+                messages=(ProviderMessage(role="user", content=request.message),),
+                system_instruction=system_instruction,
+                tools=tool_catalog.definitions,
+                temperature=0.7,
+                session_id=session_key,
+                correlation_id=correlation_id,
+            )
+        )
+        if not isinstance(provider_result, ProviderResult):
+            raise ProviderFailure(
+                code=ProviderErrorCode.MALFORMED_RESPONSE,
+                correlation_id=correlation_id,
+            )
+        aura_response = provider_result.content
+        if not aura_response.strip():
+            raise ProviderFailure(
+                code=ProviderErrorCode.MALFORMED_RESPONSE,
+                correlation_id=correlation_id,
+            )
+        active_chat_sessions[session_key] = True
+
+        stage = "autonomic"
+        if autonomic_system and autonomic_system._running:
+            try:
+                autonomic_tasks = await _analyze_conversation_for_autonomic_tasks(
+                    user_message=request.message,
+                    aura_response=aura_response,
+                    user_id=request.user_id,
+                    session_id=session_id,
+                )
+                for task_description, task_payload in autonomic_tasks:
+                    await autonomic_system.submit_task(
+                        description=task_description,
+                        payload=task_payload,
+                        user_id=request.user_id,
+                        session_id=session_id,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.debug("Autonomic conversation analysis unavailable")
+
+        stage = "analysis"
+        user_emotional_state = await detect_user_emotion(
+            user_message=request.message,
+            user_id=request.user_id,
+            generate=provider_runtime.generate,
+        )
+        conversation_snippet = f"User: {request.message}\nAura: {aura_response}"
+        emotional_state_data = await detect_aura_emotion(
+            conversation_snippet=conversation_snippet,
+            user_id=request.user_id,
+            generate=provider_runtime.generate,
+        )
+        cognitive_state_data = await detect_aura_cognitive_focus(
+            conversation_snippet=conversation_snippet,
+            user_id=request.user_id,
+            generate=provider_runtime.generate,
+        )
+
+        stage = "exchange"
+        user_memory = ConversationMemory(
+            user_id=request.user_id,
+            message=request.message,
+            sender="user",
+            emotional_state=user_emotional_state,
+            session_id=session_id,
+        )
+        aura_memory = ConversationMemory(
+            user_id=request.user_id,
+            message=aura_response,
+            sender="aura",
+            emotional_state=emotional_state_data,
+            cognitive_state=cognitive_state_data,
+            session_id=session_id,
+        )
+        exchange = ConversationExchange(
+            user_memory=user_memory,
+            ai_memory=aura_memory,
+            user_emotional_state=user_emotional_state,
+            ai_emotional_state=emotional_state_data,
+            ai_cognitive_state=cognitive_state_data,
+            session_id=session_id,
+        )
+        stage = "persistence"
+        await _persist_conversation_exchange(exchange, background_tasks)
+
+        stage = "response"
+        logger.info("Conversation processed")
+        return ConversationResponse(
+            response=aura_response,
+            emotional_state={
+                "name": emotional_state_data.name if emotional_state_data else "Normal",
+                "intensity": (
+                    emotional_state_data.intensity.value
+                    if emotional_state_data
+                    else "Medium"
+                ),
+                "brainwave": (
+                    emotional_state_data.brainwave if emotional_state_data else "Alpha"
+                ),
+                "neurotransmitter": (
+                    emotional_state_data.neurotransmitter
+                    if emotional_state_data
+                    else "Serotonin"
+                ),
+            },
+            cognitive_state={
+                "focus": (
+                    cognitive_state_data.focus.value
+                    if cognitive_state_data
+                    else "Learning"
+                ),
+                "description": (
+                    cognitive_state_data.description
+                    if cognitive_state_data
+                    else "Processing user input"
+                ),
+            },
+            session_id=session_id,
+            thinking_content=provider_result.reflection_summary,
+            thinking_metrics=None,
+            has_thinking=bool(provider_result.reflection_summary),
+        )
+    except asyncio.CancelledError:
+        active_chat_sessions.pop(session_key, None)
+        raise
+    except ProviderFailure as failure:
+        logger.warning(
+            "Conversation provider failure code=%s correlation_id=%s",
+            failure.code.value,
+            failure.correlation_id,
+        )
+    except Exception as error:
+        logger.error(
+            "Conversation processing failed stage=%s code=%s",
+            stage,
+            type(error).__name__,
+        )
+
+    return await _conversation_fallback(
+        provider_runtime=provider_runtime,
+        session_id=session_id,
+        session_key=session_key,
+        recovery_enabled=recovery_enabled,
+    )
 
 
 # Redundant session management removed as it's now handled by the Model Provider
