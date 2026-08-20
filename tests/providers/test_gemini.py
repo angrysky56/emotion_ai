@@ -409,3 +409,174 @@ async def test_adapter_close_is_async_and_idempotent() -> None:
     await provider.aclose()
 
     assert client.aio.close_calls == 1
+
+
+class AwaitableSend:
+    """Tripwire that exposes its result only when actually awaited."""
+
+    def __init__(self, outcome: object, owner: "AsyncOnlyThinkingChat") -> None:
+        self._outcome = outcome
+        self._owner = owner
+
+    def __await__(self):  # type: ignore[no-untyped-def]
+        async def resolve() -> object:
+            self._owner.await_count += 1
+            if isinstance(self._outcome, BaseException):
+                raise self._outcome
+            return self._outcome
+
+        return resolve().__await__()
+
+    @property
+    def candidates(self) -> object:
+        raise AssertionError("thinking chat result was inspected before await")
+
+
+class AsyncOnlyThinkingChat:
+    def __init__(self, outcomes: list[object]) -> None:
+        self._outcomes = outcomes
+        self.messages: list[object] = []
+        self.await_count = 0
+
+    def send_message(self, message: object) -> AwaitableSend:
+        self.messages.append(message)
+        return AwaitableSend(self._outcomes.pop(0), self)
+
+
+@pytest.mark.asyncio
+async def test_thinking_processor_awaits_send_and_never_exposes_raw_thoughts() -> None:
+    from aura_backend.thinking_processor import ThinkingProcessor
+
+    chat = AsyncOnlyThinkingChat(
+        [_response(_part("hidden-thought-SENTINEL", thought=True), _part("safe answer"))]
+    )
+    result = await ThinkingProcessor(object()).process_message_with_thinking(
+        chat,
+        "private message",
+        "private-user",
+        include_thinking_in_response=True,
+    )
+
+    assert chat.await_count == 1
+    assert result.answer == "safe answer"
+    assert result.thoughts == "Internal reasoning was used."
+    assert result.has_thinking is True
+    assert "hidden-thought-SENTINEL" not in f"{result!r}"
+
+
+@pytest.mark.asyncio
+async def test_thinking_malformed_response_is_a_typed_failure() -> None:
+    from aura_backend.thinking_processor import ThinkingProcessor
+
+    chat = AsyncOnlyThinkingChat([SimpleNamespace(candidates=[])])
+    with pytest.raises(ProviderFailure) as captured:
+        await ThinkingProcessor(object()).process_message_with_thinking(
+            chat,
+            "private message",
+            "private-user",
+        )
+
+    assert captured.value.code is ProviderErrorCode.MALFORMED_RESPONSE
+
+
+@pytest.mark.asyncio
+async def test_thinking_tool_follow_up_is_awaited_and_normalized() -> None:
+    from aura_backend.thinking_processor import ThinkingProcessor
+
+    call = SimpleNamespace(name="lookup", args={"query": "private"})
+    chat = AsyncOnlyThinkingChat(
+        [_response(_part(function_call=call)), _response(_part("tool answer"))]
+    )
+
+    class Bridge:
+        async def execute_function_call(self, function_call: object, user_id: str) -> object:
+            assert function_call is call
+            assert user_id == "private-user"
+            return SimpleNamespace(success=True, result={"found": True})
+
+    result = await ThinkingProcessor(object()).process_with_function_calls_and_thinking(
+        chat,
+        "private message",
+        "private-user",
+        mcp_bridge=Bridge(),
+    )
+
+    assert chat.await_count == 2
+    assert result.answer == "tool answer"
+    assert result.thoughts == ""
+    follow_up = chat.messages[1]
+    assert isinstance(follow_up, list)
+    assert follow_up[0]["function_response"]["name"] == "lookup"
+
+
+@pytest.mark.asyncio
+async def test_thinking_tool_failure_is_typed_and_redacted() -> None:
+    from aura_backend.thinking_processor import ThinkingProcessor
+
+    call = SimpleNamespace(name="lookup", args={})
+    chat = AsyncOnlyThinkingChat([_response(_part(function_call=call))])
+
+    class Bridge:
+        async def execute_function_call(self, _call: object, _user_id: str) -> object:
+            return SimpleNamespace(success=False, error="exception-SENTINEL")
+
+    with pytest.raises(ProviderFailure) as captured:
+        await ThinkingProcessor(object()).process_with_function_calls_and_thinking(
+            chat,
+            "private message",
+            "private-user",
+            mcp_bridge=Bridge(),
+        )
+
+    assert captured.value.code is ProviderErrorCode.UNAVAILABLE
+    assert "SENTINEL" not in f"{captured.value!s} {captured.value!r}"
+
+
+@pytest.mark.asyncio
+async def test_thinking_cancellation_is_re_raised_without_fallback() -> None:
+    from aura_backend.thinking_processor import ThinkingProcessor
+
+    chat = AsyncOnlyThinkingChat([asyncio.CancelledError()])
+    with pytest.raises(asyncio.CancelledError):
+        await ThinkingProcessor(object()).process_message_with_thinking(
+            chat,
+            "private message",
+            "private-user",
+        )
+
+
+def test_thinking_async_chat_factory_uses_only_client_aio() -> None:
+    from aura_backend.thinking_processor import create_thinking_enabled_chat
+
+    calls: list[dict[str, object]] = []
+    async_chat = object()
+
+    class AsyncChats:
+        def create(self, **kwargs: object) -> object:
+            calls.append(dict(kwargs))
+            return async_chat
+
+    class RootClient:
+        aio = SimpleNamespace(chats=AsyncChats())
+
+        @property
+        def chats(self) -> object:
+            raise AssertionError("synchronous client.chats was touched")
+
+    created = create_thinking_enabled_chat(
+        RootClient(),
+        "synthetic-model",
+        "private system instruction",
+        thinking_budget=32,
+    )
+
+    assert created is async_chat
+    assert calls[0]["model"] == "synthetic-model"
+    assert calls[0]["config"]["thinking_config"]["thinking_budget"] == 32
+
+
+def test_thinking_module_import_is_optional_sdk_safe() -> None:
+    module = __import__("aura_backend.thinking_processor", fromlist=["*"])
+
+    assert "genai" not in vars(module)
+    assert "types" not in vars(module)
