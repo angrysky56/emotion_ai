@@ -1244,8 +1244,9 @@ async def root() -> Dict[str, Any]:
 
 
 def _health_correlation_id(request: Request) -> str:
-    """Use a safe request identifier or generate a content-free local one."""
-    return request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    """Generate a content-free identifier without reflecting request headers."""
+    del request
+    return uuid.uuid4().hex
 
 
 def _cached_health_payload(request: Request) -> dict[str, Any]:

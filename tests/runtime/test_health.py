@@ -335,7 +335,8 @@ def test_live_is_process_local_and_ready_is_unavailable_before_lifespan() -> Non
     assert live.status_code == 200
     assert live.json()["status"] == "live"
     assert live.json()["live"] is True
-    assert live.json()["correlation_id"] == "live-request"
+    assert live.json()["correlation_id"] != "live-request"
+    assert len(live.json()["correlation_id"]) == 32
     assert ready.status_code == 503
     assert ready.json()["ready"] is False
     assert ready.json()["status"] == "not_run"
