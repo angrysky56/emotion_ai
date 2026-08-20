@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import subprocess
 import sys
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
