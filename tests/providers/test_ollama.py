@@ -187,6 +187,26 @@ async def test_ollama_stream_is_incremental_and_partial_failure_never_completes(
 
 
 @pytest.mark.asyncio
+async def test_ollama_resource_finish_is_typed_and_never_completed() -> None:
+    from aura_backend.providers.ollama import OllamaProvider
+
+    upstream = FakeStream([_chunk("bounded partial", finish_reason="length")])
+    provider = OllamaProvider(
+        settings=_settings(),
+        client=_client(SimpleNamespace(data=[]), [upstream]),
+    )
+    observed: list[object] = []
+
+    with pytest.raises(ProviderFailure) as captured:
+        async for event in provider.stream(_request()):
+            observed.append(event)
+
+    assert captured.value.code is ProviderErrorCode.RESOURCE_LIMIT
+    assert observed == [TextDelta("bounded partial")]
+    assert not any(isinstance(event, Completed) for event in observed)
+
+
+@pytest.mark.asyncio
 async def test_ollama_cancellation_closes_local_stream_without_remote_claim() -> None:
     from aura_backend.providers.ollama import OllamaProvider
 
