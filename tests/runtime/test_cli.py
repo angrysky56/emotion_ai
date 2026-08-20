@@ -546,7 +546,8 @@ def test_signal_handlers_request_owned_shutdown_and_restore_process_state() -> N
     with _SignalHandlers(stop_event):
         handler = signal.getsignal(signal.SIGTERM)
         assert callable(handler)
-        handler(signal.SIGTERM, None)
+        with pytest.raises(KeyboardInterrupt):
+            handler(signal.SIGTERM, None)
         assert stop_event.is_set()
 
     assert signal.getsignal(signal.SIGINT) == previous_int
