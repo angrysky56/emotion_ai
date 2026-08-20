@@ -292,6 +292,8 @@ def validate_docker_authority(source: str) -> None:
         raise AuthorizationError("Docker contains duplicate legacy authority")
     if "/health" not in source or "requests" in source:
         raise AuthorizationError("Docker readiness is not stdlib and /health based")
+    if '"--host", "127.0.0.1"' not in source or "0.0.0.0" in source:
+        raise AuthorizationError("Docker runtime must remain loopback-only")
 
 
 def validate_no_unrelated_version_churn(
@@ -509,6 +511,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.21 /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --extra provider-gemini --extra mcp --extra memvid
 HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('/health')"
+CMD ["uvicorn", "aura_backend.main:create_app", "--host", "127.0.0.1"]
 """
     synthetic = (
         approved_source + "\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\n"
