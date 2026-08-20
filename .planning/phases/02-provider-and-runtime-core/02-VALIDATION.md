@@ -1,13 +1,13 @@
 ---
 phase: 02
 slug: provider-and-runtime-core
-status: ready
+status: gaps_planned
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-08-19
 revised: 2026-08-20
-plan_count: 18
-task_count: 38
+plan_count: 20
+task_count: 42
 ---
 
 # Phase 2 — Validation Strategy
@@ -30,7 +30,7 @@ Every implementation task has an exact sub-60-second automated check except the 
 - Each task runs the exact row below before completion; TDD tasks capture an intentional RED result before production edits and the listed GREEN result afterward.
 - Each plan reruns all task commands in that plan. Plans touching public behavior also run the cited Phase 1 characterization/preservation tests.
 - Wave completion requires every plan in that wave to be GREEN; same-wave plans have disjoint file ownership.
-- Phase completion requires 02-18-03's locally available offline gate plus a completed green clean-CI `typing-python` status; absent CI status leaves Python typing `not_run`/pending. Optional live and environment-blocked results remain separately labeled and cannot satisfy required gates.
+- Phase completion requires Plans 02-19 and 02-20's locally repairable gap gates plus a completed green clean-CI `typing-python` status; absent CI status leaves Python typing `not_run`/pending. Optional live and environment-blocked results remain separately labeled and cannot satisfy required gates.
 - `skipped`, `blocked`, `timeout`, `resource_limit`, malformed streams, or missing terminal success are not provider successes. Once live prerequisites are confirmed, these outcomes fail the live lane.
 - Public and logged provider errors contain only safe category/provider/retryable/correlation metadata; raw exception text, credentials, endpoints, prompts, tool payloads, and response bodies are prohibited.
 
@@ -76,6 +76,10 @@ Every implementation task has an exact sub-60-second automated check except the 
 | 02-18-01 | 12 | TEST-03, TEST-05, AI-01, AI-02, AI-03, OPS-01, OPS-02 | `uv run --locked --no-sync python -m pytest tests/live/test_ollama_ornith.py tests/runtime/test_baseline_evidence.py -q -m "live or not live" -rs` | Truthful default skip plus schema-checked baseline; explicit live is separately opt-in |
 | 02-18-02 | 12 | TEST-03, TEST-05, AI-01, AI-02, AI-03, OPS-01, OPS-02 | `uv run --locked --no-sync python -m pytest tests/test_ci_contract.py -q` | CI pins/lanes/locks and adversarial false-success rejection |
 | 02-18-03 | 12 | TEST-03, TEST-05, AI-01, AI-02, AI-03, OPS-01, OPS-02 | `uv run --locked --no-sync python -m pytest tests/test_ci_contract.py -q && uv run --locked --no-sync python -m pytest tests -q -m "not live" && uv run --locked --no-sync ruff check aura_backend tests --exclude aura_backend/archive_unused --exclude aura_backend/scratch --exclude aura_backend/tests && npm run typecheck:frontend && npm run build` | Complete locally available gate; CI contract enforces `npm ci` before Pyright, and only completed green clean-CI `typing-python` status proves that lane |
+| 02-19-01 | 13 | TEST-03, AI-01, OPS-01, OPS-02 | `uv run --locked --no-sync python -m pytest -q tests/runtime/test_base_install_startup.py tests/runtime/test_optional_integrations.py tests/test_python_dependency_contract.py -rs` | Base-only import/preflight/serve/lifespan RED contract plus four optional-stage and conditional real-extra evidence |
+| 02-19-02 | 13 | TEST-03, AI-01, OPS-01, OPS-02 | `uv run --locked --no-sync python -m pytest -q tests/runtime/test_base_install_startup.py tests/runtime/test_optional_integrations.py tests/providers/test_gemini.py tests/characterization/test_mcp_parameters.py tests/characterization/test_mcp_result_formatting.py tests/runtime/test_autonomic_provider.py tests/runtime/test_lifecycle.py tests/runtime/test_app_lifespan.py tests/runtime/test_health.py tests/runtime/test_import_safety.py tests/characterization/test_companion_contract.py tests/characterization/test_persistence_contract.py tests/api/test_local_boundary.py -rs` | Lazy four-stage lifecycle, installed-extra parity, no-I/O conditional smoke, cleanup, and Phase 1 compatibility |
+| 02-20-01 | 14 | TEST-05, OPS-01 | `uv run --locked --no-sync python -m pytest tests/test_ci_contract.py -q` | Parsed non-vacuous all-20-plan/validation/CI shell-token contract and exact Plan 02-17 repair |
+| 02-20-02 | 14 | TEST-03, OPS-01, OPS-02 | `uv run --locked --no-sync python -m pytest -q tests/runtime/test_startup_docs.py` | Base/default setup, exact optional activation, redacted remediation, and non-mutating startup docs |
 
 ## Wave 0 Status
 
@@ -83,29 +87,31 @@ Every implementation task has an exact sub-60-second automated check except the 
 
 The package-legitimacy seam has completed its human checkpoint: 02-14 created current machine-readable evidence and 02-15 recorded Ty's exact decision to conditionally approve the 16 OK rows and reject the four SUS rows. Revised Plans 02-16 and 02-17 independently require fresh evidence, exact decision/action sets, and matching pre-change manifest/lock digests before any edit. A stale, missing, widened, changed, or mismatched gate remains blocked and is never auto-approved or reported as success.
 
+Plans 02-19 and 02-20 are the complete local gap closure. Plan 02-19 proves the base install with every optional extra unavailable and preserves explicitly enabled MCP, Gemini bridge, Memvid, and autonomic stages with separate conditional pass/not_run evidence. Plan 02-20 repairs Plan 02-17, parses executable pytest tokens across every Phase 2 plan, validation row, and CI run block, and aligns the startup guide/example configuration to that repaired runtime boundary. Neither plan modifies dependency authority or converts missing remote CI/Pyright evidence into a local success claim.
+
 ## Multi-Source Coverage Audit
 
 | Source | Item | Disposition | Plan coverage |
 |---|---|---|---|
-| GOAL | A reliable provider/runtime path that keeps Aura locally runnable and preserves Phase 1 behavior | COVERED | 02-01 through 02-13, closed by 02-18 |
-| REQ | TEST-03 — automated unit/integration coverage for provider/runtime behavior | COVERED | 02-01 through 02-13, 02-17, 02-18 |
-| REQ | TEST-05 — CI build/lint/type checks | COVERED | 02-14 through 02-18 |
-| REQ | AI-01 — pluggable LLM providers behind one interface | COVERED | 02-01, 02-03 through 02-06, 02-09, 02-18 |
+| GOAL | A reliable provider/runtime path that keeps Aura locally runnable and preserves Phase 1 behavior | COVERED | 02-01 through 02-13, 02-18, local gaps closed by 02-19 and 02-20 |
+| REQ | TEST-03 — automated unit/integration coverage for provider/runtime behavior | COVERED | 02-01 through 02-13, 02-17 through 02-20 |
+| REQ | TEST-05 — CI build/lint/type checks | COVERED | 02-14 through 02-20; remote execution remains pending |
+| REQ | AI-01 — pluggable LLM providers behind one interface | COVERED | 02-01, 02-03 through 02-06, 02-09, 02-18, 02-19 |
 | REQ | AI-02 — streaming where supported | COVERED | 02-02, 02-04, 02-18 |
 | REQ | AI-03 — normalized provider failures and graceful fallback | COVERED | 02-01, 02-02, 02-04 through 02-07, 02-09, 02-18 |
-| REQ | OPS-01 — supported documented one-command runtime entrypoint | COVERED | 02-07, 02-08, 02-10 through 02-13, 02-17, 02-18 |
-| REQ | OPS-02 — single dependency declaration/lock model | COVERED | 02-14 through 02-18 |
-| CONTEXT D-01 | Ollama is complete local provider; cloud only when explicitly selected | COVERED | 02-01, 02-04, 02-06, 02-11, 02-13, 02-18 |
+| REQ | OPS-01 — supported documented one-command runtime entrypoint | COVERED | 02-07, 02-08, 02-10 through 02-13, 02-17 through 02-20 |
+| REQ | OPS-02 — single dependency declaration/lock model | COVERED | 02-14 through 02-20 |
+| CONTEXT D-01 | Ollama is complete local provider; cloud only when explicitly selected | COVERED | 02-01, 02-04, 02-06, 02-11, 02-13, 02-18, 02-19 |
 | CONTEXT D-02 | One typed adapter-neutral contract for messages/tools/results/failures | COVERED | 02-01 through 02-06 |
 | CONTEXT D-03 | True incremental streaming/cancellation with no unsupported upstream-stop claim | COVERED | 02-01, 02-02, 02-04, 02-05, 02-07, 02-18 |
-| CONTEXT D-04 | Import-safe app and lifespan-owned runtime | COVERED | 02-07 through 02-11, 02-18 |
-| CONTEXT D-05 | Dependency/startup repair is authoritative, evidence-gated, and not a broad upgrade | COVERED | 02-11 through 02-18 |
+| CONTEXT D-04 | Import-safe app and lifespan-owned runtime | COVERED | 02-07 through 02-11, 02-18, 02-19 |
+| CONTEXT D-05 | Dependency/startup repair is authoritative, evidence-gated, and not a broad upgrade | COVERED | 02-11 through 02-20 |
 | CONTEXT D-06 | Verification is offline-first; Ornith and baseline are optional, bounded, and honest | COVERED | 02-02, 02-04, 02-13 through 02-18 |
 | RESEARCH | Typed outcomes/config, source-safe errors, deterministic fake, runtime cancellation | COVERED | 02-01, 02-02 |
 | RESEARCH | Neutral tools/MCP bridge and shared OpenAI-compatible Ollama/OpenRouter transport | COVERED | 02-03, 02-04 |
 | RESEARCH | Async Gemini, lazy factory, no implicit autonomic Gemini | COVERED | 02-05, 02-06 |
-| RESEARCH | Runtime ownership, import safety, create_app/lifespan, route/analysis preservation | COVERED | 02-07 through 02-09 |
-| RESEARCH | Honest health, non-mutating preflight, canonical serve and thin wrappers/docs/env | COVERED | 02-10 through 02-13 |
+| RESEARCH | Runtime ownership, import safety, create_app/lifespan, route/analysis preservation | COVERED | 02-07 through 02-09, 02-19 |
+| RESEARCH | Honest health, non-mutating preflight, canonical serve and thin wrappers/docs/env | COVERED | 02-10 through 02-13, 02-20 |
 | RESEARCH | Current legitimacy/import/entrypoint audit, blocking approval, Python/Node lock authority, Docker lane | COVERED | 02-14 through 02-17 |
 | RESEARCH | Optional Ornith live check, baseline-only evidence, pinned CI truth lanes | COVERED | 02-18 |
 
@@ -120,7 +126,7 @@ Excluded without a gap: Phase 3 storage migration/cleanup, Phase 4 prompt-qualit
 
 ## Validation Sign-Off
 
-- [x] All 38 tasks have one exact automated command and an owning test/evidence artifact.
+- [x] All 42 tasks have one exact automated command and an owning test/evidence artifact.
 - [x] All seven Phase 2 requirement IDs appear in plan frontmatter and this matrix.
 - [x] D-01 through D-06 have cited implementation coverage; no deferred idea is planned.
 - [x] No three consecutive tasks lack automated verification.
@@ -129,4 +135,4 @@ Excluded without a gap: Phase 3 storage migration/cleanup, Phase 4 prompt-qualit
 - [x] Wave 0 has no missing scaffold or unowned reference.
 - [x] Final phase proof preserves Phase 1 response, fallback, persistence/session, and local-boundary contracts.
 
-**Approval:** ready for execution. Plan 02-15's human checkpoint is complete; Plans 02-16 and 02-17 remain fail-closed until their independent pre-edit digest, freshness, decision, and exact-action gates pass.
+**Approval:** ready for gap execution. Plans 02-19 and 02-20 close only the two locally repairable verifier gaps; remote GitHub/Pyright remains pending and outside local completion authority.
