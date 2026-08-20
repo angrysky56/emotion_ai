@@ -40,7 +40,7 @@ async def test_first_delta_is_observable_before_completion_is_released() -> None
     stream = provider.stream(_request())
 
     pending_first = asyncio.create_task(anext(stream))
-    await asyncio.sleep(0)
+    await provider.first_delta_waiting.wait()
     assert not pending_first.done()
 
     first_delta_gate.set()
@@ -49,7 +49,7 @@ async def test_first_delta_is_observable_before_completion_is_released() -> None
 
     assert await anext(stream) == TextDelta(text=" second")
     pending_terminal = asyncio.create_task(anext(stream))
-    await asyncio.sleep(0)
+    await provider.completion_waiting.wait()
     assert not pending_terminal.done()
 
     completion_gate.set()
@@ -127,7 +127,7 @@ async def test_cancellation_runs_generator_cleanup_and_reraises() -> None:
     assert await anext(stream) == TextDelta(text="partial")
 
     pending = asyncio.create_task(anext(stream))
-    await asyncio.sleep(0)
+    await provider.completion_waiting.wait()
     pending.cancel()
 
     with pytest.raises(asyncio.CancelledError):
