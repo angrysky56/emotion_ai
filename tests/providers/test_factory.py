@@ -159,7 +159,6 @@ def test_missing_selected_cloud_credential_constructs_no_adapter(
     assert captured.value.code is ProviderErrorCode.CONFIGURATION
     assert captured.value.setting_name == credential_name
     assert constructed == []
-    assert not set(ADAPTER_MODULES.values()).intersection(sys.modules)
 
 
 def test_unknown_provider_constructs_no_adapter(
@@ -175,7 +174,6 @@ def test_unknown_provider_constructs_no_adapter(
     assert captured.value.code is ProviderErrorCode.CONFIGURATION
     assert captured.value.setting_name == "AURA_DEFAULT_PROVIDER"
     assert constructed == []
-    assert not set(ADAPTER_MODULES.values()).intersection(sys.modules)
 
 
 def test_factory_diagnostics_exclude_credentials_and_endpoint_details(

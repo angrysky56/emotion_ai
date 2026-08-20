@@ -1,79 +1,113 @@
+"""Strict, local-first construction for Aura's selected model provider.
+
+Concrete adapters are imported only inside their validated selection branch.
+Importing this module therefore remains safe when optional cloud SDKs are absent.
 """
-Model Provider Factory for Aura.
-Handles instantiation of different LLM providers (Gemini, OpenRouter, Ollama).
-"""
+
+from __future__ import annotations
 
 import logging
 import os
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any
 
-from .base import BaseProvider
-from .gemini import GeminiProvider
-from .ollama import OllamaProvider
-from .openrouter import OpenRouterProvider
+from .base import Provider
+from .config import ProviderKind, ProviderSettings
+from .errors import ProviderErrorCode, ProviderFailure
+
+if TYPE_CHECKING:
+    from .tools import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
 
 class ModelProviderFactory:
-    """
-    Factory class for creating and managing model providers.
-    Handles configuration and instantiation based on environment variables.
-    """
+    """Construct exactly one explicitly selected provider adapter."""
+
+    @staticmethod
+    def create_provider(
+        settings: ProviderSettings,
+        *,
+        tool_executor: ToolExecutor | None = None,
+    ) -> Provider:
+        """Build the validated adapter without probing any other provider.
+
+        ``ProviderSettings.from_mapping`` owns validation and credential policy.
+        This method deliberately contains one exact branch per supported kind so
+        an Ollama-only runtime never imports a cloud adapter module.
+        """
+        if not isinstance(settings, ProviderSettings) or not isinstance(
+            settings.kind,
+            ProviderKind,
+        ):
+            raise ProviderFailure(
+                code=ProviderErrorCode.CONFIGURATION,
+                setting_name="AURA_DEFAULT_PROVIDER",
+            )
+
+        logger.info(
+            "Creating model provider: provider=%s model=%s",
+            settings.kind.value,
+            settings.model,
+        )
+
+        if settings.kind is ProviderKind.OLLAMA:
+            from .ollama import OllamaProvider
+
+            return OllamaProvider(
+                settings=settings,
+                tool_executor=tool_executor,
+            )
+
+        if settings.kind is ProviderKind.GEMINI:
+            from .gemini import GeminiProvider
+
+            return GeminiProvider(
+                api_key=settings.api_key,
+                model_name=settings.model,
+                thinking_budget=settings.thinking_budget,
+                tool_executor=tool_executor,
+                max_tool_turns=settings.max_tool_turns,
+            )
+
+        if settings.kind is ProviderKind.OPENROUTER:
+            from .openrouter import OpenRouterProvider
+
+            return OpenRouterProvider(
+                settings=settings,
+                tool_executor=tool_executor,
+            )
+
+        # Defensive fail-closed branch for malformed manually constructed values.
+        raise ProviderFailure(
+            code=ProviderErrorCode.CONFIGURATION,
+            setting_name="AURA_DEFAULT_PROVIDER",
+        )
 
     @staticmethod
     def get_provider(
-        provider_type: Optional[str] = None,
+        provider_type: str | None = None,
         mcp_client_manager: Any = None,
         aura_internal_tools: Any = None,
-    ) -> BaseProvider:
+        *,
+        tool_executor: ToolExecutor | None = None,
+    ) -> Provider:
+        """Compatibility wrapper using the process environment at composition.
+
+        Legacy provider-specific tool arguments are retained in the signature so
+        existing startup code remains callable.  Adapters now receive only the
+        provider-neutral executor.
         """
-        Instantiate the requested provider or the default one.
-        """
-        # 1. Determine provider type
-        ptype = provider_type or os.getenv("AURA_DEFAULT_PROVIDER", "gemini").lower()
-
-        logger.info("🏗️ Creating model provider: %s", ptype)
-
-        # 2. Instantiate based on type
-        if ptype == "gemini":
-            return GeminiProvider(
-                api_key=os.getenv("GEMINI_API_KEY", ""),
-                model_name=os.getenv(
-                    "AURA_MODEL", "gemini-2.0-flash-thinking-exp-01-21"
-                ),
-                thinking_budget=int(os.getenv("THINKING_BUDGET", "-1")),
-                mcp_client_manager=mcp_client_manager,
-                aura_internal_tools=aura_internal_tools,
-            )
-
-        elif ptype == "openrouter":
-            return OpenRouterProvider(
-                api_key=os.getenv("OPENROUTER_API_KEY", ""),
-                model_name=os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-r1"),
-                mcp_client_manager=mcp_client_manager,
-                aura_internal_tools=aura_internal_tools,
-            )
-
-        elif ptype == "ollama":
-            return OllamaProvider(
-                base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
-                model_name=os.getenv("OLLAMA_MODEL", "llama3.1"),
-                mcp_client_manager=mcp_client_manager,
-                aura_internal_tools=aura_internal_tools,
-            )
-
-        else:
-            logger.warning(
-                "⚠️ Unknown provider type '%s', falling back to Gemini", ptype
-            )
-            return GeminiProvider(
-                api_key=os.getenv("GEMINI_API_KEY", ""),
-                mcp_client_manager=mcp_client_manager,
-                aura_internal_tools=aura_internal_tools,
-            )
+        del mcp_client_manager, aura_internal_tools
+        mapping: dict[str, str] = dict(os.environ)
+        if provider_type is not None:
+            mapping["AURA_DEFAULT_PROVIDER"] = provider_type
+        settings = ProviderSettings.from_mapping(mapping)
+        return ModelProviderFactory.create_provider(
+            settings,
+            tool_executor=tool_executor,
+        )
 
     @staticmethod
-    def get_all_available_providers() -> List[str]:
+    def get_all_available_providers() -> list[str]:
         """List all implemented provider types."""
-        return ["gemini", "openrouter", "ollama"]
+        return [kind.value for kind in ProviderKind]
