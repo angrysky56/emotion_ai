@@ -9,10 +9,42 @@
     "python_install_script_interpretation": "Python wheel metadata has no npm-style preinstall/install/postinstall lifecycle fields. Null values below mean those lifecycle fields are not declared in the audited wheel metadata; they do not claim arbitrary source builds are risk-free."
   },
   "approval": {
-    "status": "PENDING_HUMAN_REVIEW",
+    "status": "PARTIAL_HUMAN_APPROVAL_REQUIRES_PLAN_REVISION",
+    "reviewed_at": "2026-08-20T17:14:43Z",
+    "reviewer": "Ty",
+    "decision_text": "Approve only the 16 OK rows; reject the four SUS rows; revise Plans 02-16 and 02-17 before any manifest or lock changes.",
+    "conditionally_approved_candidate_ids": [
+      "pypi:ruff@0.12.7",
+      "npm:pyright@1.1.413",
+      "pypi:google-genai@1.75.0",
+      "pypi:mcp@1.27.0",
+      "pypi:fastmcp@3.2.4",
+      "pypi:memvid-sdk@2.0.159",
+      "pypi:beautifulsoup4@4.13.4",
+      "pypi:ebooklib@0.19",
+      "pypi:opencv-python@4.11.0.86",
+      "pypi:pandas@2.2.3",
+      "pypi:pillow@12.2.0",
+      "pypi:pypdf@6.10.2",
+      "pypi:qrcode@8.2",
+      "pypi:anthropic@0.54.0",
+      "pypi:websockets@15.0.1",
+      "npm:@google/genai@1.51.0"
+    ],
+    "rejected_candidate_ids": [
+      "pypi:pyzbar@0.1.9",
+      "pypi:faiss-cpu@1.11.0",
+      "pypi:faiss-gpu-cu12@1.14.1.post1",
+      "pypi:asyncio-mqtt@0.16.2"
+    ],
     "manifest_changes_authorized": false,
     "authorized_candidate_ids": [],
-    "next_gate": "Plan 02-15 explicit package legitimacy and disposition review"
+    "blocked_downstream_plans": ["02-16", "02-17"],
+    "conditions": [
+      "Plans 02-16 and 02-17 must be revised to exclude the four rejected SUS rows and resolve the FAISS disposition mismatch before any manifest or lock edit.",
+      "Each revised plan must independently recheck this evidence, its exact approved subset, and current freshness before changing a manifest or lock."
+    ],
+    "next_gate": "Revise Plans 02-16 and 02-17, then independently recheck the exact approved subset and evidence freshness"
   },
   "packages": [
     {

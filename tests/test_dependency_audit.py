@@ -63,6 +63,12 @@ ALLOWED_DISPOSITIONS = {
     "retain-pending",
 }
 ALLOWED_ENTRYPOINT_STATUS = {"supported", "conditional", "blocked"}
+PARTIAL_REVIEW_STATUS = "PARTIAL_HUMAN_APPROVAL_REQUIRES_PLAN_REVISION"
+EXPECTED_DECISION_TEXT = (
+    "Approve only the 16 OK rows; reject the four SUS rows; revise Plans 02-16 "
+    "and 02-17 before any manifest or lock changes."
+)
+BLOCKED_DOWNSTREAM_PLANS = {"02-16", "02-17"}
 REQUIRED_PACKAGE_FIELDS = {
     "candidate_id",
     "ecosystem",
@@ -208,7 +214,7 @@ def validate_package_evidence(
             raise EvidenceError(f"{candidate_id}: unknown verdict")
         _require_string_list(package["verdict_reasons"], f"{candidate_id}.verdict_reasons")
         if package["manifest_change_authorized"] is not False:
-            raise EvidenceError(f"{candidate_id}: automated evidence cannot authorize a change")
+            raise EvidenceError(f"{candidate_id}: evidence rows cannot authorize a change")
         if verdict != "OK" and package["manifest_change_authorized"]:
             raise EvidenceError(f"{candidate_id}: unresolved evidence was approved")
 
@@ -223,12 +229,49 @@ def validate_package_evidence(
     approval = document.get("approval")
     if not isinstance(approval, dict):
         raise EvidenceError("approval must be an object")
-    if approval.get("status") != "PENDING_HUMAN_REVIEW":
-        raise EvidenceError("Plan 02-14 evidence must remain pending human review")
     if approval.get("manifest_changes_authorized") is not False:
-        raise EvidenceError("package audit may not self-authorize manifest changes")
+        raise EvidenceError("human review may not directly authorize manifest changes")
     if approval.get("authorized_candidate_ids") != []:
-        raise EvidenceError("pending evidence may not list authorized candidates")
+        raise EvidenceError("revised plans must independently authorize manifest changes")
+
+    if approval.get("status") == "PENDING_HUMAN_REVIEW":
+        return
+    if approval.get("status") != PARTIAL_REVIEW_STATUS:
+        raise EvidenceError("approval status is unsupported")
+
+    reviewed_at = _parse_timestamp(approval.get("reviewed_at"), "approval.reviewed_at")
+    if reviewed_at > observed_now + timedelta(minutes=5):
+        raise EvidenceError("approval.reviewed_at may not be in the future")
+    if approval.get("reviewer") != "Ty":
+        raise EvidenceError("partial review must name Ty as reviewer")
+    if approval.get("decision_text") != EXPECTED_DECISION_TEXT:
+        raise EvidenceError("partial review decision text does not match the human signal")
+
+    ok_candidates = {
+        package["candidate_id"] for package in packages if package["verdict"] == "OK"
+    }
+    unresolved_candidates = {
+        package["candidate_id"] for package in packages if package["verdict"] != "OK"
+    }
+    conditionally_approved = approval.get("conditionally_approved_candidate_ids")
+    rejected = approval.get("rejected_candidate_ids")
+    if not isinstance(conditionally_approved, list) or len(conditionally_approved) != len(
+        set(conditionally_approved)
+    ):
+        raise EvidenceError("conditionally approved candidates must be a unique list")
+    if not isinstance(rejected, list) or len(rejected) != len(set(rejected)):
+        raise EvidenceError("rejected candidates must be a unique list")
+    if set(conditionally_approved) != ok_candidates:
+        raise EvidenceError("only the exact OK candidate set may be conditionally approved")
+    if set(rejected) != unresolved_candidates:
+        raise EvidenceError("every SUS or UNASSESSED candidate must remain rejected")
+    if set(conditionally_approved) & set(rejected):
+        raise EvidenceError("approved and rejected candidate sets must be disjoint")
+
+    blocked_plans = approval.get("blocked_downstream_plans")
+    if not isinstance(blocked_plans, list) or set(blocked_plans) != BLOCKED_DOWNSTREAM_PLANS:
+        raise EvidenceError("Plans 02-16 and 02-17 must remain blocked")
+    _require_string_list(approval.get("conditions"), "approval.conditions")
 
 
 def validate_dependency_inventory(document: dict[str, Any]) -> None:
@@ -360,6 +403,47 @@ def test_package_addition_entrypoints_and_install_scripts_are_explicit() -> None
             "evidence_url",
             "evidence_kind",
         }
+
+
+def test_partial_human_review_is_row_scoped_and_blocks_downstream_manifests() -> None:
+    document = load_evidence()
+    validate_package_evidence(document)
+    approval = document["approval"]
+
+    assert approval["status"] == PARTIAL_REVIEW_STATUS
+    assert len(approval["conditionally_approved_candidate_ids"]) == 16
+    assert set(approval["rejected_candidate_ids"]) == {
+        "pypi:pyzbar@0.1.9",
+        "pypi:faiss-cpu@1.11.0",
+        "pypi:faiss-gpu-cu12@1.14.1.post1",
+        "pypi:asyncio-mqtt@0.16.2",
+    }
+    assert approval["manifest_changes_authorized"] is False
+    assert approval["authorized_candidate_ids"] == []
+    assert set(approval["blocked_downstream_plans"]) == BLOCKED_DOWNSTREAM_PLANS
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda doc: doc["approval"]["conditionally_approved_candidate_ids"].append(
+            "pypi:pyzbar@0.1.9"
+        ),
+        lambda doc: doc["approval"]["rejected_candidate_ids"].remove(
+            "pypi:faiss-cpu@1.11.0"
+        ),
+        lambda doc: doc["approval"].update(
+            manifest_changes_authorized=True,
+            authorized_candidate_ids=["pypi:ruff@0.12.7"],
+        ),
+        lambda doc: doc["approval"]["blocked_downstream_plans"].remove("02-16"),
+    ],
+)
+def test_partial_human_review_mutations_fail_closed(mutation: Any) -> None:
+    document = load_evidence()
+    mutation(document)
+    with pytest.raises(EvidenceError):
+        validate_package_evidence(document)
 
 
 def test_dependency_inventory_covers_every_manifest_and_entrypoint() -> None:
