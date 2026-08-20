@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
 
+from aura_backend.providers.base import ProviderMessage, ProviderRequest, TextDelta
 from aura_backend.providers.config import ProviderKind
+from aura_backend.providers.errors import ProviderErrorCode, ProviderFailure
+from aura_backend.providers.runtime import ProviderRuntime
 from aura_backend.runtime import (
     ApplicationRuntime,
     ResourceFactory,
@@ -17,6 +22,51 @@ from aura_backend.runtime import (
     RuntimeStartupError,
     StartedResource,
 )
+from tests.providers.fakes import ScriptedComplete, ScriptedDelta, ScriptedProvider
+
+ProviderBuilder = Callable[[], Awaitable[ProviderRuntime]]
+
+
+class _EventRecordingProvider(ScriptedProvider):
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        completion_gate: asyncio.Event | None = None,
+    ) -> None:
+        super().__init__(
+            (ScriptedDelta("partial"), ScriptedComplete("private completion")),
+            completion_gate=completion_gate,
+        )
+        self._events = events
+
+    async def aclose(self) -> None:
+        await super().aclose()
+        self._events.append("close:provider")
+
+
+def _provider_factory(
+    events: list[str],
+    *,
+    fail: bool = False,
+    provider: ScriptedProvider | None = None,
+) -> ProviderBuilder:
+    async def start() -> ProviderRuntime:
+        events.append("start:provider")
+        if fail:
+            raise RuntimeError("private provider startup failure")
+        selected = provider or _EventRecordingProvider(events)
+        return ProviderRuntime(selected, timeout_seconds=1.0)
+
+    return start
+
+
+def _request() -> ProviderRequest:
+    return ProviderRequest(
+        messages=(ProviderMessage(role="user", content="private runtime prompt"),),
+        session_id="runtime-session",
+        correlation_id="runtime-correlation",
+    )
 
 
 def _recording_resource(
@@ -110,7 +160,8 @@ def test_invalid_settings_fail_before_any_factory_runs(
         settings = RuntimeSettings.from_mapping(mapping)
         ApplicationRuntime(
             settings=settings,
-            resources=(ResourceFactory(name="forbidden", start=forbidden_factory),),
+            resources=(),
+            provider_factory=forbidden_factory,  # type: ignore[arg-type]
         )
 
     assert setting_name in str(captured.value)
@@ -120,11 +171,11 @@ def test_invalid_settings_fail_before_any_factory_runs(
 @pytest.mark.asyncio
 async def test_resources_start_in_order_and_close_once_in_reverse_order() -> None:
     events: list[str] = []
-    resources = tuple(
-        _recording_resource(name, events) for name in ("storage", "tools", "provider")
-    )
+    resources = tuple(_recording_resource(name, events) for name in ("storage", "tools"))
     runtime = ApplicationRuntime(
-        settings=RuntimeSettings.from_mapping({}), resources=resources
+        settings=RuntimeSettings.from_mapping({}),
+        resources=resources,
+        provider_factory=_provider_factory(events),
     )
 
     await runtime.start()
@@ -157,10 +208,12 @@ async def test_every_partial_start_boundary_unwinds_once_in_reverse_order(
     names = ("storage", "tools", "provider")
     resources = tuple(
         _recording_resource(name, events, fail=index == failure_index)
-        for index, name in enumerate(names)
+        for index, name in enumerate(names[:2])
     )
     runtime = ApplicationRuntime(
-        settings=RuntimeSettings.from_mapping({}), resources=resources
+        settings=RuntimeSettings.from_mapping({}),
+        resources=resources,
+        provider_factory=_provider_factory(events, fail=failure_index == 2),
     )
 
     with pytest.raises(RuntimeStartupError) as captured:
@@ -207,3 +260,86 @@ import aura_backend.runtime.app
     )
 
     assert completed.returncode == 0, completed.stderr[-1000:]
+
+
+@pytest.mark.asyncio
+async def test_provider_runtime_is_required_before_readiness() -> None:
+    runtime = ApplicationRuntime(
+        settings=RuntimeSettings.from_mapping({}),
+        resources=(),
+        provider_factory=None,
+    )
+
+    with pytest.raises(RuntimeStartupError) as captured:
+        await runtime.start()
+
+    assert captured.value.code == "required_provider_missing"
+    assert runtime.snapshot().ready is False
+    assert runtime.snapshot().resources[-1].name == "selected_provider"
+    assert runtime.snapshot().resources[-1].state is ResourceState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_optional_not_configured_is_visible_but_not_a_readiness_failure() -> None:
+    events: list[str] = []
+
+    async def optional_absent() -> None:
+        events.append("start:optional_cloud")
+        return None
+
+    runtime = ApplicationRuntime(
+        settings=RuntimeSettings.from_mapping({}),
+        resources=(
+            ResourceFactory(
+                name="optional_cloud",
+                start=optional_absent,
+                required=False,
+            ),
+        ),
+        provider_factory=_provider_factory(events),
+    )
+
+    await runtime.start()
+
+    snapshot = runtime.snapshot()
+    assert snapshot.ready is True
+    assert snapshot.resources[0].state is ResourceState.NOT_CONFIGURED
+    assert snapshot.resources[-1].state is ResourceState.READY
+    await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_provider_before_remaining_resources_close() -> None:
+    events: list[str] = []
+    completion_gate = asyncio.Event()
+    provider = _EventRecordingProvider(events, completion_gate=completion_gate)
+    runtime = ApplicationRuntime(
+        settings=RuntimeSettings.from_mapping({}),
+        resources=(_recording_resource("storage", events),),
+        provider_factory=_provider_factory(events, provider=provider),
+    )
+    await runtime.start()
+    selected_runtime = runtime.provider_runtime
+    stream = selected_runtime.stream(_request())
+    assert await anext(stream) == TextDelta(text="partial")
+    pending_terminal = asyncio.create_task(anext(stream))
+    await provider.completion_waiting.wait()
+
+    await asyncio.wait_for(runtime.aclose(), timeout=0.5)
+
+    with pytest.raises(asyncio.CancelledError):
+        await pending_terminal
+    assert pending_terminal.done()
+    assert selected_runtime.snapshot().in_flight_count == 0
+    assert (
+        selected_runtime.snapshot().last_terminal_code
+        == ProviderErrorCode.CANCELLED.value
+    )
+    assert provider.recorder.cleanup_count == 1
+    assert provider.recorder.close_calls == 1
+    assert "completed" not in provider.recorder.terminal_codes
+    assert events[-2:] == ["close:provider", "close:storage"]
+
+    with pytest.raises(ProviderFailure) as rejected:
+        await selected_runtime.generate(_request())
+    assert rejected.value.code is ProviderErrorCode.UNAVAILABLE
