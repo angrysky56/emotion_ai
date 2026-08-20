@@ -425,6 +425,7 @@ class _SignalHandlers:
 
         def request_stop(_signum: int, _frame: object) -> None:
             self._stop_event.set()
+            raise KeyboardInterrupt
 
         for signum in (signal.SIGINT, signal.SIGTERM):
             self._previous[signum] = signal.getsignal(signum)
