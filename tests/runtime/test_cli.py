@@ -6,6 +6,7 @@ import io
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -18,10 +19,13 @@ from aura_backend.runtime.cli import (
     PreflightCheck,
     PreflightProbes,
     PreflightReport,
+    ServeProbes,
     StorageObservation,
     build_preflight_report,
     main,
+    run_serve,
 )
+from aura_backend.runtime.config import RuntimeSettings
 
 
 def _write_project_contract(root: Path) -> None:
@@ -267,3 +271,266 @@ def test_main_emits_one_public_json_document(tmp_path: Path) -> None:
     assert [check["name"] for check in payload["checks"]] == list(
         REQUIRED_CHECK_NAMES
     )
+
+
+def _passing_report() -> PreflightReport:
+    return PreflightReport.from_checks(
+        tuple(
+            PreflightCheck(name=name, required=True, status=CheckStatus.PASS)
+            for name in REQUIRED_CHECK_NAMES
+        )
+    )
+
+
+class _FakeProcess:
+    """Small process fake exposing only the ownership methods used by serve."""
+
+    def __init__(
+        self,
+        name: str,
+        events: list[str],
+        *,
+        poll_values: list[int | None] | None = None,
+    ) -> None:
+        self.name = name
+        self.events = events
+        self.poll_values = list(poll_values or [])
+        self.returncode: int | None = None
+
+    def poll(self) -> int | None:
+        if self.poll_values:
+            value = self.poll_values.pop(0)
+            if value is not None:
+                self.returncode = value
+            return value
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.events.append(f"terminate:{self.name}")
+
+    def wait(self, timeout: float | None = None) -> int:
+        assert timeout is not None
+        self.events.append(f"wait:{self.name}")
+        self.returncode = 0 if self.returncode is None else self.returncode
+        return self.returncode
+
+    def kill(self) -> None:
+        self.events.append(f"kill:{self.name}")
+        self.returncode = -9
+
+
+def _runtime_settings(host: str = "127.0.0.1") -> RuntimeSettings:
+    return RuntimeSettings.from_mapping(
+        {
+            "AURA_HOST": host,
+            "OLLAMA_MODEL": "ornith:latest",
+        }
+    )
+
+
+def test_serve_refuses_start_after_preflight_non_pass(tmp_path: Path) -> None:
+    checks = list(_passing_report().checks)
+    checks[0] = PreflightCheck(
+        name="python",
+        required=True,
+        status=CheckStatus.MISSING,
+        code="python_missing",
+        remediation="install_python",
+    )
+    started: list[tuple[str, ...]] = []
+    probes = ServeProbes(
+        start=lambda command, _cwd: started.append(command),  # type: ignore[arg-type,return-value]
+        readiness=lambda _host, _port, _timeout: True,
+        sleep=lambda _seconds: None,
+    )
+
+    result = run_serve(
+        settings=_runtime_settings(),
+        repository_root=tmp_path,
+        preflight=PreflightReport.from_checks(checks),
+        probes=probes,
+        stop_event=threading.Event(),
+    )
+
+    assert result.status is CheckStatus.MISSING
+    assert result.exit_code == PreflightReport.from_checks(checks).exit_code
+    assert result.code == "preflight_failed"
+    assert started == []
+
+
+def test_serve_uses_factory_loopback_ready_gate_and_safe_commands(tmp_path: Path) -> None:
+    commands: list[tuple[str, ...]] = []
+    events: list[str] = []
+    stop_event = threading.Event()
+
+    def start(command: tuple[str, ...], cwd: Path) -> _FakeProcess:
+        assert cwd == tmp_path
+        commands.append(command)
+        name = "backend" if "uvicorn" in command else "frontend"
+        return _FakeProcess(name, events)
+
+    probes = ServeProbes(
+        start=start,
+        readiness=lambda host, port, timeout: (
+            host == "127.0.0.1" and port == 8000 and timeout == 10.0
+        ),
+        sleep=lambda _seconds: stop_event.set(),
+    )
+
+    result = run_serve(
+        settings=_runtime_settings(),
+        repository_root=tmp_path,
+        preflight=_passing_report(),
+        probes=probes,
+        stop_event=stop_event,
+    )
+
+    assert result.status is CheckStatus.PASS
+    assert result.code == "stopped"
+    assert commands[0] == (
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "aura_backend.main:create_app",
+        "--factory",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
+        "--lifespan",
+        "on",
+        "--no-access-log",
+    )
+    assert commands[1] == (
+        "npm",
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+    )
+    forbidden = {"install", "sync", "pull", "download", "chmod", "kill"}
+    assert not any(forbidden.intersection(command) for command in commands)
+    assert events == [
+        "terminate:frontend",
+        "wait:frontend",
+        "terminate:backend",
+        "wait:backend",
+    ]
+
+
+def test_serve_propagates_child_failure_and_cleans_owned_processes(
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+    children = iter(
+        (
+            _FakeProcess("backend", events),
+            _FakeProcess("frontend", events, poll_values=[9]),
+        )
+    )
+    probes = ServeProbes(
+        start=lambda _command, _cwd: next(children),
+        readiness=lambda _host, _port, _timeout: True,
+        sleep=lambda _seconds: None,
+    )
+
+    result = run_serve(
+        settings=_runtime_settings(),
+        repository_root=tmp_path,
+        preflight=_passing_report(),
+        probes=probes,
+        stop_event=threading.Event(),
+    )
+
+    assert result.status is CheckStatus.FAILED
+    assert result.exit_code != 0
+    assert result.code == "frontend_exited"
+    assert "terminate:backend" in events
+    assert all("unrelated" not in event for event in events)
+
+
+def test_backend_readiness_failure_prevents_frontend_start(tmp_path: Path) -> None:
+    commands: list[tuple[str, ...]] = []
+    events: list[str] = []
+
+    def start(command: tuple[str, ...], _cwd: Path) -> _FakeProcess:
+        commands.append(command)
+        return _FakeProcess("backend", events)
+
+    result = run_serve(
+        settings=_runtime_settings(),
+        repository_root=tmp_path,
+        preflight=_passing_report(),
+        probes=ServeProbes(
+            start=start,
+            readiness=lambda _host, _port, _timeout: False,
+            sleep=lambda _seconds: None,
+        ),
+        stop_event=threading.Event(),
+    )
+
+    assert result.code == "backend_not_ready"
+    assert len(commands) == 1
+    assert events == ["terminate:backend", "wait:backend"]
+
+
+def test_frontend_only_mode_never_starts_or_probes_backend(tmp_path: Path) -> None:
+    commands: list[tuple[str, ...]] = []
+    stop_event = threading.Event()
+    readiness_calls: list[str] = []
+
+    def start(command: tuple[str, ...], _cwd: Path) -> _FakeProcess:
+        commands.append(command)
+        return _FakeProcess("frontend", [])
+
+    result = run_serve(
+        settings=_runtime_settings(),
+        repository_root=tmp_path,
+        preflight=_passing_report(),
+        probes=ServeProbes(
+            start=start,
+            readiness=lambda _host, _port, _timeout: readiness_calls.append("ready")
+            or True,
+            sleep=lambda _seconds: stop_event.set(),
+        ),
+        frontend_only=True,
+        stop_event=stop_event,
+    )
+
+    assert result.status is CheckStatus.PASS
+    assert len(commands) == 1
+    assert commands[0][0:3] == ("npm", "run", "dev")
+    assert readiness_calls == []
+
+
+def test_explicit_lan_binding_warns_without_adding_auth_or_leaking_host(
+    tmp_path: Path,
+) -> None:
+    warning = io.StringIO()
+    stop_event = threading.Event()
+    commands: list[tuple[str, ...]] = []
+
+    def start(command: tuple[str, ...], _cwd: Path) -> _FakeProcess:
+        commands.append(command)
+        return _FakeProcess("backend", [])
+
+    result = run_serve(
+        settings=_runtime_settings("192.168.50.25"),
+        repository_root=tmp_path,
+        preflight=_passing_report(),
+        probes=ServeProbes(
+            start=start,
+            readiness=lambda _host, _port, _timeout: True,
+            sleep=lambda _seconds: stop_event.set(),
+        ),
+        backend_only=True,
+        stop_event=stop_event,
+        stderr=warning,
+    )
+
+    assert result.status is CheckStatus.PASS
+    assert "LAN" in warning.getvalue()
+    assert "no sign-in" in warning.getvalue()
+    assert "192.168.50.25" not in warning.getvalue()
+    assert not any("auth" in token.lower() for token in commands[0])
