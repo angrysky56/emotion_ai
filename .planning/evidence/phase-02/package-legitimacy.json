@@ -27,7 +27,7 @@
       "maintainers": ["Astral Software Inc. <hey@astral.sh>"],
       "license": "MIT (official source repository license)",
       "status": {"yanked": false, "deprecated": false},
-      "install_scripts": {"preinstall": null, "install": null, "postinstall": null, "evidence_url": "https://files.pythonhosted.org/packages/a8/c9/3e24a8472484269b6b1821794141f879c54645a111ded4b6f58f9ab0705f/ruff-0.12.7-py3-none-macosx_11_0_arm64.whl", "evidence_kind": "registry wheel contents inspected without installation; .data/scripts/ruff present and no npm-style lifecycle fields"},
+      "install_scripts": {"preinstall": null, "install": null, "postinstall": null, "evidence_url": "https://files.pythonhosted.org/packages/17/40/a95352ea16edf78cd3a938085dccc55df692a4d8ba1b3af7accbe2c806b0/ruff-0.12.7-py3-none-musllinux_1_2_armv7l.whl", "evidence_kind": "registry wheel contents inspected without installation; .data/scripts/ruff present and no npm-style lifecycle fields"},
       "declared_cli_entrypoints": ["ruff"],
       "entrypoint_evidence_url": "https://docs.astral.sh/ruff/installation/",
       "verdict": "OK",
