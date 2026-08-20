@@ -533,6 +533,28 @@ async def test_thinking_tool_failure_is_typed_and_redacted() -> None:
 
 
 @pytest.mark.asyncio
+async def test_thinking_malformed_tool_result_is_a_typed_failure() -> None:
+    from aura_backend.thinking_processor import ThinkingProcessor
+
+    call = SimpleNamespace(name="lookup", args={})
+    chat = AsyncOnlyThinkingChat([_response(_part(function_call=call))])
+
+    class Bridge:
+        async def execute_function_call(self, _call: object, _user_id: str) -> object:
+            return SimpleNamespace(success=True)
+
+    with pytest.raises(ProviderFailure) as captured:
+        await ThinkingProcessor(object()).process_with_function_calls_and_thinking(
+            chat,
+            "private message",
+            "private-user",
+            mcp_bridge=Bridge(),
+        )
+
+    assert captured.value.code is ProviderErrorCode.MALFORMED_RESPONSE
+
+
+@pytest.mark.asyncio
 async def test_thinking_cancellation_is_re_raised_without_fallback() -> None:
     from aura_backend.thinking_processor import ThinkingProcessor
 
