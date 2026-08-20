@@ -13,6 +13,20 @@ import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+PLAN_PATH = (
+    REPOSITORY_ROOT
+    / ".planning"
+    / "phases"
+    / "02-provider-and-runtime-core"
+    / "02-18-PLAN.md"
+)
+VALIDATION_PATH = (
+    REPOSITORY_ROOT
+    / ".planning"
+    / "phases"
+    / "02-provider-and-runtime-core"
+    / "02-VALIDATION.md"
+)
 EXPECTED_JOBS = {
     "deterministic-backend",
     "provider-live-ollama",
@@ -132,6 +146,19 @@ def test_required_python_lanes_install_and_run_from_the_uv_lock() -> None:
     ):
         assert f"--exclude {legacy_root}" in lint
     assert _false_success_violations(workflow) == []
+
+
+def test_every_phase_18_pytest_command_uses_module_mode() -> None:
+    """Bare pytest cannot import Aura from this non-packaged repository."""
+    workflow = _load_workflow()
+    for job_name, job in workflow["jobs"].items():
+        for command in _runs(job):
+            if "pytest" in command:
+                assert "python -m pytest" in command, job_name
+
+    for path in (PLAN_PATH, VALIDATION_PATH):
+        document = path.read_text(encoding="utf-8")
+        assert "uv run --locked --no-sync pytest" not in document, path
 
 
 def test_node_lanes_use_clean_installs_before_named_local_scripts() -> None:
