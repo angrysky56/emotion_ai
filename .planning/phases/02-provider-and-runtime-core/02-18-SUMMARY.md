@@ -28,7 +28,9 @@ key-files:
     - .planning/evidence/phase-02/runtime-baseline.json
     - tests/test_ci_contract.py
     - .github/workflows/ci.yml
-  modified: []
+  modified:
+    - .planning/phases/02-provider-and-runtime-core/02-18-PLAN.md
+    - .planning/phases/02-provider-and-runtime-core/02-VALIDATION.md
 
 key-decisions:
   - "Pyright remains not_run pending a genuinely completed green clean-CI typing-python job; local absence is not reinterpreted as proof."
@@ -42,7 +44,7 @@ patterns-established:
 
 requirements-completed: [TEST-03, TEST-05, AI-01, AI-02, AI-03, OPS-01, OPS-02]
 
-duration: 11min
+duration: 16min
 completed: 2026-08-20
 status: complete
 verification-status: pending-clean-ci
@@ -54,11 +56,11 @@ verification-status: pending-clean-ci
 
 ## Performance
 
-- **Duration:** 11 min
+- **Duration:** 16 min
 - **Started:** 2026-08-20T21:32:13Z
-- **Completed:** 2026-08-20T21:42:51Z
+- **Completed:** 2026-08-20T21:47:51Z
 - **Tasks:** 3/3
-- **Files modified:** 5
+- **Files modified:** 7
 
 ## Accomplishments
 
@@ -67,6 +69,7 @@ verification-status: pending-clean-ci
 - Added seven independent CI jobs: deterministic backend, optional Ollama live, active-code lint, Python typing, frontend typing, frontend build, and environment-blocked classification.
 - Pinned every external action to the four reviewed full commit SHAs and required `uv sync --locked`/`uv run --locked --no-sync` or clean `npm ci` setup as appropriate.
 - Enforced `npm ci` before `npm run typecheck:python` in the same clean hosted job; the current local tree still has no Pyright executable, so no local Pyright pass is claimed.
+- Standardized every Plan 02-18, validation-map, and CI pytest invocation on `python -m pytest`, which makes repository-local imports reliable in this non-packaged checkout; a regression test now rejects bare pytest console-script commands.
 - Preserved the exact dependency decision boundary: all four rejected SUS declarations remain untouched and no manifest, lock, installed environment, data root, or `.trunk/` content changed.
 
 ## Task Commits
@@ -75,6 +78,8 @@ verification-status: pending-clean-ci
 2. **Task 02-18-01 GREEN: Honest runtime baseline evidence** — `11d0779` (`feat`)
 3. **Task 02-18-02 RED: Independent CI truth contract** — `aeb2e56` (`test`)
 4. **Task 02-18-03 GREEN: Pinned CI truth lanes** — `71cd043` (`feat`)
+5. **Post-plan RED: Reject bare pytest invocations** — `b2e0743` (`test`)
+6. **Post-plan GREEN: Make pytest commands import-safe** — `f33f69a` (`fix`)
 
 ## Files Created/Modified
 
@@ -83,6 +88,8 @@ verification-status: pending-clean-ci
 - `.planning/evidence/phase-02/runtime-baseline.json` — Content-free import measurements and explicit provider/comparison non-run states.
 - `tests/test_ci_contract.py` — Structured YAML, lock, ordering, pin, false-success, and adversarial mutation checks.
 - `.github/workflows/ci.yml` — Seven independent immutable-action CI lanes.
+- `.planning/phases/02-provider-and-runtime-core/02-18-PLAN.md` — Import-safe module-mode pytest commands and the verified active-code Ruff scope.
+- `.planning/phases/02-provider-and-runtime-core/02-VALIDATION.md` — Import-safe executable commands for the affected validation rows.
 
 ## Decisions Made
 
@@ -95,14 +102,14 @@ verification-status: pending-clean-ci
 
 ### Auto-fixed Issues
 
-**1. [Rule 3 - Blocking] Used module-mode pytest for a self-contained import path**
+**1. [Rule 1 - Verification defect] Standardized pytest on import-safe module mode**
 
-- **Found during:** Task 02-18-01 RED verification.
-- **Issue:** The plan's direct `uv run ... pytest` task command uses the environment's console-script directory as `sys.path[0]`, so even existing tests could not import the repository-local `aura_backend` package.
-- **Fix:** Used `uv run --locked --no-sync python -m pytest` in local verification and CI, matching the project's established deterministic command without changing packaging or manifests.
-- **Files modified:** `.github/workflows/ci.yml`.
-- **Verification:** The complete non-live suite passed with 456 tests, two expected dependency-gate skips, and one live deselection.
-- **Committed in:** `71cd043`.
+- **Found during:** Post-plan orchestrator verification of the plan's exact advertised command.
+- **Issue:** `uv run --locked --no-sync pytest tests -q -m 'not live'` failed collection with 29 `ModuleNotFoundError: aura_backend/tests` errors because the console-script entry point did not place this non-packaged repository root on `sys.path`.
+- **Fix:** Standardized all current Plan 02-18, validation-map, and CI pytest commands on `uv run --locked --no-sync python -m pytest`. Added a CI contract regression that rejects bare pytest for these Plan 02-18 surfaces instead of relying on ambient `PYTHONPATH`.
+- **Files modified:** `tests/test_ci_contract.py`, `.github/workflows/ci.yml`, `.planning/phases/02-provider-and-runtime-core/02-18-PLAN.md`, `.planning/phases/02-provider-and-runtime-core/02-VALIDATION.md`.
+- **Verification:** The exact corrected complete non-live suite passed with 457 tests, two expected dependency-gate skips, and one live deselection; the focused baseline/CI contract suite passed all 14 tests.
+- **Committed in:** `71cd043`, `b2e0743`, and `f33f69a`.
 
 **2. [Rule 1 - Truth boundary] Kept classified legacy scripts out of the active Ruff lane**
 
@@ -115,7 +122,7 @@ verification-status: pending-clean-ci
 
 ---
 
-**Total deviations:** 2 auto-fixed (one Rule 3 execution-path blocker, one Rule 1 false-boundary correction).
+**Total deviations:** 2 auto-fixed (one Rule 1 verification-command defect, one Rule 1 false-boundary correction).
 **Impact on plan:** Both corrections make the advertised lanes match what actually runs. No product behavior, dependency authority, archived source, data, or environment was changed.
 
 ## Issues Encountered
@@ -127,8 +134,8 @@ verification-status: pending-clean-ci
 
 ## Verification
 
-- Baseline and CI schema/contract — **13 passed**.
-- Complete deterministic offline suite — **456 passed, 2 skipped, 1 live deselected** in 25.88 seconds.
+- Baseline and CI schema/contract — **14 passed**.
+- Complete deterministic offline suite — **457 passed, 2 skipped, 1 live deselected** in 25.77 seconds using the exact corrected module-mode command.
 - Active backend/test Ruff lane — **passed**.
 - Frontend TypeScript (`npm run typecheck:frontend`) — **passed**.
 - Vite production build (`npm run build`) — **passed** with Vite 8.0.10.
@@ -142,7 +149,8 @@ verification-status: pending-clean-ci
 
 - Runtime/baseline RED `0c5877b` failed on the absent baseline evidence; GREEN `11d0779` supplied the schema-valid, content-free artifact.
 - CI RED `aeb2e56` failed because `.github/workflows/ci.yml` did not exist; GREEN `71cd043` implemented the reviewed pinned lanes and all eight contract tests passed.
-- RED commits precede both corresponding GREEN commits.
+- Post-plan RED `b2e0743` reproduced the bare-pytest contract defect; GREEN `f33f69a` corrected every owned plan/validation command and brought the CI contract to nine passing tests.
+- Each RED commit precedes its corresponding GREEN/fix commit.
 
 ## Known Stubs
 
@@ -166,9 +174,9 @@ No local setup is required for the completed offline gates. A future authoritati
 ## Self-Check: PASSED
 
 - All five declared artifacts exist.
-- All four task commits exist in Git history in RED/GREEN order.
+- All six task/fix commits exist in Git history in RED/GREEN order.
 - Frontmatter records `status: complete` for the plan and `verification-status: pending-clean-ci` for the phase truth boundary.
-- Local deterministic, active lint, frontend typing/build, lock, privacy, pinning, and whitespace checks pass.
+- The exact corrected module-mode deterministic gate, active lint, frontend typing/build, lock, privacy, pinning, and whitespace checks pass.
 - Pyright, GitHub CI, and optional Ornith are all explicitly non-run and not counted as success.
 
 ---
