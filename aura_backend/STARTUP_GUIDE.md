@@ -1,128 +1,108 @@
-# Aura Backend Startup Guide
+# Aura startup guide
 
-## Quick Start
+<!-- aura-startup:start -->
+## Supported local startup
 
-### Option 1: Start Everything (Backend + Frontend)
+Aura is a private local application with no sign-in. Its default API bind is
+`127.0.0.1`; keep that loopback boundary for normal use. Commands below run from
+the repository root and work in Linux/macOS shells or PowerShell.
 
+### Explicit setup
+
+Setup is separate from startup. Run it when first preparing or intentionally
+updating the checked-out environment:
+
+<!-- aura-setup-command -->
 ```bash
-./start_complete.sh
+uv sync --locked
 ```
 
-This will start:
-
-- API Server (http://localhost:8000)
-- MCP Server (internal)
-- Frontend UI (http://localhost:5173)
-
-### Option 2: Start Backend Only
-
+<!-- aura-setup-command -->
 ```bash
-./start_all.sh
+npm ci
 ```
 
-This will start:
+Neither the runtime nor its wrapper scripts installs, synchronizes, downloads,
+changes permissions, edits configuration, or kills an existing process.
 
-- API Server (http://localhost:8000)
-- MCP Server (internal)
+`.env.example` selects local Ollama without a credential. Copy it to `.env` only
+to customize settings. Gemini and OpenRouter are optional cloud providers: select
+one explicitly and supply its credential privately. There is no silent cloud
+fallback. The configured selected model must already exist at the selected
+provider; Aura does not download it.
 
-### Option 3: Start Services Individually
+### Report-only preflight
 
+<!-- aura-runtime-command -->
 ```bash
-# Terminal 1: API Server
-./start_api.sh
-
-# Terminal 2: MCP Server
-./start_mcp_background.sh
-
-# Terminal 3: Frontend
-./start_frontend.sh
-# OR manually: cd .. && npm run dev
+uv run --locked --no-sync python -m aura_backend.runtime preflight
 ```
 
-## Verifying Everything Works
+The command returns one JSON report covering Python, uv, Node, npm, both lock
+contracts, provider configuration, port availability, writable existing storage,
+the selected provider service and selected model, and the application factory.
+The provider rows are a bounded live provider check; the deterministic test suite
+does not need a running model.
 
-1. **Check API Health**:
+The aggregate status and process exit code are:
 
-   ```bash
-   curl http://localhost:8000/health
-   ```
+| Status | Exit | Meaning |
+|---|---:|---|
+| `pass` | 0 | Every required check passed; startup is licensed. |
+| `missing` | 2 | A required command, lock, path, or selected model is absent. |
+| `failed` | 3 | A check ran and failed, including an unavailable selected service. |
+| `blocked` | 4 | Configuration, port use, identity, or readiness blocks startup. |
+| `not_run` | 5 | A prerequisite prevented the check from running. |
+| `not_applicable` | 6 | The check cannot apply in the observed environment. |
 
-2. **Check MCP Tools**:
+The report exposes fixed codes and safe values, not secrets, prompts, file
+contents, or source exceptions. A non-pass result is not readiness. Follow its
+remediation code explicitly, then rerun preflight.
 
-   ```bash
-   # Run the test script
-   cd /home/ty/Repositories/ai_workspace/emotion_ai/aura_backend
-   # From the project root
-   source .venv/bin/activate
+### Serve
 
-   # Or from aura_backend
-   source ../.venv/bin/activate
-   python test_mcp_tools.py
-   ```
-
-3. **Check Tool Availability in UI**:
-   - Open http://localhost:5173
-   - Ask Aura: "What MCP tools do you have?"
-   - Or: "List your available MCP tools"
-
-## About MCP Tools
-
-Aura has access to various MCP tools:
-
-### Internal Tools (aura-companion):
-
-- `search_aura_memories` - Search conversation history
-- `analyze_aura_emotional_patterns` - Analyze emotional trends
-- `store_aura_conversation` - Store memories
-- `get_aura_user_profile` - Get user profiles
-- `export_aura_user_data` - Export data
-- `query_aura_emotional_states` - Info about emotions
-- `query_aura_aseke_framework` - Info about ASEKE
-
-### External Tools (if configured):
-
-- Various tools from sqlite, brave-search, docker-mcp, etc.
-
-## Using MCP Tools
-
-To use a tool, format requests like:
-
-```
-@mcp.tool("search_aura_memories", {"user_id": "Ty", "query": "previous conversations"})
-```
-
-## Troubleshooting
-
+<!-- aura-runtime-command -->
 ```bash
-fuser -k 8000/tcp
+uv run --locked --no-sync python -m aura_backend.runtime serve
 ```
 
-### MCP Server Not Starting
+`serve` repeats preflight, starts only its own backend/frontend children, waits
+for the backend `/ready` contract, and propagates failure. Ctrl+C/SIGTERM cleans
+up only locally owned children and provider sessions. Local cancellation cannot
+guarantee stopped remote compute or billing at a cloud provider.
 
-- Check `aura_mcp_server.log` for errors
-- Ensure FastMCP is installed: `pip install fastmcp`
-- Check that `aura_server.py` has correct Python shebang
+These wrappers are convenience delegates, not alternative lifecycle systems:
 
-### No Tools Available
+- `./start_full_system.sh` or `start_full_system.bat` — full serve
+- `./aura_backend/start_api.sh` — `serve --backend-only`
+- `./aura_backend/start_frontend.sh` — `serve --frontend-only`
+- `./aura_backend/start_mcp.sh` — standalone optional MCP process; not included
+  in normal Aura readiness
 
-- Ensure MCP server is running: `ps aux | grep aura_mcp_wrapper`
-- Check `mcp_client_config.json` includes aura-companion
-- Restart all services
+For explicit LAN use, pass a non-loopback `--host`. The runtime prints an
+explicit LAN warning because Aura has no sign-in. Do not expose it directly to
+the internet.
 
-### Chat Context Not Working
+After readiness, use <http://localhost:5173> for the UI,
+<http://localhost:8000> for the API, and <http://localhost:8000/docs> for local
+API documentation. A live result describes only the selected provider/model in
+the current environment; environment-blocked checks and skipped live lanes must
+be reported as such, not as success.
+<!-- aura-startup:end -->
 
-- The system now properly maintains chat context
-- Each conversation has a session_id for continuity
-- Memory search is performed for relevant context
+## Troubleshooting boundaries
 
-## Directory Structure
+- `port_unavailable`: stop the process you own or choose another port with
+  `serve --port PORT`; Aura never kills an unknown process.
+- `storage_path_missing` / `storage_not_writable`: create or choose a storage
+  path explicitly. Preflight never creates or edits storage.
+- `provider_service_unavailable`: start the provider you selected, then rerun
+  preflight.
+- `provider_model_missing`: install the selected model explicitly through that
+  provider, then rerun preflight.
+- `provider_configuration_invalid`: review only the recognized settings in
+  `.env.example`; unknown provider selection fails closed.
 
-- `aura_chroma_db/` - Vector database storage
-- `aura_data/` - User profiles and exports
-- `scripts/` - Helper scripts
-- `.venv/` - Python virtual environment
-
-## Logs
-
-- `aura_mcp_server.log` - MCP server logs
-- API logs appear in terminal
+Legacy MCP internals, storage migration, emotional-quality claims, packaging,
+and remote deployment instructions belong to later rehabilitation phases. This
+guide intentionally makes no readiness claim for those areas.

@@ -149,134 +149,77 @@
 
 I am not a coder so hopefully it sets up right if anyone tries it.
 
-## 🚀 Install and Start back and front ends using 2 terminals
+<!-- aura-startup:start -->
+## Supported local startup
 
-### Prerequisites
+Aura is a private, single-user local application. It has no sign-in layer and
+binds to `127.0.0.1` by default. Run these commands from the repository root.
 
-- Python 3.12+
-- Google API Key (from [Google AI Studio](https://aistudio.google.com/app/apikey))
-- At least 4GB RAM (for vector embeddings)
-- 2GB+ storage space
+### One-time dependency setup
 
-### Installation
+Setup is an explicit operator action. The startup command and wrapper scripts do
+not install, synchronize, or download software or models.
 
-1. **Clone and Navigate**:
-
-   ```bash
-   cd emotion_ai
-   ```
-
-2. **Setup with uv**:
-   The project uses `uv` for unified dependency management. The virtual environment is created at the project root.
-
-   ```bash
-   # From the project root
-   uv venv --python 3.12
-   uv sync
-   ```
-
-3. **Configure Environment**:
-   Copy the example environment file in the backend to `.env`:
-   ```bash
-   cp aura_backend/.env.example aura_backend/.env
-   ```
-
-# Copy the env example in the backend to .env
-
-I will try to streamline all of this into an OS agnostic app soon.
-
-# It will pick up from your OS environment if the API key is configured. It should work if your OS key is set as GEMINI_API_KEY too
-
+<!-- aura-setup-command -->
 ```bash
-# Edit the .env file to use your existing key, sort of unneeded now I think.
-echo "GOOGLE_API_KEY=$GOOGLE_API_KEY" > .env
+uv sync --locked
 ```
 
-# Current backend .env settings:
-
+<!-- aura-setup-command -->
 ```bash
-# Aura Backend Configuration
-# ==========================
-Now compatible with OpenRouter and Ollama.
-Uses embeddings locally from ollama.
-
-# Gemini API Configuration
-GEMINI_API_KEY=your-gemini-api-key-here
-
-# Memvid Archival Configuration
-# To use local embeddings (Ollama)
-MEMVID_EMBEDDING_PROVIDER=ollama
-MEMVID_EMBEDDING_MODEL=embeddinggemma:latest
-
-# Database Configuration
-CHROMA_PERSIST_DIRECTORY=./aura_chroma_db
-AURA_DATA_DIRECTORY=./aura_data
-
-# AI Selection
-AURA_DEFAULT_PROVIDER=openrouter
-AURA_MODEL=gemini-2.5-flash
-
-# Features Configuration
-ENABLE_EMOTIONAL_ANALYSIS=true
-ENABLE_COGNITIVE_TRACKING=true
-ENABLE_VECTOR_SEARCH=true
-ENABLE_FILE_EXPORTS=true
-
+npm ci
 ```
 
-## 🚀 Quick Start - One Command Setup
+Copy `.env.example` to `.env` only if you want to customize the local defaults.
+The example selects Ollama and contains no credential. Gemini and OpenRouter are
+optional cloud providers and require an explicit provider selection plus the
+corresponding credential in your private environment.
 
-**Easy Full System Start**: This will start both backend and frontend in separate terminals automatically:
+### Preflight, then serve
 
+<!-- aura-runtime-command -->
 ```bash
-./start_full_system.sh
+uv run --locked --no-sync python -m aura_backend.runtime preflight
 ```
 
-This script will:
+Preflight is report-only. It checks Python, uv, Node, npm, both lock contracts,
+provider configuration, the selected port and storage paths, the selected
+provider service and selected model, and application readiness. The provider
+rows are a bounded live provider check; they are not part of the offline test
+suite. Preflight never installs dependencies, downloads a model, creates storage,
+changes permissions, kills another process, or starts Aura.
 
-- ✅ Check all prerequisites (Node.js, npm, uv)
-- ✅ Set up project environment (.venv with Python 3.12 at root)
-- ✅ Install frontend dependencies if needed
-- ✅ Start backend in one terminal (with hot reload)
-- ✅ Start frontend in another terminal (with hot reload)
-- ✅ Verify both services are running
-- ✅ Display status and URLs
+The JSON status is one of `pass` (exit 0), `missing` (2), `failed` (3),
+`blocked` (4), `not_run` (5), or `not_applicable` (6). Only a complete `pass`
+licenses startup. Other results name a safe remediation code; perform any repair
+explicitly and rerun preflight rather than treating a blocked check as readiness.
 
-**Stop All Services**:
-
+<!-- aura-runtime-command -->
 ```bash
-./stop_full_system.sh
+uv run --locked --no-sync python -m aura_backend.runtime serve
 ```
 
-To stop all services, you can also run:
+`serve` runs preflight first, starts only the requested local child processes,
+waits for the backend `/ready` response, and returns a nonzero status if startup
+or a child fails. Ctrl+C/SIGTERM cleans up only processes and local provider
+sessions owned by this invocation. Cancellation cannot guarantee stopped remote
+compute or billing at a cloud provider.
 
-```bash
-fuser -k 8000/tcp && fuser -k 5173/tcp
-```
+The cross-platform launchers are thin delegates to these same commands:
+`./start_full_system.sh` and `start_full_system.bat` run full serve;
+`./aura_backend/start_api.sh` and `./aura_backend/start_frontend.sh` select one
+side. `./aura_backend/start_mcp.sh` is a separate optional MCP delegate and is
+not part of normal Aura readiness.
 
-### Manual Setup (Alternative)
+For normal private use, keep the loopback default. Passing a non-loopback
+`--host` is explicit LAN exposure; the runtime warns that Aura has no sign-in.
+Do not expose Aura directly to the internet.
 
-If you prefer to start services manually:
-
-**Backend**:
-
-```bash
-cd aura_backend
-./start.sh
-```
-
-**Frontend** (in a separate terminal):
-
-```bash
-npm install  # First time only
-npm run dev
-```
-
-### Access URLs
-
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
+Once serve reports readiness, the local UI is at <http://localhost:5173>, the
+API at <http://localhost:8000>, and API documentation at
+<http://localhost:8000/docs>. Environment-blocked and live-provider results are
+evidence about that machine only, not proof that every provider or model works.
+<!-- aura-startup:end -->
 
 ![alt text](image-5.png)
 
