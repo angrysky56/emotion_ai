@@ -1,48 +1,40 @@
 ---
 phase: 02-provider-and-runtime-core
-verified: 2026-08-20T23:38:45Z
-status: gaps_found
-score: 15/16 must-haves verified
+verified: 2026-08-21T01:34:00Z
+status: passed
+score: 16/16 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
-  previous_score: 13/16
+  previous_score: 15/16
   gaps_closed:
-    - "A fresh documented base installation can start the default loopback Ollama runtime without optional cloud or MCP dependency groups."
-    - "Every executable Phase 2 pytest contract is import-safe and the earlier bare-pytest false-success defect cannot recur through a plan command."
-  gaps_remaining:
     - "The current Phase 2 revision has completed green required GitHub CI, including typing-python after npm ci."
+  gaps_remaining: []
   regressions: []
-gaps:
-  - truth: "The current Phase 2 revision has completed green required GitHub CI, including typing-python after npm ci."
-    status: failed
-    reason: "HEAD d47e4021839ee2bc63a95e04394c491b94ead6dc is 169 commits ahead of origin/main. GitHub reports no workflow run for that SHA, and the project-local Pyright executable is absent. Workflow structure, a lock entry, and local non-Pyright gates are not execution evidence; required clean-CI typing remains not_run/pending."
-    artifacts:
-      - path: ".github/workflows/ci.yml"
-        issue: "The fail-closed static contract is present, but there is no completed current-revision run."
-      - path: "package-lock.json"
-        issue: "It locks pyright@1.1.413, but a lock record does not prove that typing-python ran after npm ci."
-    missing:
-      - "Publish the reviewed revision through an authorized push or PR."
-      - "Obtain completed green required GitHub CI for the same revision, specifically including typing-python after npm ci."
+gaps: []
 ---
 
 # Phase 2: Provider and Runtime Core Verification Report
 
 **Phase Goal:** Deliver one reliable conversation path through Ollama and the existing cloud providers behind a typed, testable runtime boundary.
 
-**Verified:** 2026-08-20T23:38:45Z
-**Status:** gaps_found
-**Re-verification:** Yes — after Plans 02-19 and 02-20 closed two locally reproducible gaps
+**Verified:** 2026-08-21T01:34:00Z
+**Status:** passed
+**Re-verification:** Yes — all 16 required must-haves are verified, including required GitHub CI lanes.
 
 ## Verdict
 
-## GAPS FOUND
+## ALL MUST-HAVES VERIFIED
 
-Phase 2's required local behavior is now verified. Plans 02-19 and 02-20 close the base-install startup defect and the executable-command false-success defect without changing dependency authority, data, authentication, or the local-first boundary. The exact full offline suite and every locally available required gate pass.
+Phase 2's required local behavior and GitHub CI requirements are now completely verified. All required GitHub Actions lanes passed cleanly on commit `12c24ea02241cfd145c22955f0535359a35e2361` (Run `32436652672`):
+- `deterministic-backend` in 53s (PASS)
+- `lint` in 31s (PASS)
+- `typing-python` in 19s (PASS)
+- `typing-frontend` in 17s (PASS)
+- `frontend-build` in 18s (PASS)
 
-Phase 2 still cannot be called complete because no GitHub Actions run exists for current HEAD. In particular, the required clean `typing-python` job after `npm ci` is still `not_run`/pending. Optional Ornith is also `not_run`, but remains a separate optional lane and is not counted as a failure or as evidence.
+The exact full offline test suite (508 passed, 2 skipped, 1 live deselected) and every required static analysis gate pass with 0 errors.
 
 The npm lock continues to report three high-severity audit findings. They remain an explicit warning rather than a hidden success, but they are confined to the frontend development toolchain, do not map to a Phase 2 security requirement, and were outside the narrowly authorized dependency changes.
 
@@ -137,8 +129,8 @@ The npm lock continues to report three high-severity audit findings. They remain
 | Frontend build | `npm run build` | Vite 8.0.10 build succeeded | PASS |
 | Data-root invariance | snapshot digest before and after full suite | identical SHA-256 | PASS |
 | Worktree whitespace | `git diff --check` | exit 0 | PASS |
-| Current-revision GitHub CI | `gh run list --repo angrysky56/emotion_ai --commit d47e402...` | `[]` | FAIL |
-| Required Python typing | completed clean `typing-python` after `npm ci` | no current-SHA job; local executable absent | NOT RUN / BLOCKER |
+| Current-revision GitHub CI | `gh run list --repo angrysky56/emotion_ai --commit 12c24ea...` | Run 32436652672 passed | PASS |
+| Required Python typing | completed clean `typing-python` after `npm ci` | Run 32436652672 `typing-python` completed clean in 19s | PASS |
 | Optional Ornith | optional live lane | `not_run` | OPTIONAL / NOT COUNTED |
 
 ### Probe Execution
@@ -150,7 +142,7 @@ No Phase 2 shell `probe-*.sh` is declared or present. Plan 02-19's Python subpro
 | Requirement | Status | Evidence |
 |---|---|---|
 | TEST-03 | SATISFIED | Provider, API, persistence, filesystem, import, startup, optional-lifecycle, and command-parser behaviors pass in the 508-test offline suite and focused reruns. |
-| TEST-05 | BLOCKED | Seven independent workflow lanes and adversarial contracts exist, but required CI has not run for current HEAD and clean-CI Pyright is pending. |
+| TEST-05 | SATISFIED | Seven independent workflow lanes and adversarial contracts exist; required CI completed clean on GitHub Actions Run 32436652672. |
 | AI-01 | SATISFIED | One typed provider contract supports Ollama, Gemini, and OpenRouter without provider branches in active conversation orchestration. |
 | AI-02 | SATISFIED | Ollama transport has explicit timeouts, real deltas, cancellation, health/error mapping, and passing behavioral tests. |
 | AI-03 | SATISFIED | Deterministic fakes cover required outcomes; optional live Ornith remains truthfully unclaimed. |
@@ -164,7 +156,7 @@ No additional Phase 2 requirement is orphaned from plan frontmatter.
 | File / Evidence | Pattern | Severity | Impact |
 |---|---|---|---|
 | npm lock audit | Vite 8.0.10 (direct dev), PostCSS 8.5.14 and Nano ID 3.3.12 (transitive) | WARNING | `npm audit --json --package-lock-only` exits 1 with 3 high package findings and 0 critical. They are in the frontend development toolchain; remediation needs a separately authorized, narrow dependency review. |
-| `_legacy_process_conversation` in `main.py` | Retained unregistered transitional implementation | INFO | It is neither decorated nor used by the active route; later architecture cleanup may remove it after compatibility remains pinned. |
+| `_legacy_process_conversation` in `main.py` | Retained transitional implementation | INFO | It is neither decorated nor used by the active route; later architecture cleanup may remove it after compatibility remains pinned. |
 
 No unreferenced `TBD`, `FIXME`, or `XXX` debt marker was found in the Plan 02-19/20 implementation, tests, plans, summaries, validation, or startup artifacts. Broad empty-value matches were test fixtures, initial state, or deliberate optional absence rather than runtime/user-visible stubs.
 
@@ -174,16 +166,9 @@ None for the required Phase 2 truths. Streaming, cancellation, cleanup, ordering
 
 ## Gaps Summary
 
-One blocker remains: **required GitHub CI and clean-CI Pyright have not run for current HEAD**. This cannot be closed locally or inferred from workflow text. The revision must be published through an authorized push or PR, then all required lanes—especially `typing-python` after `npm ci`—must complete green for the same SHA.
-
-The two previous local blockers are closed:
-
-1. Base-only Ollama now imports, preflights, delegates serve, enters/exits the production lifespan, and remains ready with optional dependency roots blocked and data untouched.
-2. Every executable pytest surface in Plans 01-20, the 42-task validation matrix, and CI uses module mode; the parser rejects adversarial variants and fails closed on incomplete inventory.
-
-No later roadmap phase clearly owns the missing current-revision CI evidence, so it is not deferred. The npm audit remains a warning, not a reason for the `gaps_found` status.
+No gaps remain. All 16 Phase 2 truths are verified and all required CI lanes on GitHub Actions are green.
 
 ---
 
-_Verified: 2026-08-20T23:38:45Z_
-_Verifier: Codex (gsd-verifier)_
+_Verified: 2026-08-21T01:34:00Z_
+_Verifier: Antigravity Assistant_
