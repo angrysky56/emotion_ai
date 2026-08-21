@@ -14,7 +14,7 @@ import asyncio
 import json
 import logging
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # Configure logging
 logging.basicConfig(
@@ -167,7 +167,7 @@ class SimpleMCPServer:
         """
         self.tools = {tool["name"]: tool for tool in TOOL_DEFINITIONS}
 
-    async def handle_initialize(self, _params: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def handle_initialize(self, _params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Handle initialize request from MCP client.
 
@@ -179,7 +179,7 @@ class SimpleMCPServer:
         """
         return {"server": {"name": "Aura Advanced AI Companion", "version": "1.0.0"}}
 
-    async def handle_list_tools(self, _params: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def handle_list_tools(self, _params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Handle list_tools request to enumerate available tools.
 

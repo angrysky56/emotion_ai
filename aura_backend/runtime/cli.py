@@ -27,7 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import IO, Protocol
+from typing import Any, IO, Protocol
 
 from aura_backend.providers.base import ProviderHealth, ProviderHealthStatus
 
@@ -417,7 +417,7 @@ class _SignalHandlers:
 
     def __init__(self, stop_event: threading.Event) -> None:
         self._stop_event = stop_event
-        self._previous: dict[int, object] = {}
+        self._previous: dict[int, Any] = {}
 
     def __enter__(self) -> _SignalHandlers:
         if threading.current_thread() is not threading.main_thread():

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 from .base import (
     Completed,
@@ -160,7 +160,7 @@ class ProviderRuntime:
 
     def _start_operation(
         self,
-        operation: Callable[[], Awaitable[_T]],
+        operation: Callable[[], Coroutine[Any, Any, _T]],
         keys: _OperationKeys,
     ) -> asyncio.Task[_T]:
         if self._closed:

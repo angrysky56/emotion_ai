@@ -34,14 +34,14 @@ from aura_backend.providers.errors import ProviderErrorCode, ProviderFailure
 from aura_backend.providers.tools import ToolExecutor
 
 
-ClientFactory = Callable[..., object]
+ClientFactory = Callable[..., Any]
 _NORMAL_FINISH_REASONS = {"STOP", "FINISH_REASON_UNSPECIFIED", ""}
 _RESOURCE_FINISH_REASONS = {"MAX_TOKENS", "RECITATION"}
 
 
-def _default_client_factory(**kwargs: object) -> object:
+def _default_client_factory(**kwargs: object) -> Any:
     """Import and construct the optional SDK only after Gemini is selected."""
-    from google import genai
+    from google import genai  # type: ignore[import-untyped,import-not-found]
 
     return genai.Client(**kwargs)
 
@@ -83,7 +83,7 @@ class GeminiProvider(BaseProvider):
         mcp_client_manager: object | None = None,
         aura_internal_tools: object | None = None,
         *,
-        client: object | None = None,
+        client: Any = None,
         client_factory: ClientFactory = _default_client_factory,
         tool_executor: ToolExecutor | None = None,
         max_tool_turns: int | None = None,
@@ -320,7 +320,7 @@ class GeminiProvider(BaseProvider):
         ]
         return history, messages[-1].content
 
-    def _chat(self, request: ProviderRequest) -> tuple[object, str]:
+    def _chat(self, request: ProviderRequest) -> tuple[Any, str]:
         history, message = self._conversation(request)
         chat = self._aio.chats.create(
             model=self.model_name,

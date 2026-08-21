@@ -10,7 +10,7 @@ This significantly improves performance and reduces GPU memory usage.
 
 import logging
 import threading
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union, cast
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -78,9 +78,11 @@ class SharedEmbeddingService:
             Embeddings as numpy array or list of floats
         """
         self._ensure_model_loaded()
+        if self._model is None:
+            raise RuntimeError("Embedding model is not loaded")
 
         try:
-            embeddings = self._model.encode(
+            embeddings: Any = self._model.encode(
                 texts,
                 convert_to_tensor=convert_to_tensor,
                 normalize_embeddings=normalize_embeddings,
@@ -120,7 +122,7 @@ class SharedEmbeddingService:
         Returns:
             List of embeddings, each as a list of floats
         """
-        return self.encode(texts)
+        return cast(List[List[float]], self.encode(texts))
 
     def get_model_info(self) -> dict:
         """Get information about the loaded model"""

@@ -14,6 +14,7 @@ Core backend system for Aura (Adaptive Reflective Companion) featuring:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -76,6 +77,7 @@ from aura_backend.providers.errors import (  # noqa: E402
 )
 from aura_backend.providers.tools import ToolCatalog  # noqa: E402
 from aura_backend.runtime.health import (  # noqa: E402
+    ApplicationRuntimeSnapshot,
     HealthSnapshot,
     aggregate_health,
     public_readiness,
@@ -1027,7 +1029,9 @@ async def _start_memvid_resource() -> Any:
         service, memvid_archival = memvid_archival, None
         close = getattr(service, "close", None)
         if callable(close):
-            await close()
+            outcome: Any = close()
+            if inspect.isawaitable(outcome):
+                await outcome
 
     # Bind cleanup before running the legacy constructor.  This keeps a
     # partially initialized facade inside the same exactly-once stage boundary.
@@ -1281,7 +1285,12 @@ async def _capture_runtime_health(runtime: Any) -> HealthSnapshot:
         return _unstarted_health_snapshot()
 
     selected_provider, selected_model, timeout_seconds = selection
-    runtime_snapshot = snapshot_reader()
+    raw_snapshot = snapshot_reader()
+    runtime_snapshot = (
+        raw_snapshot
+        if isinstance(raw_snapshot, ApplicationRuntimeSnapshot)
+        else None
+    )
     selected_health: ProviderHealth | None = None
     try:
         provider_runtime = runtime.provider_runtime
@@ -1289,7 +1298,12 @@ async def _capture_runtime_health(runtime: Any) -> HealthSnapshot:
         if not callable(health_reader):
             raise TypeError("provider runtime has no health reader")
         async with asyncio.timeout(timeout_seconds):
-            observed = await health_reader()
+            health_call: Any = health_reader()
+            observed = (
+                await health_call
+                if inspect.isawaitable(health_call)
+                else health_call
+            )
         if not isinstance(observed, ProviderHealth):
             raise TypeError("provider health returned an invalid result")
         selected_health = observed

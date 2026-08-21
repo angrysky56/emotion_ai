@@ -129,6 +129,8 @@ def add_compatible_memvid_tools(mcp_instance):
         archives created with memvid's revolutionary MV2 single-file technology!
         """
         try:
+            if not REAL_MEMVID_AVAILABLE or get_aura_real_memvid is None:
+                raise RuntimeError("Real memvid integration not available")
             chroma_client = get_chroma_client()
             memvid_system = get_aura_real_memvid(existing_chroma_client=chroma_client)
 
@@ -174,6 +176,8 @@ def add_compatible_memvid_tools(mcp_instance):
         single-file archives while maintaining full searchability!
         """
         try:
+            if not REAL_MEMVID_AVAILABLE or get_aura_real_memvid is None:
+                raise RuntimeError("Real memvid integration not available")
             chroma_client = get_chroma_client()
             memvid_system = get_aura_real_memvid(existing_chroma_client=chroma_client)
 
@@ -235,6 +239,8 @@ def add_compatible_memvid_tools(mcp_instance):
                 vector_db = VectorDBWrapper(client)
 
             # Initialize AuraRealMemvid with existing ChromaDB client
+            if not REAL_MEMVID_AVAILABLE or get_aura_real_memvid is None:
+                raise RuntimeError("Real memvid integration not available")
             chroma_client = vector_db.client if vector_db else None
             memvid_system = get_aura_real_memvid(existing_chroma_client=chroma_client)
 
@@ -298,6 +304,8 @@ def add_compatible_memvid_tools(mcp_instance):
 
                 vector_db = VectorDBWrapper(client)
             # Initialize AuraRealMemvid with existing ChromaDB client
+            if not REAL_MEMVID_AVAILABLE or get_aura_real_memvid is None:
+                raise RuntimeError("Real memvid integration not available")
             chroma_client = vector_db.client if vector_db else None
             memvid_system = get_aura_real_memvid(existing_chroma_client=chroma_client)
 
@@ -358,6 +366,8 @@ def add_compatible_memvid_tools(mcp_instance):
                 vector_db = VectorDBWrapper(client)
 
             # Initialize AuraRealMemvid with existing ChromaDB client
+            if not REAL_MEMVID_AVAILABLE or get_aura_real_memvid is None:
+                raise RuntimeError("Real memvid integration not available")
             chroma_client = vector_db.client if vector_db else None
             memvid_system = get_aura_real_memvid(existing_chroma_client=chroma_client)
 

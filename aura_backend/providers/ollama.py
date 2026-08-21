@@ -50,7 +50,7 @@ class OllamaProvider(OpenAICompatibleProvider):
         aura_internal_tools: Any = None,
         *,
         settings: ProviderSettings | None = None,
-        client: object | None = None,
+        client: Any = None,
         client_factory: ClientFactory | None = None,
         tool_executor: ToolExecutor | None = None,
     ) -> None:

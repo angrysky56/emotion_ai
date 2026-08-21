@@ -8,6 +8,7 @@ ensuring all MCP tools are available to the Gemini model.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Mapping
 from pathlib import Path
@@ -130,7 +131,7 @@ async def shutdown_gemini_bridge() -> None:
     close = getattr(bridge, "aclose", None) or getattr(bridge, "close", None)
     if callable(close):
         outcome = close()
-        if hasattr(outcome, "__await__"):
+        if inspect.isawaitable(outcome):
             await outcome
 
 
@@ -164,10 +165,10 @@ def get_mcp_client() -> _MCPToolClient | None:
     return _mcp_client
 
 
-def _object_schema(value: object) -> object:
+def _object_schema(value: object) -> Mapping[str, JsonValue]:
     """Supply the legacy empty-object default without weakening validation."""
     if isinstance(value, Mapping) and value:
-        return value
+        return value  # type: ignore[return-value]
     return {"type": "object", "properties": {}}
 
 

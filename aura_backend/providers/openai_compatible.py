@@ -83,7 +83,7 @@ class OpenAICompatibleProvider:
         provider_name: str,
         api_key: str,
         default_headers: Mapping[str, str] | None = None,
-        client: object | None = None,
+        client: Any = None,
         client_factory: ClientFactory = AsyncOpenAI,
         tool_executor: ToolExecutor | None = None,
     ) -> None:
@@ -414,7 +414,7 @@ class OpenAICompatibleProvider:
         emitted_count = 0
         try:
             for tool_turn in range(1, self._settings.max_tool_turns + 1):
-                upstream: object | None = None
+                upstream: Any = None
                 text_parts: list[str] = []
                 tool_parts: dict[int, dict[str, str]] = {}
                 finish_reason: str | None = None

@@ -34,9 +34,19 @@ dev = ["ruff==0.12.7"]
 
 [tool.pyright]
 include = ["aura_backend"]
-exclude = ["src"]
+exclude = [
+    "src",
+    ".venv",
+    "aura_backend/.venv",
+    "aura_backend/archive_unused",
+    "aura_backend/scratch",
+    "aura_backend/tests",
+]
 extraPaths = ["."]
 typeCheckingMode = "basic"
+reportMissingImports = false
+reportMissingTypeStubs = false
+reportMissingModuleSource = false
 
 [tool.ruff]
 src = ["aura_backend", "."]

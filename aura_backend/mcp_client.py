@@ -203,6 +203,8 @@ class AuraMCPClient:
             # Connect to server using its own exit stack
             # This ensures that contexts are properly managed and avoids anyio cross-task errors
             # if we close them from the task that created them.
+            if server.exit_stack is None:
+                server.exit_stack = AsyncExitStack()
             transport = await server.exit_stack.enter_async_context(
                 stdio_client(server_params)
             )

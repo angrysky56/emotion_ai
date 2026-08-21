@@ -516,7 +516,9 @@ class AuraRealMemvid:
                 "real_memvid_available": REAL_MEMVID_AVAILABLE,
             }
 
-    def import_knowledge_to_video(self, source_path: str, archive_name: str) -> Dict:
+    def import_knowledge_to_video(
+        self, source_path: str, archive_name: str, codec: str = "h264"
+    ) -> Dict:
         """
         Import external documents into REAL memvid v2 archive
         """

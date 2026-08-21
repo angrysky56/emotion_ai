@@ -292,12 +292,12 @@ class MemvidArchivalService:
             success = "error" not in archive_result
             return ArchivalResult(
                 success=success,
-                archive_id=archive_result.get("archive_name", ""),
-                conversations_archived=archive_result.get("archived_count", 0),
-                archive_size_mb=archive_result.get(
-                    "size_mb", archive_result.get("video_size_mb", 0)
+                archive_id=str(archive_result.get("archive_name", "")),
+                conversations_archived=int(archive_result.get("archived_count", 0) or 0),
+                archive_size_mb=float(
+                    archive_result.get("size_mb", archive_result.get("video_size_mb", 0)) or 0
                 ),
-                compression_ratio=archive_result.get("compression_ratio", 0),
+                compression_ratio=float(archive_result.get("compression_ratio", 0) or 0),
                 errors=[archive_result["error"]] if not success else [],
                 metadata={
                     "archive_file": archive_result.get("archive_file", ""),
@@ -492,6 +492,9 @@ class MockArchivalSystem:
 
     async def search_unified(self, **kwargs):
         return {"video_archive_results": []}
+
+    def archive_conversations_to_video(self, **kwargs):
+        return {"error": "Mock archival system - memvid not available"}
 
     async def list_video_archives(self):  # Make method asynchronous
         return []

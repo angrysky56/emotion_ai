@@ -23,6 +23,8 @@ Configuration Environment Variables:
 - TOOL_CALL_HEARTBEAT_INTERVAL: Heartbeat interval for long operations (default: 10.0)
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -30,12 +32,22 @@ import os
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 
 # Google Gemini imports
-from google.genai import types
+if TYPE_CHECKING:
+    from google.genai import types
+    GEMINI_AVAILABLE: bool = True
+else:
+    try:
+        from google.genai import types
+
+        GEMINI_AVAILABLE = True
+    except ImportError:
+        GEMINI_AVAILABLE = False
+        types = None
 
 # MCP imports (with fallback handling)
 try:
@@ -149,6 +161,10 @@ class MCPGeminiBridge:
         Returns:
             List of Gemini Tool objects that can be passed to the model
         """
+        if not GEMINI_AVAILABLE or types is None:
+            logger.warning("⚠️ Google Gemini SDK is not available for MCP tool conversion")
+            return []
+
         try:
             available_tools = []
 
