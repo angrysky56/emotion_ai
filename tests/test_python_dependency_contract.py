@@ -38,7 +38,7 @@ EXPECTED_DECISION = (
     "and 02-17 before any manifest or lock changes."
 )
 EXPECTED_EVIDENCE_SHA256 = (
-    "e3efba9197560d9559629448cfa088003e9239567c645c0204d4d9f994724bdb"
+    "18492972b43f0cdbc0c04526d3181fd9a09b61b3932be8e1f96abd828ff21fd3"
 )
 PRECHANGE_AUTHORITY_SHA256 = {
     "pyproject.toml": (
@@ -46,7 +46,7 @@ PRECHANGE_AUTHORITY_SHA256 = {
     ),
     "uv.lock": "4b7df8a21291f380a42f4b4a5d360d194b8228a0632ca84cae7dcffe35fca74e",
 }
-REQUIREMENTS_SHA256 = "5a52f57420ed9e918310725475fe77647b821dbcd10a7dde3a87b7035d0d2744"
+REQUIREMENTS_SHA256 = "90f40e456899c4f1b3088dd327afb42b2498ae76e28b5b135e3fdb39ac273db9"
 MAX_EVIDENCE_AGE = timedelta(days=7)
 
 APPROVED_PYTHON_ACTIONS = {
@@ -58,7 +58,7 @@ APPROVED_PYTHON_ACTIONS = {
     ),
     "pypi:mcp@1.27.0": ("move", "mcp", "mcp==1.27.0"),
     "pypi:fastmcp@3.2.4": ("move", "mcp", "fastmcp==3.2.4"),
-    "pypi:memvid-sdk@2.0.159": ("move", "memvid", "memvid-sdk==2.0.159"),
+    "pypi:memvid-sdk@2.0.160": ("move", "memvid", "memvid-sdk==2.0.160"),
     "pypi:beautifulsoup4@4.13.4": ("remove-direct", "base", None),
     "pypi:ebooklib@0.19": ("remove-direct", "base", None),
     "pypi:opencv-python@4.11.0.86": ("remove-direct", "base", None),
@@ -116,7 +116,7 @@ EXPECTED_BASE_DEPENDENCIES = {
 EXPECTED_OPTIONAL_LANES = {
     "provider-gemini": ["google-genai==1.75.0"],
     "mcp": ["mcp==1.27.0", "fastmcp==3.2.4"],
-    "memvid": ["memvid-sdk==2.0.159"],
+    "memvid": ["memvid-sdk==2.0.160"],
 }
 SUPPORTED_ENTRYPOINT_LANES = {
     "aura_backend.main": {"base"},

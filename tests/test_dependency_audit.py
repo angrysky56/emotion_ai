@@ -33,7 +33,7 @@ EXPECTED_CANDIDATES = {
     "pypi:fastmcp@3.2.4",
     "pypi:google-genai@1.75.0",
     "pypi:mcp@1.27.0",
-    "pypi:memvid-sdk@2.0.159",
+    "pypi:memvid-sdk@2.0.160",
     "pypi:opencv-python@4.11.0.86",
     "pypi:pandas@2.2.3",
     "pypi:pillow@12.2.0",

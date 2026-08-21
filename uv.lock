@@ -138,7 +138,7 @@ requires-dist = [
     { name = "google-genai", marker = "extra == 'provider-gemini'", specifier = "==1.75.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "==1.27.0" },
-    { name = "memvid-sdk", marker = "extra == 'memvid'", specifier = "==2.0.159" },
+    { name = "memvid-sdk", marker = "extra == 'memvid'", specifier = "==2.0.160" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "openai", specifier = ">=1.86.0" },
     { name = "pydantic", specifier = ">=2.13.3" },
@@ -1319,18 +1319,18 @@ wheels = [
 
 [[package]]
 name = "memvid-sdk"
-version = "2.0.159"
+version = "2.0.160"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/75/5497dcf5555d4a131d2f3f8be261eb593120aa4ff8003e502ee69a763eb9/memvid_sdk-2.0.159.tar.gz", hash = "sha256:cce5bb2e13d81db8623d9bc63c451e56042e1e102159f2b1a41fc8ba0e64646a", size = 9877025, upload-time = "2026-03-13T23:01:59.692Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/1a/709899b6757e1d1fde0bbe7e97fd814411931ab6c8c68b876305404b7a83/memvid_sdk-2.0.160.tar.gz", hash = "sha256:8eab5aec9a30eb459f553ed091038b6916d02a2f33569b32a7aee1b556820243", size = 9880521, upload-time = "2026-05-27T19:47:09.601Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/8f/7cf4ad33c79a0f753896c84c16e5e2be4df00560f672d396bf511a72a361/memvid_sdk-2.0.159-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:7e47aabe35cafdcf2a4d40e094ff78a9347c869c91d307c49c1ede1c920b30ce", size = 66605269, upload-time = "2026-03-13T23:01:40.245Z" },
-    { url = "https://files.pythonhosted.org/packages/6c/7c/321131898c4e59ac11441bb9cca6e75ac6001bec946be0322dd46b96226c/memvid_sdk-2.0.159-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:56c5e37811cefd933322c8388f903e874a92a8a7e9a28648b38c38a995c7bda2", size = 64256924, upload-time = "2026-03-13T23:01:44.569Z" },
-    { url = "https://files.pythonhosted.org/packages/83/e4/bdd373843db0bce35aef482a6ddf04f9e9454c4030505d6fc7cbba2de86f/memvid_sdk-2.0.159-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:104a2cbbe024f7744cb95a2262cb7e32a331ba8eabd73a83c62e703ffa0dba1d", size = 14807341, upload-time = "2026-03-13T23:01:47.607Z" },
-    { url = "https://files.pythonhosted.org/packages/ba/a0/3c13cd9906459d3841ec2a3e0ee403a68ac5a0bfc0140b52bae2922bf113/memvid_sdk-2.0.159-cp38-abi3-manylinux_2_35_x86_64.whl", hash = "sha256:5f0c26c2bb49e21ea62b3a68074c313d8f5af590545e1ca7ef06b78a066ab269", size = 99915784, upload-time = "2026-03-13T23:01:52.692Z" },
-    { url = "https://files.pythonhosted.org/packages/90/cd/3f30bf36a4cf5c215b2291901149620094fdac2d27bc936bb4d11dd2797a/memvid_sdk-2.0.159-cp38-abi3-win_amd64.whl", hash = "sha256:bc59ce0ca359ec40d88889ead357537f31e6d19c6e9b3d088f51c5e3d51aa54a", size = 7487195, upload-time = "2026-03-13T23:01:57.488Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/ab/3be4c188166051163ddcf5f2bf87007d69373705ee23e1e638af4bb889f6/memvid_sdk-2.0.160-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:519edbca20082a2a850750fd1c8391f5868f7282f2574c65f4b135a0dc03a95d", size = 66480290, upload-time = "2026-05-27T19:46:48.109Z" },
+    { url = "https://files.pythonhosted.org/packages/70/03/149b19a9232dae6a933530ba2878b404dbf37f5fd7880e81da1a4be811a8/memvid_sdk-2.0.160-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:e083362b2b40e6fb29597223b01f8130f455a40142dd3f97eff4aa9f5d3458ab", size = 64139837, upload-time = "2026-05-27T19:46:53.038Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/cf/86e7b9718f67b75a1905e3285671c2a6921ecd729712d2e38946b1b46f32/memvid_sdk-2.0.160-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:1999b217071e516ca4b70b8b8b94b1235a2ed4c80e9bb3b3804516f41348504b", size = 14800219, upload-time = "2026-05-27T19:46:56.452Z" },
+    { url = "https://files.pythonhosted.org/packages/db/d2/0e0016395dcfaf4481f482d355dded4fe602d9718907ba55ed4c18da428a/memvid_sdk-2.0.160-cp38-abi3-manylinux_2_35_x86_64.whl", hash = "sha256:37291d5e3fcc4f9f876fd5354060f034815a433c5b29a8b5c1f4cf508a4ba680", size = 99770217, upload-time = "2026-05-27T19:47:02.478Z" },
+    { url = "https://files.pythonhosted.org/packages/da/f9/d724a488208507d1435c74ef00a55015ae3bb0f33ac76050b178e84f6afc/memvid_sdk-2.0.160-cp38-abi3-win_amd64.whl", hash = "sha256:c3a447bee84b38caea2b6f53be253ac2bfe8f8f064ffc6611b5cde727d4f4cd4", size = 7502693, upload-time = "2026-05-27T19:47:07.32Z" },
 ]
 
 [[package]]

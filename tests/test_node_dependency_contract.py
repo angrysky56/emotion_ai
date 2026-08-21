@@ -44,7 +44,7 @@ APPROVED_CANDIDATES: Final = frozenset(
         "pypi:google-genai@1.75.0",
         "pypi:mcp@1.27.0",
         "pypi:fastmcp@3.2.4",
-        "pypi:memvid-sdk@2.0.159",
+        "pypi:memvid-sdk@2.0.160",
         "pypi:beautifulsoup4@4.13.4",
         "pypi:ebooklib@0.19",
         "pypi:opencv-python@4.11.0.86",

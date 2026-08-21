@@ -27,7 +27,7 @@ dependencies = [
 [project.optional-dependencies]
 provider-gemini = ["google-genai==1.75.0"]
 mcp = ["mcp==1.27.0", "fastmcp==3.2.4"]
-memvid = ["memvid-sdk==2.0.159"]
+memvid = ["memvid-sdk==2.0.160"]
 
 [dependency-groups]
 dev = ["ruff==0.12.7"]
