@@ -27,7 +27,7 @@ PACKAGE_PATH: Final = ROOT / "package.json"
 LOCK_PATH: Final = ROOT / "package-lock.json"
 
 EVIDENCE_SHA256: Final = (
-    "e3efba9197560d9559629448cfa088003e9239567c645c0204d4d9f994724bdb"
+    "18492972b43f0cdbc0c04526d3181fd9a09b61b3932be8e1f96abd828ff21fd3"
 )
 PRECHANGE_SHA256: Final = {
     "package.json": "305b5f54910fd39499493d5a06e2b5f756ad65cf18e02c8134e1037bd17160db",
