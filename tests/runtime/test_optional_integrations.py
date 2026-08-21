@@ -217,8 +217,15 @@ async def test_mcp_with_ollama_never_constructs_gemini_bridge(
     await runtime.aclose()
 
 
+def _spec_exists(module: str) -> bool:
+    try:
+        return importlib.util.find_spec(module) is not None
+    except (ModuleNotFoundError, ValueError):
+        return False
+
+
 def _real_extra_smoke(lane: str, modules: tuple[str, ...]) -> ExtraSmokeResult:
-    if any(importlib.util.find_spec(module) is None for module in modules):
+    if any(not _spec_exists(module) for module in modules):
         return ExtraSmokeResult(
             lane=lane,
             status="not_run",
@@ -307,9 +314,9 @@ class _NoIOInternalTools:
 
 @pytest.mark.asyncio
 async def test_real_mcp_and_gemini_seams_use_no_io_collaborators() -> None:
-    if any(importlib.util.find_spec(name) is None for name in ("mcp", "fastmcp")):
+    if not _spec_exists("mcp") or not _spec_exists("fastmcp"):
         pytest.skip("not_run: declared_extra_not_installed")
-    if importlib.util.find_spec("google.genai.types") is None:
+    if not _spec_exists("google.genai.types"):
         pytest.skip("not_run: declared_extra_not_installed")
 
     importlib.import_module("mcp")
@@ -344,7 +351,7 @@ async def test_real_mcp_and_gemini_seams_use_no_io_collaborators() -> None:
 async def test_real_memvid_import_enters_injected_no_storage_facade(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    if importlib.util.find_spec("memvid_sdk") is None:
+    if not _spec_exists("memvid_sdk"):
         pytest.skip("not_run: declared_extra_not_installed")
     importlib.import_module("memvid_sdk")
     module = importlib.import_module("aura_backend.memvid_archival_service")
@@ -390,6 +397,8 @@ async def test_partial_optional_stage_start_runs_registered_cleanup_once(
     events: list[str] = []
 
     if stage == "mcp":
+        if not _spec_exists("mcp") or not _spec_exists("fastmcp"):
+            pytest.skip("not_run: declared_extra_not_installed")
         mcp_module = importlib.import_module("aura_backend.mcp_system")
         integration_module = importlib.import_module("aura_backend.mcp_integration")
 
@@ -410,6 +419,8 @@ async def test_partial_optional_stage_start_runs_registered_cleanup_once(
         )
         operation = main._start_mcp_resource()
     elif stage == "gemini_bridge":
+        if not _spec_exists("google.genai.types"):
+            pytest.skip("not_run: declared_extra_not_installed")
         mcp_module = importlib.import_module("aura_backend.mcp_system")
 
         async def fail_bridge() -> None:
@@ -423,6 +434,8 @@ async def test_partial_optional_stage_start_runs_registered_cleanup_once(
         monkeypatch.setattr(mcp_module, "shutdown_gemini_bridge", close_bridge)
         operation = main._start_gemini_bridge_resource()
     elif stage == "memvid":
+        if not _spec_exists("memvid_sdk"):
+            pytest.skip("not_run: declared_extra_not_installed")
         module = importlib.import_module("aura_backend.memvid_archival_service")
 
         class PartialFacade:
