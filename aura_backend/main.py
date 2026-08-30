@@ -1950,7 +1950,7 @@ async def _legacy_process_conversation(
                 ),
             },
             session_id=session_id,
-            thinking_summary=provider_response.thoughts,
+            thinking_content=provider_response.thoughts,
             thinking_metrics=(
                 {
                     "total_chunks": getattr(thinking_result, "total_chunks", 1),
@@ -1976,7 +1976,7 @@ async def _legacy_process_conversation(
 
         # Debug the final response thinking data
         logger.info("🔍 Final response thinking debug for %s:", request.user_id)
-        # logger.info("   - response.thinking_summary: %s", response.thinking_summary) # Be careful not to break the autonomous system, I do not want a summary! I want the entire thinking process.
+        # Deliberately expose the captured content, not a model-generated summary.
         logger.info("   - response.has_thinking: %s", response.has_thinking)
         logger.info("   - response.thinking_metrics: %s", response.thinking_metrics)
 
