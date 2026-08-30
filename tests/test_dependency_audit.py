@@ -2,8 +2,8 @@
 
 This module deliberately validates a checked-in evidence document instead of
 contacting registries. Network observations are review inputs; deterministic CI
-must prove that the captured inputs are complete, fresh, and cannot authorize a
-change while any legitimacy or entry-point signal remains unresolved.
+must permanently prove that the captured decision is complete and scoped. Live
+freshness is a separate pre-change concern and must not expire historical proof.
 """
 
 from __future__ import annotations
@@ -124,9 +124,12 @@ def load_evidence() -> dict[str, Any]:
 
 
 def validate_package_evidence(
-    document: dict[str, Any], *, now: datetime | None = None
+    document: dict[str, Any],
+    *,
+    now: datetime | None = None,
+    require_fresh: bool = False,
 ) -> None:
-    """Validate exact candidates, current provenance, and authorization safety."""
+    """Validate evidence structure, optionally enforcing live edit freshness."""
 
     if document.get("schema_version") != 1:
         raise EvidenceError("schema_version must be 1")
@@ -134,7 +137,7 @@ def validate_package_evidence(
     retrieved_at = _parse_timestamp(document.get("retrieved_at"), "retrieved_at")
     if retrieved_at > observed_now + timedelta(minutes=5):
         raise EvidenceError("retrieved_at may not be in the future")
-    if observed_now - retrieved_at > MAX_EVIDENCE_AGE:
+    if require_fresh and observed_now - retrieved_at > MAX_EVIDENCE_AGE:
         raise EvidenceError("package evidence is stale")
 
     packages = document.get("packages")
@@ -177,7 +180,11 @@ def validate_package_evidence(
         registry_time = _parse_timestamp(
             registry.get("retrieved_at"), f"{candidate_id}.registry.retrieved_at"
         )
-        if observed_now - registry_time > MAX_EVIDENCE_AGE:
+        if registry_time > retrieved_at + timedelta(minutes=5):
+            raise EvidenceError(f"{candidate_id}: registry evidence is from the future")
+        if retrieved_at - registry_time > MAX_EVIDENCE_AGE:
+            raise EvidenceError(f"{candidate_id}: registry evidence was stale at capture")
+        if require_fresh and observed_now - registry_time > MAX_EVIDENCE_AGE:
             raise EvidenceError(f"{candidate_id}: registry evidence is stale")
         _require_https(source.get("url"), f"{candidate_id}.source.url")
         _require_https(source.get("evidence_url"), f"{candidate_id}.source.evidence_url")
@@ -348,8 +355,11 @@ def validate_dependency_inventory(document: dict[str, Any]) -> None:
             raise EvidenceError(f"{dependency_id}: inventory cannot authorize a manifest change")
 
 
-def test_package_legitimacy_evidence_is_current_and_complete() -> None:
-    validate_package_evidence(load_evidence())
+def test_package_legitimacy_evidence_remains_complete_after_freshness_expires() -> None:
+    validate_package_evidence(
+        load_evidence(),
+        now=datetime(2030, 1, 1, tzinfo=UTC),
+    )
 
 
 @pytest.mark.parametrize(
@@ -384,7 +394,7 @@ def test_package_candidate_mutations_fail_closed(mutation: Any, match: str) -> N
     document = load_evidence()
     mutation(document)
     with pytest.raises(EvidenceError, match=match):
-        validate_package_evidence(document)
+        validate_package_evidence(document, require_fresh=match == "stale")
 
 
 def test_package_addition_entrypoints_and_install_scripts_are_explicit() -> None:

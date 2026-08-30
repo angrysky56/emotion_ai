@@ -196,7 +196,12 @@ def validate_prechange_authorization(
         raise AuthorizationError("decision summary text mismatch")
 
     document = json.loads(evidence_bytes)
-    validate_evidence_scope(document, now=now, actions=actions)
+    validate_evidence_scope(
+        document,
+        now=now,
+        actions=actions,
+        require_fresh=True,
+    )
 
 
 def validate_evidence_scope(
@@ -204,13 +209,14 @@ def validate_evidence_scope(
     *,
     now: datetime,
     actions: dict[str, tuple[str, str, str | None]],
+    require_fresh: bool = False,
 ) -> None:
-    """Validate the exact human partition, lanes, and supported consumers."""
+    """Validate the exact decision scope, optionally enforcing edit freshness."""
 
     retrieved_at = _parse_utc(document.get("retrieved_at"), "retrieved_at")
     if retrieved_at > now + timedelta(minutes=5):
         raise AuthorizationError("evidence timestamp is in the future")
-    if now - retrieved_at > MAX_EVIDENCE_AGE:
+    if require_fresh and now - retrieved_at > MAX_EVIDENCE_AGE:
         raise AuthorizationError("evidence is stale")
 
     packages = {package["candidate_id"]: package for package in document["packages"]}
@@ -371,6 +377,7 @@ def test_stale_evidence_and_action_widening_fail_closed_after_revision() -> None
             document,
             now=datetime(2030, 1, 1, tzinfo=UTC),
             actions=APPROVED_PYTHON_ACTIONS,
+            require_fresh=True,
         )
 
     widened = copy.deepcopy(APPROVED_PYTHON_ACTIONS)
