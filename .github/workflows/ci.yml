@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the reviewed revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Install pinned uv
@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out the reviewed revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Install pinned uv
@@ -55,11 +55,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out the reviewed revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "22.14.0"
           cache: npm
@@ -74,11 +74,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out the reviewed revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "22.14.0"
           cache: npm
@@ -93,11 +93,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out the reviewed revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "22.14.0"
           cache: npm
@@ -118,7 +118,7 @@ jobs:
       AURA_LIVE_STRICT_AFTER_PREFLIGHT: "1"
     steps:
       - name: Check out the reviewed revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Install pinned uv
@@ -152,7 +152,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out the reviewed revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Install pinned uv

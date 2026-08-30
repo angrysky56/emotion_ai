@@ -38,8 +38,8 @@ EXPECTED_JOBS = {
     "environment-blocked",
 }
 PINNED_ACTIONS = {
-    "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
-    "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
+    "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
+    "actions/setup-node": "249970729cb0ef3589644e2896645e5dc5ba9c38",
     "astral-sh/setup-uv": "d0cc045d04ccac9d8b7881df0226f9e82c39688e",
     "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
 }
