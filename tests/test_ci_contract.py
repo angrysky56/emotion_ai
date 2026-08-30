@@ -411,6 +411,19 @@ def test_all_external_actions_use_the_reviewed_full_commit_sha() -> None:
     assert observed == set(PINNED_ACTIONS)
 
 
+def test_parallel_ubuntu_uv_jobs_have_only_one_cache_writer() -> None:
+    """Prevent setup-uv cache reservation races from producing CI warnings."""
+
+    workflow = _load_workflow()
+    for job_name in ("lint", "environment-blocked"):
+        setup_uv = next(
+            step
+            for step in _steps(workflow["jobs"][job_name])
+            if str(step.get("uses", "")).startswith("astral-sh/setup-uv@")
+        )
+        assert setup_uv.get("with", {}).get("enable-cache") is False
+
+
 def test_required_python_lanes_install_and_run_from_the_uv_lock() -> None:
     workflow = _load_workflow()
     jobs = workflow["jobs"]
