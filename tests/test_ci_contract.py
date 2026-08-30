@@ -40,7 +40,7 @@ EXPECTED_JOBS = {
 PINNED_ACTIONS = {
     "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
     "actions/setup-node": "249970729cb0ef3589644e2896645e5dc5ba9c38",
-    "astral-sh/setup-uv": "d0cc045d04ccac9d8b7881df0226f9e82c39688e",
+    "astral-sh/setup-uv": "c771a70e6277c0a99b617c7a806ffedaca235ff9",
     "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
 }
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
