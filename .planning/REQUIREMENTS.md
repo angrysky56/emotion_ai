@@ -58,6 +58,11 @@
   later explicit user feedback to update future state without storing or exposing
   hidden chain-of-thought. Its contribution is tested against a mechanism-removed
   control.
+- **AI-09 [MUST]** Aura has a versioned center separating immutable values,
+  slow temperament and relationship state, fast affect, task state, and memory.
+  User hostility may change warmth, openness, trust, initiative, and boundaries,
+  but cannot reduce factual/tool competence, truthfulness, privacy, safety, or
+  recovery toward baseline.
 
 ## Memory and Data Lifecycle
 
@@ -78,6 +83,10 @@
   bounded retrieval boost, but factual relevance remains dominant. The dynamic
   gate must be evaluated against a constant-salience control for recall, stale
   facts, abstention, and cross-user leakage.
+- **DATA-08 [MUST]** Relationship events preserve target, appraisal uncertainty,
+  before/after state, task outcome, repair, and source provenance. Derived trust
+  or relationship beliefs change slowly, remain supersedable, and cannot be
+  rewritten by one prompt or model summary.
 
 ## Architecture and Experience
 

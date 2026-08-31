@@ -83,13 +83,17 @@ DATA-06, PRES-04
 **Goal:** Preserve and sharpen Aura's emotionally perceptive, reflective behavior
 with explicit uncertainty and measurable model/provider behavior.
 **Depends on:** Phase 2, Phase 3
-**Requirements:** PRES-03, AI-04, AI-05, AI-06, AI-07, AI-08, DATA-07,
-ARCH-01, ARCH-02
+**Requirements:** PRES-03, AI-04, AI-05, AI-06, AI-07, AI-08, AI-09,
+DATA-07, DATA-08, ARCH-01, ARCH-02
 
 - Define versioned conversation, emotional-state, and reflection contracts.
 - Replace the fixed emotion lookup with a bounded time-evolving affective state:
   appraisal, pre-response update, decay/homeostasis, response modulation,
   post-response self-feedback, and persisted snapshots.
+- Implement Aura's versioned center: immutable values and competence floor,
+  slow temperament/relationship state, fast affect, per-task state, clear
+  boundaries, and a tested repair path. Hostility may reduce relational openness
+  but never sabotage tools or make truth conditional on politeness.
 - Make simulated neurochemical channels and mixed brainwave controls causally
   affect behavior, encoding, consolidation, and capped retrieval salience while
   stating clearly that they are computational analogies rather than measured EEG
@@ -97,7 +101,8 @@ ARCH-01, ARCH-02
 - Separate orchestration from providers, memory, MCP, and autonomic processing.
 - Build a small sanitized evaluation corpus covering useful emotional response,
   state trajectories, knowledge updates, abstention, implicit personal
-  constraints, and the constant-salience/mechanism-removed controls.
+  constraints, paired polite/hostile task equivalence, rupture/repair, center
+  capture attempts, and the constant-salience/mechanism-removed controls.
 - Retain useful reflection summaries without exposing hidden chain-of-thought.
 - Keep Graph-RLM/RLM reading and temporal graph projection optional until a
   multi-hop or over-context evaluation demonstrates a material gain.

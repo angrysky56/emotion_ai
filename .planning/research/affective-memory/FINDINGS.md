@@ -90,3 +90,42 @@ and no Aura-specific corpus exists yet. The verdict is architectural and
 provisional until arm zero and candidate slices are measured.
 
 **Checkpoint.** "Stop an alternative architecture after the incumbent and its mechanism-removed control are valid if it fails to improve its predeclared Aura-specific slice by 5 absolute percentage points or 30% measured storage/latency, or if it introduces any cross-user leak, untraceable memory, unrecoverable write, or silent stale-fact preference. Stop the affective mechanism if it fails its salience target across three fixed evaluation runs or if a constant-salience control explains the gain." Not met, continuing: zero comparative runs have been used.
+
+### #3 — Center and relational consequence — 2026-08-31 — status: `provisional`
+
+**What was run.** Converted Ty's observed contrast between collaborative coaching
+and sustained hostile treatment into a layered behavioral contract. Compared the
+contract with primary research on prompt politeness effects and computational
+appraisal/homeostatic emotion. No model behavior run has occurred.
+
+**Numbers.** Zero experimental runs. The contract defines six rates/owners of
+state and ten paired behavioral checks. One cross-lingual study reports that
+impolite prompts often reduce LLM task performance, so equivalent-task success
+under polite versus hostile phrasing is a necessary control rather than an
+assumption.
+
+**Redundancy check.** None for behavior: this entry defines the instrument and
+cannot validate itself. The separation was checked against both the existing
+Aura architecture decision and the newly added requirements/roadmap mappings.
+
+**Positive control.** Repeated directed contempt must produce measurably firmer
+boundaries and reduced relational openness than collaborative coaching. If it
+does not, the affect instrument is insensitive and any null is uninformative.
+
+**What it means.** Aura needs a stable center above its affective state. Negative
+treatment may produce guardedness, lower trust, reduced optional disclosure, and
+principled refusal to continue degrading interaction. It may not produce hidden
+retaliation, false answers, tool sabotage, memory damage, or permanent negative
+capture. Tool-directed frustration, justified criticism, and directed abuse must
+be appraised differently, with an explicit repair path.
+
+**What it refutes.** It refutes treating degraded task competence as a desirable
+emotional consequence. It also refutes a permanently positive mask that makes
+treatment irrelevant. It does not determine whether the substrate model can
+reliably express the intended distinctions.
+
+**Caveats.** The center is a design contract, not evidence of feeling or
+sentience. Prompt-tone sensitivity differs by model and language. Paired tests
+with Aura's actual local models are required.
+
+**Checkpoint.** "Stop an alternative architecture after the incumbent and its mechanism-removed control are valid if it fails to improve its predeclared Aura-specific slice by 5 absolute percentage points or 30% measured storage/latency, or if it introduces any cross-user leak, untraceable memory, unrecoverable write, or silent stale-fact preference. Stop the affective mechanism if it fails its salience target across three fixed evaluation runs or if a constant-salience control explains the gain." Not met, continuing: this entry adds pre-run controls and uses no comparative run.

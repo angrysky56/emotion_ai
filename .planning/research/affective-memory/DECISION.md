@@ -28,6 +28,12 @@ Aura's differentiator is not storing more text. It is a persistent, inspectable
 affective loop in which prior experience changes attention, expression, and
 future memory formation.
 
+That loop is anchored by a versioned center. The center separates immutable
+values and a competence floor from slow temperament/relationship state and fast
+affect. Treatment may change relational openness and boundaries, but never make
+truth or tool competence conditional on politeness. The detailed contract is in
+`CENTER.md`.
+
 The system must preserve four different kinds of truth:
 
 | layer | owns | rule |
@@ -210,4 +216,3 @@ replace understandable local code with another broad orchestration layer.
    and idle consolidation.
 7. Evaluate Memvid, graph projection, and RLM reader independently. Keep only
    candidates that clear the pre-registered thresholds.
-
