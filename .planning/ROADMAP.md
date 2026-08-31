@@ -65,13 +65,16 @@ upgrade, prompt-quality redesign, frontend refactor, or Git-history rewrite.
 and recoverable through one storage boundary.
 **Depends on:** Phase 1, Phase 2
 **Requirements:** TEST-03, DATA-01, DATA-02, DATA-03, DATA-04, DATA-05,
-DATA-06, PRES-04
+DATA-06, DATA-09, PRES-04
 
 - Characterize and consolidate active persistence implementations.
 - Establish one append-only typed event ledger as the source of truth; keep
   derived memories provenance-bound and explicitly supersedable.
 - Treat lexical/vector/graph indexes as rebuildable projections, with SQLite
   full-text plus existing Chroma as the initial hybrid retrieval baseline.
+- Build affect-neutral candidate retrieval with provenance/relevance gates,
+  neutral anchors, deterministic traces, and an explicit bounded-rerank seam;
+  retrieval alone never becomes new evidence.
 - Replace live-directory copying with a verified snapshot strategy.
 - Implement complete export/deletion behavior and bounded history retrieval.
 - Keep Memvid v2 copy-only and optional until it beats the baseline for portable
@@ -83,7 +86,7 @@ DATA-06, PRES-04
 **Goal:** Preserve and sharpen Aura's emotionally perceptive, reflective behavior
 with explicit uncertainty and measurable model/provider behavior.
 **Depends on:** Phase 2, Phase 3
-**Requirements:** PRES-03, AI-04, AI-05, AI-06, AI-07, AI-08, AI-09,
+**Requirements:** PRES-03, AI-04, AI-05, AI-06, AI-07, AI-08, AI-09, AI-10,
 DATA-07, DATA-08, ARCH-01, ARCH-02
 
 - Define versioned conversation, emotional-state, and reflection contracts.

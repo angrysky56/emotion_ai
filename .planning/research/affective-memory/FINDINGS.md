@@ -129,3 +129,50 @@ sentience. Prompt-tone sensitivity differs by model and language. Paired tests
 with Aura's actual local models are required.
 
 **Checkpoint.** "Stop an alternative architecture after the incumbent and its mechanism-removed control are valid if it fails to improve its predeclared Aura-specific slice by 5 absolute percentage points or 30% measured storage/latency, or if it introduces any cross-user leak, untraceable memory, unrecoverable write, or silent stale-fact preference. Stop the affective mechanism if it fails its salience target across three fixed evaluation runs or if a constant-salience control explains the gain." Not met, continuing: this entry adds pre-run controls and uses no comparative run.
+
+### #4 — Affect-memory feedback-loop audit — 2026-08-31 — status: `provisional`
+
+**What was run.** Traced Aura's active conversation route from retrieval through
+generation, three post-response analysis calls, persistence, the state manager,
+and emotional trend analysis. Compared the resulting causal order with primary
+research on mood-congruent recall, stress timing, memory updating, sleep-related
+consolidation, generative-agent memory scoring, and LLM self-evaluation bias. No
+model or memory benchmark was run.
+
+**Numbers.** Active retrieval requests five Chroma results and places the first
+three into the prompt. One reply is followed by three separate model analyses.
+The fixed map contains 13 user emotion labels, each mapped to one brainwave label
+and one neurotransmitter label. The active path performs zero pre-response state
+updates, zero bounded affective reranks, and zero retrieval-outcome checks.
+
+**Redundancy check.** Causal order was checked both in the route and in the
+analysis/persistence modules. State-manager callbacks were searched across the
+repository and are defined but not invoked by the active route. Literature
+claims were checked against systematic reviews rather than relying on a single
+positive experiment.
+
+**Positive control.** The audit distinguishes real working behavior from dormant
+machinery: semantic retrieval and post-response label persistence are active,
+while pre-response affect modulation is absent. The proposed evaluation includes
+an intentionally unsafe no-neutral-anchor arm that should show greater
+mood-congruent narrowing; failure to distinguish it makes the bias instrument
+uninformative.
+
+**What it means.** Aura needs a one-way evidence discipline and two-key retrieval
+gate. Neutral relevance establishes eligible memories; affect can only rerank
+that set within a cap and with neutral anchors. Retrieved memories and Aura's own
+self-appraisal cannot become new relationship evidence without an external event,
+observable result, or explicit feedback. Consolidation must be versioned and
+reversible rather than destructive reconsolidation.
+
+**What it refutes.** It refutes the claim that the current neurochemical labels
+already affect behavior or memory-making. It also refutes mood-congruent recall
+as an unqualified benefit. It does not refute a bounded salience mechanism; that
+remains the central experimental hypothesis.
+
+**Caveats.** This is a structural and research-derived design, not evidence that
+the mechanism improves recall. Human mood, stress, and sleep findings are
+conditional and cannot be transferred literally to an LLM companion. The 15%
+affect cap is a conservative starting hypothesis subject to the fixed benchmark.
+
+**Checkpoint.** "Stop an alternative architecture after the incumbent and its mechanism-removed control are valid if it fails to improve its predeclared Aura-specific slice by 5 absolute percentage points or 30% measured storage/latency, or if it introduces any cross-user leak, untraceable memory, unrecoverable write, or silent stale-fact preference. Stop the affective mechanism if it fails its salience target across three fixed evaluation runs or if a constant-salience control explains the gain." Not met, continuing: zero comparative runs have been used.

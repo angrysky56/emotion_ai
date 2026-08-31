@@ -63,6 +63,10 @@
   User hostility may change warmth, openness, trust, initiative, and boundaries,
   but cannot reduce factual/tool competence, truthfulness, privacy, safety, or
   recovery toward baseline.
+- **AI-10 [MUST]** The current event updates affect before response generation;
+  post-response updates distinguish deterministic task evidence, explicit user
+  feedback, and uncertain model self-appraisal. Aura's own output or retrieval is
+  never sufficient evidence by itself for a durable person or relationship belief.
 
 ## Memory and Data Lifecycle
 
@@ -87,6 +91,10 @@
   before/after state, task outcome, repair, and source provenance. Derived trust
   or relationship beliefs change slowly, remain supersedable, and cannot be
   rewritten by one prompt or model summary.
+- **DATA-09 [MUST]** Affect-neutral retrieval creates the eligible candidate set
+  before any bounded salience rerank. Retrieval enforces relevance, provenance,
+  supersession, user isolation, neutral anchors, and traceable selection so
+  mood-congruent recall cannot become self-confirming evidence.
 
 ## Architecture and Experience
 
