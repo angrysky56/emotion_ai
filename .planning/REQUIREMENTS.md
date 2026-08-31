@@ -50,6 +50,14 @@
   concise user-facing reflection summaries may be produced as normal output.
 - **AI-06 [SHOULD]** Provider/model quality is compared using a small versioned local
   evaluation set with latency and failure evidence, not anecdote alone.
+- **AI-07 [MUST]** Aura has a versioned, bounded affective-state contract with
+  deterministic decay/homeostasis and pre-response event updates that measurably
+  modulate response policy and memory formation. Named brainwave/neurochemical
+  channels are explicitly simulated controls, not claims about human biology.
+- **AI-08 [MUST]** Post-response self-feedback uses observable contract checks and
+  later explicit user feedback to update future state without storing or exposing
+  hidden chain-of-thought. Its contribution is tested against a mechanism-removed
+  control.
 
 ## Memory and Data Lifecycle
 
@@ -63,6 +71,13 @@
   stores, exports, caches, archives, and backups.
 - **DATA-05 [SHOULD]** Memory retrieval has bounded pagination and measured relevance,
   latency, and duplicate behavior.
+- **DATA-06 [MUST]** Immutable conversation events are distinguishable from lossy
+  derived facts, preferences, episodes, and relationships; every derived memory
+  retains source provenance and explicit supersession/update state.
+- **DATA-07 [MUST]** Affective salience may change consolidation and provide a
+  bounded retrieval boost, but factual relevance remains dominant. The dynamic
+  gate must be evaluated against a constant-salience control for recall, stale
+  facts, abstention, and cross-user leakage.
 
 ## Architecture and Experience
 

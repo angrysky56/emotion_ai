@@ -13,6 +13,9 @@ unsafe data handling, and unverifiable behavior with a coherent tested system.
 ## Product Spirit
 
 - Emotionally perceptive without presenting guesses as facts.
+- Computationally affective rather than cosmetically emotional: simulated state
+  changes over time and causally influences attention, response policy, and
+  memory formation, while never masquerading as measured human neurobiology.
 - Reflective rather than merely verbose: useful self-checking should improve the
   answer, not expose raw hidden reasoning or theatrical process.
 - Continuous and personal through reliable user-owned local memory.
@@ -51,6 +54,9 @@ unsafe data handling, and unverifiable behavior with a coherent tested system.
    model usage require baselines before claims of improvement.
 7. Git history cleanup is last and separately approved because it rewrites remote
    history; removing files from the current tree is not equivalent.
+8. Aura's durable truth is a local typed event ledger. Search indexes, Memvid
+   archives, temporal graphs, and RLM readers are replaceable projections or
+   experiments and must earn their complexity through measured gains.
 
 ## Definition of Done
 

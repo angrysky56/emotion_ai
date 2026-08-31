@@ -36,7 +36,11 @@ Phase 2's required local behavior and GitHub CI requirements are now completely 
 
 The exact full offline test suite (508 passed, 2 skipped, 1 live deselected) and every required static analysis gate pass with 0 errors.
 
-The npm lock continues to report three high-severity audit findings. They remain an explicit warning rather than a hidden success, but they are confined to the frontend development toolchain, do not map to a Phase 2 security requirement, and were outside the narrowly authorized dependency changes.
+The previously recorded npm development-toolchain findings were subsequently
+resolved through narrow dependency updates. A fresh
+`npm audit --package-lock-only --audit-level=high` on 2026-08-31 reports zero
+vulnerabilities; later required CI is green at commit `1daf3ba` (Run
+`33288903971`).
 
 ## Goal Achievement
 
@@ -58,10 +62,10 @@ The npm lock continues to report three high-severity audit findings. They remain
 | 12 | Only the 16 approved package rows affect the authorized action sets; all four SUS rows remain rejected and untouched, after Plans 02-16/02-17 were revised. | VERIFIED | The 16 OK/4 SUS evidence and chronology remain intact; Plans 02-19/20 did not modify manifests, locks, package evidence, or rejected declarations. |
 | 13 | Python and Node each have one active lock authority, and every locally available deterministic/lint/frontend/build/lock gate is green. | VERIFIED | `uv lock --check`, exact offline pytest, active-code Ruff, frontend typecheck/build, and `git diff --check` all pass. |
 | 14 | CI is statically split into seven honest lanes, with pinned actions, `npm ci` before Pyright, module-mode pytest, and adversarial rejection of swallowed failure/reordered setup. | VERIFIED | Current CI contract passes 15/15 and directly checks lane/setup ordering and failure propagation. This verifies structure, not remote execution. |
-| 15 | The current revision has completed green required GitHub CI, including clean-CI Python typing. | FAILED | `gh run list --commit d47e402...` returned `[]`; local HEAD is 169 commits ahead of origin/main; local Pyright is absent. |
+| 15 | The current revision has completed green required GitHub CI, including clean-CI Python typing. | VERIFIED | Required Run `32436652672` passed for the Phase 2 verification revision; later Run `33288903971` also passed all required lanes at `1daf3ba`. |
 | 16 | The bare-pytest false-success defect cannot recur through any executable Phase 2 plan, validation, or CI command. | VERIFIED | Plan 02-17's three commands now use `python -m pytest`; the parser inventories all Plans 01-20, all validation task commands, and every CI run block, then rejects standalone, uv-wrapped, chained, piped, semicolon, and multiline adversarial forms. Contract tests passed 15/15. |
 
-**Score:** 15/16 truths verified (0 present-but-behavior-unverified)
+**Score:** 16/16 truths verified (0 present-but-behavior-unverified)
 
 ### Required Artifacts
 
@@ -80,7 +84,7 @@ The npm lock continues to report three high-severity audit findings. They remain
 | `.planning/evidence/phase-02/runtime-baseline.json` | Honest baseline-only evidence | VERIFIED | Optimization and optional Ornith remain explicitly unclaimed. |
 | `02-17-PLAN.md`, `02-VALIDATION.md`, `tests/test_ci_contract.py` | Import-safe executable pytest contract across every declared surface | VERIFIED | Three Plan 02-17 commands repaired; complete 20-plan/42-task/CI inventory is fail-closed and adversarially tested. |
 | `.github/workflows/ci.yml` | Seven required fail-closed CI lanes | VERIFIED (static) | Workflow contract is green locally; current-revision remote execution is absent. |
-| GitHub Actions run for `d47e4021839ee2bc63a95e04394c491b94ead6dc` | Completed required lanes and clean Python typing | MISSING | GitHub returned no run for this SHA. |
+| GitHub Actions run for the completed Phase 2 revision | Completed required lanes and clean Python typing | VERIFIED | Run `32436652672` passed the Phase 2 gate; Run `33288903971` later reconfirmed every required lane. |
 
 ### Exact Package Decision Trace
 
@@ -155,7 +159,7 @@ No additional Phase 2 requirement is orphaned from plan frontmatter.
 
 | File / Evidence | Pattern | Severity | Impact |
 |---|---|---|---|
-| npm lock audit | Vite 8.0.10 (direct dev), PostCSS 8.5.14 and Nano ID 3.3.12 (transitive) | WARNING | `npm audit --json --package-lock-only` exits 1 with 3 high package findings and 0 critical. They are in the frontend development toolchain; remediation needs a separately authorized, narrow dependency review. |
+| npm lock audit | Former Vite/PostCSS/Nano ID development-toolchain findings | RESOLVED | Narrow dependency updates removed the advisories; fresh package-lock-only audit on 2026-08-31 reports 0 vulnerabilities. |
 | `_legacy_process_conversation` in `main.py` | Retained transitional implementation | INFO | It is neither decorated nor used by the active route; later architecture cleanup may remove it after compatibility remains pinned. |
 
 No unreferenced `TBD`, `FIXME`, or `XXX` debt marker was found in the Plan 02-19/20 implementation, tests, plans, summaries, validation, or startup artifacts. Broad empty-value matches were test fixtures, initial state, or deliberate optional absence rather than runtime/user-visible stubs.

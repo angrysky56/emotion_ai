@@ -377,7 +377,7 @@ class AuraRealMemvid:
             )
 
             conversations_to_archive = []
-            ids_to_delete = []
+            archived_ids = []
 
             # Ensure documents exist before iterating
             documents_to_process = all_conversations.get("documents")
@@ -390,6 +390,9 @@ class AuraRealMemvid:
                         else {}
                     )
                     doc_id = all_ids[i] if all_ids and i < len(all_ids) else f"doc_{i}"
+
+                    if user_id is not None and metadata.get("user_id") != user_id:
+                        continue
 
                     # Check if this should be archived
                     timestamp_str = metadata.get("timestamp", "")
@@ -417,7 +420,7 @@ class AuraRealMemvid:
                                 )
 
                                 conversations_to_archive.append(doc_id)
-                                ids_to_delete.append(doc_id)
+                                archived_ids.append(doc_id)
                         except ValueError:
                             pass  # Skip invalid timestamps
 
@@ -435,16 +438,13 @@ class AuraRealMemvid:
                 "basic", str(archive_path)
             )
 
-            # Delete from ChromaDB with conflict protection
-            if ids_to_delete:
-                try:
-                    self.conversations.delete(ids=ids_to_delete)
-                    logger.info(
-                        f"✅ Deleted {len(ids_to_delete)} conversations from active memory"
-                    )
-                except Exception as e:
-                    logger.error("⚠️ Failed to delete from ChromaDB: %s", e)
-                    # Continue anyway - the archive was created successfully
+            # Archival is intentionally copy-only. Source deletion requires a
+            # separately verified restore/parity gate and is owned by Aura's
+            # storage lifecycle, not by this optional archive adapter.
+            logger.info(
+                "Created cold archive while retaining %d active source records",
+                len(archived_ids),
+            )
 
             logger.info(
                 f"🎥 Archived {len(conversations_to_archive)} conversations to video: {archive_name}.mp4"
@@ -455,6 +455,8 @@ class AuraRealMemvid:
                 "archive_name": archive_name,
                 "archive_file": str(archive_path),
                 "archive_type": "memvid_v2",
+                "source_records_retained": True,
+                "deletion_performed": False,
             }
 
         except Exception as e:

@@ -64,11 +64,18 @@ upgrade, prompt-quality redesign, frontend refactor, or Git-history rewrite.
 **Goal:** Make conversation memory, backup, restore, export, and deletion truthful
 and recoverable through one storage boundary.
 **Depends on:** Phase 1, Phase 2
-**Requirements:** TEST-03, DATA-01, DATA-02, DATA-03, DATA-04, DATA-05, PRES-04
+**Requirements:** TEST-03, DATA-01, DATA-02, DATA-03, DATA-04, DATA-05,
+DATA-06, PRES-04
 
 - Characterize and consolidate active persistence implementations.
+- Establish one append-only typed event ledger as the source of truth; keep
+  derived memories provenance-bound and explicitly supersedable.
+- Treat lexical/vector/graph indexes as rebuildable projections, with SQLite
+  full-text plus existing Chroma as the initial hybrid retrieval baseline.
 - Replace live-directory copying with a verified snapshot strategy.
 - Implement complete export/deletion behavior and bounded history retrieval.
+- Keep Memvid v2 copy-only and optional until it beats the baseline for portable
+  cold archival; never let archive creation delete active records.
 - Remove tracked runtime data only after restore verification passes.
 
 ## Phase 4: Reflective Companion Core
@@ -76,12 +83,24 @@ and recoverable through one storage boundary.
 **Goal:** Preserve and sharpen Aura's emotionally perceptive, reflective behavior
 with explicit uncertainty and measurable model/provider behavior.
 **Depends on:** Phase 2, Phase 3
-**Requirements:** PRES-03, AI-04, AI-05, AI-06, ARCH-01, ARCH-02
+**Requirements:** PRES-03, AI-04, AI-05, AI-06, AI-07, AI-08, DATA-07,
+ARCH-01, ARCH-02
 
 - Define versioned conversation, emotional-state, and reflection contracts.
+- Replace the fixed emotion lookup with a bounded time-evolving affective state:
+  appraisal, pre-response update, decay/homeostasis, response modulation,
+  post-response self-feedback, and persisted snapshots.
+- Make simulated neurochemical channels and mixed brainwave controls causally
+  affect behavior, encoding, consolidation, and capped retrieval salience while
+  stating clearly that they are computational analogies rather than measured EEG
+  or literal biology.
 - Separate orchestration from providers, memory, MCP, and autonomic processing.
-- Build a small regression/evaluation corpus from sanitized representative cases.
+- Build a small sanitized evaluation corpus covering useful emotional response,
+  state trajectories, knowledge updates, abstention, implicit personal
+  constraints, and the constant-salience/mechanism-removed controls.
 - Retain useful reflection summaries without exposing hidden chain-of-thought.
+- Keep Graph-RLM/RLM reading and temporal graph projection optional until a
+  multi-hop or over-context evaluation demonstrates a material gain.
 
 ## Phase 5: API and Frontend Rehabilitation
 
