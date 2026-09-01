@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from aura_backend import aura_real_memvid
@@ -72,14 +73,13 @@ def test_archiving_never_deletes_the_active_source(
 
     monkeypatch.setattr(aura_real_memvid, "REAL_MEMVID_AVAILABLE", True)
     monkeypatch.setattr(
-        aura_real_memvid.memvid_sdk,
-        "create",
-        lambda *_args, **_kwargs: archive,
-    )
-    monkeypatch.setattr(
-        aura_real_memvid.memvid_sdk,
-        "use",
-        lambda *_args, **_kwargs: archive,
+        aura_real_memvid,
+        "memvid_sdk",
+        SimpleNamespace(
+            create=lambda *_args, **_kwargs: archive,
+            use=lambda *_args, **_kwargs: archive,
+        ),
+        raising=False,
     )
 
     result = adapter.archive_conversations_to_video(user_id="local-user")
