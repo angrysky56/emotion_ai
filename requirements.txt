@@ -60,7 +60,7 @@ click==8.3.3
     # via
     #   typer
     #   uvicorn
-cryptography==48.0.0
+cryptography==50.0.0
     # via
     #   authlib
     #   google-auth
@@ -90,7 +90,7 @@ docutils==0.22.4
     # via rich-rst
 durationpy==0.10
     # via kubernetes
-ebooklib==0.20
+eebooklib==0.20
     # via aura-backend (pyproject.toml)
 email-validator==2.3.0
     # via pydantic
@@ -183,7 +183,7 @@ jiter==0.14.0
     #   openai
 joblib==1.5.3
     # via scikit-learn
-joserfc==1.6.4
+joserfc==1.6.8
     # via authlib
 jsonref==1.1.0
     # via fastmcp
@@ -205,7 +205,7 @@ markdown-it-py==4.0.0
     # via rich
 markupsafe==3.0.3
     # via jinja2
-mcp==1.27.0
+mcp==1.28.1
     # via
     #   aura-backend (pyproject.toml)
     #   fastmcp
@@ -332,7 +332,7 @@ pandas==3.0.2
     # via aura-backend (pyproject.toml)
 pathable==0.5.0
     # via jsonschema-path
-pillow==12.2.0
+pillow==12.3.0
     # via
     #   aura-backend (pyproject.toml)
     #   qrcode
@@ -347,7 +347,7 @@ protobuf==6.33.6
     #   opentelemetry-proto
 py-key-value-aio==0.4.4
     # via fastmcp
-pyasn1==0.6.3
+pyasn1==0.6.4
     # via pyasn1-modules
 pyasn1-modules==0.4.2
     # via google-auth
@@ -377,9 +377,9 @@ pygments==2.20.0
     # via
     #   pytest
     #   rich
-pyjwt==2.12.1
+pyjwt==2.13.0
     # via mcp
-pypdf==6.10.2
+pypdf==6.14.2
     # via aura-backend (pyproject.toml)
 pyperclip==1.11.0
     # via fastmcp
@@ -404,7 +404,7 @@ python-dotenv==1.2.2
     #   fastmcp
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.27
+python-multipart==0.0.30
     # via
     #   aura-backend (pyproject.toml)
     #   mcp
@@ -475,11 +475,11 @@ sniffio==1.3.1
     #   anthropic
     #   google-genai
     #   openai
-soupsieve==2.8.3
+soupsieve==2.8.4
     # via beautifulsoup4
 sse-starlette==3.4.1
     # via mcp
-starlette==1.0.0
+starlette==1.3.1
     # via
     #   fastapi
     #   mcp
@@ -507,7 +507,7 @@ tqdm==4.67.3
     #   openai
     #   sentence-transformers
     #   transformers
-transformers==5.8.0
+transformers==5.10.0
     # via sentence-transformers
 triton==3.6.0
     # via torch
@@ -546,7 +546,7 @@ typing-inspection==0.4.2
     #   pydantic-settings
 uncalled-for==0.3.1
     # via fastmcp
-urllib3==2.6.3
+urllib3==2.7.0
     # via
     #   kubernetes
     #   requests
